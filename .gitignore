@@ -1,0 +1,54 @@
+# ==========================
+# Frontend (React Native / Expo)
+# ==========================
+/frontend/node_modules/
+/frontend/.expo/
+/frontend/dist/
+/frontend/web-build/
+/frontend/expo-env.d.ts
+
+# Native build files
+/frontend/.kotlin/
+/frontend/*.orig.*
+/frontend/*.jks
+/frontend/*.p8
+/frontend/*.p12
+/frontend/*.key
+/frontend/*.mobileprovision
+
+# Metro bundler
+/frontend/.metro-health-check*
+
+# Debug logs
+/frontend/npm-debug.*
+/frontend/yarn-debug.*
+/frontend/yarn-error.*
+
+# macOS
+.DS_Store
+/frontend/*.pem
+
+# Local environment files
+/frontend/.env*
+/frontend/.env*.local
+
+# TypeScript build info
+/frontend/*.tsbuildinfo
+
+# Generated native folders
+/frontend/ios/
+/frontend/android/
+
+# ==========================
+# Backend (Node.js)
+# ==========================
+/backend/node_modules/
+
+
+# Local environment files
+/backend/.env
+
+# npm debug logs
+/backend/npm-debug.*
+/backend/yarn-debug.*
+/backend/yarn-error.*
