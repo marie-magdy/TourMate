@@ -38,6 +38,7 @@
 # Generated native folders
 /frontend/ios/
 /frontend/android/
+/frontend/.env
 
 # ==========================
 # Backend (Node.js)
