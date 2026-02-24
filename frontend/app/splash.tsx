@@ -1,18 +1,7 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Image } from "react-native";
-import { useRouter } from "expo-router";
 
 export default function SplashScreen() {
-  const router = useRouter();
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      router.replace("/onboarding");
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, []);
-
   return (
     <View style={styles.container}>
       <Image
