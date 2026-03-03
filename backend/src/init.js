@@ -4,6 +4,8 @@ const usersData = [
   {
     user_id: 'USR001',
     name: 'Sarah Mitchell',
+    email: 'sarah.mitchell@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'English',
     current_city: 'Cairo',
     home_country: 'UK',
@@ -21,6 +23,8 @@ const usersData = [
   {
     user_id: 'USR002',
     name: 'Ahmed Hassan',
+    email: 'ahmed.hassan@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Cairo',
     home_country: 'Egypt',
@@ -38,6 +42,8 @@ const usersData = [
   {
     user_id: 'USR003',
     name: 'Marie Dupont',
+    email: 'marie.dupont@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'French',
     current_city: 'Alexandria',
     home_country: 'France',
@@ -55,6 +61,8 @@ const usersData = [
   {
     user_id: 'USR004',
     name: 'Youssef Khaldi',
+    email: 'youssef.khaldi@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Cairo',
     home_country: 'Egypt',
@@ -72,6 +80,8 @@ const usersData = [
   {
     user_id: 'USR005',
     name: 'Emma Johnson',
+    email: 'emma.johnson@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'English',
     current_city: 'Alexandria',
     home_country: 'Australia',
@@ -89,6 +99,8 @@ const usersData = [
   {
     user_id: 'USR006',
     name: 'Fatima Al-Rashid',
+    email: 'fatima.rashid@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Cairo',
     home_country: 'Saudi Arabia',
@@ -106,6 +118,8 @@ const usersData = [
   {
     user_id: 'USR007',
     name: 'Omar Tarek',
+    email: 'omar.tarek@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Alexandria',
     home_country: 'Egypt',
@@ -123,6 +137,8 @@ const usersData = [
   {
     user_id: 'USR008',
     name: 'Nour Ibrahim',
+    email: 'nour.ibrahim@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Cairo',
     home_country: 'Egypt',
@@ -140,6 +156,8 @@ const usersData = [
   {
     user_id: 'USR009',
     name: 'James Wilson',
+    email: 'james.wilson@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'English',
     current_city: 'Cairo',
     home_country: 'USA',
@@ -157,6 +175,8 @@ const usersData = [
   {
     user_id: 'USR010',
     name: 'Layla Mahmoud',
+    email: 'layla.mahmoud@tourmate.com',
+    password: '$2b$10$N9qo8uLOickgx2ZMRZoMYeIjZAgcg7b3XeKeUxWdeS86E36DRcT36', // hashed: password123
     language: 'Arabic',
     current_city: 'Alexandria',
     home_country: 'Egypt',
@@ -272,6 +292,8 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         user_id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
         language VARCHAR(50),
         current_city VARCHAR(100),
         home_country VARCHAR(100),
@@ -330,12 +352,12 @@ async function initializeDatabase() {
     // Insert users data
     const insertUserQuery = `
       INSERT INTO users (
-        user_id, name, language, current_city, home_country, 
+        user_id, name, email, password, language, current_city, home_country, 
         tourist_type, preferred_categories, disliked_categories, 
         accessibility_needs, budget_egp, available_hour, 
         liked_attraction_ids, visited_attraction_ids, 
         eco_points, sustainability_level
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       ON CONFLICT (user_id) DO NOTHING;
     `;
 
@@ -343,6 +365,8 @@ async function initializeDatabase() {
       await pool.query(insertUserQuery, [
         user.user_id,
         user.name,
+        user.email,
+        user.password,
         user.language,
         user.current_city,
         user.home_country,
