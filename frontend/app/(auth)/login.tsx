@@ -23,6 +23,7 @@ export default function Login() {
       await api.post('/auth/login', { email, password });
       // Optional: redirect after login
       // router.push('/(auth)/confirmation');
+      (router as any).replace('/(main)/home');
     } catch (error) {
       console.log(error);
     }
