@@ -15,8 +15,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Attraction } from '../../constants/types';
-
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:5000/api`;// 🔁 replace with your LAN IP (run ipconfig in terminal)
+import {
+  fetchPopularAttractions,
+  fetchNearestAttractions,
+  searchAttractions,
+} from '../../api';
 
 // ── Star Rating ──────────────────────────────────────────────────────
 const StarRating: React.FC<{ rating: number }> = ({ rating }) => (
@@ -99,14 +102,48 @@ export default function HomeScreen() {
 
   const fetchData = async (): Promise<void> => {
     try {
-      const [popRes, nearRes] = await Promise.all([
-        fetch(`${API_BASE}/attractions/popular`),
-        fetch(`${API_BASE}/attractions/nearest?city=Alexandria`),
+      const [popData, nearData] = await Promise.all([
+        fetchPopularAttractions(5),
+        fetchNearestAttractions(31.2461, 30.0566, 5), // Alexandria coordinates
       ]);
-      const popData = await popRes.json();
-      const nearData = await nearRes.json();
-      setPopular(popData.data ?? []);
-      setNearest(nearData.data ?? []);
+      
+      // Transform API response to match Attraction type
+      const transformedPop = popData.map((item: any) => ({
+        id: item.attraction_id,
+        name: item.name,
+        description: item.description,
+        location: item.district,
+        city: item.city_name,
+        country: 'Egypt',
+        category: '',
+        price_from: item.admission_egp || 0,
+        rating: item.avg_rating || 0,
+        review_count: item.total_reviews || 0,
+        image_url: item.image_url || '',
+        latitude: item.latitude,
+        longitude: item.longitude,
+        is_featured: true,
+      }));
+      
+      const transformedNear = nearData.map((item: any) => ({
+        id: item.attraction_id,
+        name: item.name,
+        description: item.description,
+        location: item.district,
+        city: item.city_name,
+        country: 'Egypt',
+        category: '',
+        price_from: item.admission_egp || 0,
+        rating: item.avg_rating || 0,
+        review_count: item.total_reviews || 0,
+        image_url: item.image_url || '',
+        latitude: item.latitude,
+        longitude: item.longitude,
+        is_featured: false,
+      }));
+      
+      setPopular(transformedPop);
+      setNearest(transformedNear);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
@@ -121,11 +158,29 @@ export default function HomeScreen() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/attractions/search?q=${encodeURIComponent(text)}`);
-      const data = await res.json();
-      setSearchResults(data.data ?? []);
+      const data = await searchAttractions(text);
+      
+      // Transform API response
+      const transformed = data.map((item: any) => ({
+        id: item.attraction_id,
+        name: item.name,
+        description: item.description,
+        location: item.district,
+        city: item.city_name,
+        country: 'Egypt',
+        category: '',
+        price_from: item.admission_egp || 0,
+        rating: item.avg_rating || 0,
+        review_count: item.total_reviews || 0,
+        image_url: item.image_url || '',
+        latitude: item.latitude,
+        longitude: item.longitude,
+        is_featured: false,
+      }));
+      
+      setSearchResults(transformed);
     } catch (err) {
-      console.error(err);
+      console.error('Search error:', err);
     }
   };
 

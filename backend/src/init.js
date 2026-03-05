@@ -1,4 +1,5 @@
 import pool from './db.js';
+import runMigrations from './createImageTable.js';
 
 const usersData = [
   {
@@ -383,6 +384,8 @@ const attractionsData = [
 
 async function initializeDatabase() {
   try {
+    // Run migrations first (creates attraction_images table)
+    await runMigrations();
     console.log('Starting database initialization...');
 
     // Create users table
@@ -394,7 +397,7 @@ async function initializeDatabase() {
         password VARCHAR(255) NOT NULL,
         language VARCHAR(50),
         current_city VARCHAR(100),
-        accessibility_needs VARCHAR(255),
+        accessibility_needs VARCHAR(255) DEFAULT 'None',
         is_admin BOOLEAN DEFAULT false,
         eco_points INTEGER,
         sustainability_level VARCHAR(50),
@@ -622,6 +625,61 @@ async function initializeDatabase() {
 
     console.log('✓ Inserted ' + userLikedAttractionsData.length + ' user liked attractions into database');
 
+    // Insert sample image data for attractions
+    const insertImageQuery = `
+      INSERT INTO attraction_images (attraction_id, image_url, filename)
+      VALUES ($1, $2, $3)
+      ON CONFLICT DO NOTHING;
+    `;
+
+    const sampleImages = [
+      // Multiple images per popular attraction
+      { attraction_id: 'ATT001', image_url: 'http://localhost:3000/uploads/attraction-ATT001-1.jpg', filename: 'attraction-ATT001-1.jpg' },
+      { attraction_id: 'ATT001', image_url: 'http://localhost:3000/uploads/attraction-ATT001-2.jpg', filename: 'attraction-ATT001-2.jpg' },
+      { attraction_id: 'ATT001', image_url: 'http://localhost:3000/uploads/attraction-ATT001-3.jpg', filename: 'attraction-ATT001-3.jpg' },
+      
+      { attraction_id: 'ATT002', image_url: 'http://localhost:3000/uploads/attraction-ATT002-1.jpg', filename: 'attraction-ATT002-1.jpg' },
+      { attraction_id: 'ATT002', image_url: 'http://localhost:3000/uploads/attraction-ATT002-2.jpg', filename: 'attraction-ATT002-2.jpg' },
+      
+      { attraction_id: 'ATT003', image_url: 'http://localhost:3000/uploads/attraction-ATT003-1.jpg', filename: 'attraction-ATT003-1.jpg' },
+      { attraction_id: 'ATT003', image_url: 'http://localhost:3000/uploads/attraction-ATT003-2.jpg', filename: 'attraction-ATT003-2.jpg' },
+      
+      { attraction_id: 'ATT005', image_url: 'http://localhost:3000/uploads/attraction-ATT005-1.jpg', filename: 'attraction-ATT005-1.jpg' },
+      { attraction_id: 'ATT005', image_url: 'http://localhost:3000/uploads/attraction-ATT005-2.jpg', filename: 'attraction-ATT005-2.jpg' },
+      
+      { attraction_id: 'ATT014', image_url: 'http://localhost:3000/uploads/attraction-ATT014-1.jpg', filename: 'attraction-ATT014-1.jpg' },
+      { attraction_id: 'ATT014', image_url: 'http://localhost:3000/uploads/attraction-ATT014-2.jpg', filename: 'attraction-ATT014-2.jpg' },
+      
+      { attraction_id: 'ATT017', image_url: 'http://localhost:3000/uploads/attraction-ATT017-1.jpg', filename: 'attraction-ATT017-1.jpg' },
+      { attraction_id: 'ATT017', image_url: 'http://localhost:3000/uploads/attraction-ATT017-2.jpg', filename: 'attraction-ATT017-2.jpg' },
+      
+      { attraction_id: 'ATT034', image_url: 'http://localhost:3000/uploads/attraction-ATT034-1.jpg', filename: 'attraction-ATT034-1.jpg' },
+      { attraction_id: 'ATT034', image_url: 'http://localhost:3000/uploads/attraction-ATT034-2.jpg', filename: 'attraction-ATT034-2.jpg' },
+      
+      { attraction_id: 'ATT039', image_url: 'http://localhost:3000/uploads/attraction-ATT039-1.jpg', filename: 'attraction-ATT039-1.jpg' },
+      { attraction_id: 'ATT039', image_url: 'http://localhost:3000/uploads/attraction-ATT039-2.jpg', filename: 'attraction-ATT039-2.jpg' },
+      { attraction_id: 'ATT039', image_url: 'http://localhost:3000/uploads/attraction-ATT039-3.jpg', filename: 'attraction-ATT039-3.jpg' },
+      
+      { attraction_id: 'ATT041', image_url: 'http://localhost:3000/uploads/attraction-ATT041-1.jpg', filename: 'attraction-ATT041-1.jpg' },
+      { attraction_id: 'ATT041', image_url: 'http://localhost:3000/uploads/attraction-ATT041-2.jpg', filename: 'attraction-ATT041-2.jpg' },
+      
+      { attraction_id: 'ATT049', image_url: 'http://localhost:3000/uploads/attraction-ATT049-1.jpg', filename: 'attraction-ATT049-1.jpg' },
+      { attraction_id: 'ATT049', image_url: 'http://localhost:3000/uploads/attraction-ATT049-2.jpg', filename: 'attraction-ATT049-2.jpg' },
+      
+      { attraction_id: 'ATT071', image_url: 'http://localhost:3000/uploads/attraction-ATT071-1.jpg', filename: 'attraction-ATT071-1.jpg' },
+      { attraction_id: 'ATT071', image_url: 'http://localhost:3000/uploads/attraction-ATT071-2.jpg', filename: 'attraction-ATT071-2.jpg' }
+    ];
+
+    for (const image of sampleImages) {
+      await pool.query(insertImageQuery, [
+        image.attraction_id,
+        image.image_url,
+        image.filename
+      ]);
+    }
+
+    console.log('✓ Inserted ' + sampleImages.length + ' sample images into database');
+
     // Verify the data
     const usersResult = await pool.query('SELECT COUNT(*) FROM users;');
     const citiesResult = await pool.query('SELECT COUNT(*) FROM cities;');
@@ -629,6 +687,7 @@ async function initializeDatabase() {
     const attractionsResult = await pool.query('SELECT COUNT(*) FROM attractions;');
     const attractionCategoriesResult = await pool.query('SELECT COUNT(*) FROM attraction_categories;');
     const userLikedAttractionsResult = await pool.query('SELECT COUNT(*) FROM user_liked_attractions;');
+    const attractionImagesResult = await pool.query('SELECT COUNT(*) FROM attraction_images;');
     
     console.log('✓ Total users in database:', usersResult.rows[0].count);
     console.log('✓ Total cities in database:', citiesResult.rows[0].count);
@@ -636,6 +695,7 @@ async function initializeDatabase() {
     console.log('✓ Total attractions in database:', attractionsResult.rows[0].count);
     console.log('✓ Total attraction categories in database:', attractionCategoriesResult.rows[0].count);
     console.log('✓ Total user liked attractions in database:', userLikedAttractionsResult.rows[0].count);
+    console.log('✓ Total attraction images in database:', attractionImagesResult.rows[0].count);
 
     console.log('\n✓ Database initialization completed successfully!');
     process.exit(0);
