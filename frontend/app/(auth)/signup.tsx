@@ -8,41 +8,75 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useState } from 'react';
 import { api } from '../../api';
 import { COLORS } from '../../constants/colors';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 
 export default function SignUp() {
-  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [repeatPassword, setRepeatPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showRepeatPassword, setShowRepeatPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const router = useRouter();
 
   const handleSignUp = async () => {
-    if (!username || !email || !password || !repeatPassword) {
-      return alert('Please fill all fields');
+    if (!name || !email || !password || !repeatPassword) {
+      setError('Please fill all fields');
+      return;
     }
 
     if (password !== repeatPassword) {
-      return alert('Passwords do not match');
+      setError('Passwords do not match');
+      return;
     }
 
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
     try {
-      await api.post('/auth/register', { username, email, password });
+      await api.post('/auth/register', { name, email, password });
       (router as any).push({
         pathname: '/(auth)/confirmation',
-        params: { username, email },
+        params: { name, email },
       });
     } catch (error) {
-      console.log(error);
-      alert('Sign up failed');
+      let errorMessage = 'Sign up failed. Please try again.';
+      
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNABORTED') {
+          errorMessage = 'Request timeout. Check your internet connection.';
+        } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+          errorMessage = 'Cannot connect to server. Check your API_URL configuration.';
+        } else if (error.response?.status === 400) {
+          errorMessage = error.response.data?.error || 'Invalid input. Please check your details.';
+        } else if (error.response?.status === 409) {
+          errorMessage = 'Email already registered. Please use a different email.';
+        } else if (error.response?.data?.error) {
+          errorMessage = error.response.data.error;
+        } else if (error.message === 'Network Error') {
+          errorMessage = 'Network error. Check your connection and API_URL.';
+        }
+      }
+      
+      setError(errorMessage);
+      console.error('Sign up error:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -55,14 +89,22 @@ export default function SignUp() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Sign up</Text>
 
-        {/* Username */}
-        <Text style={styles.inputLabel}>Username</Text>
+        {/* Error Message */}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {/* Name */}
+        <Text style={styles.inputLabel}>Full Name</Text>
         <TextInput
-          placeholder="Enter your username"
-          value={username}
-          onChangeText={setUsername}
+          placeholder="Enter your full name"
+          value={name}
+          onChangeText={setName}
           style={styles.input}
           placeholderTextColor="#999"
+          editable={!loading}
         />
 
         {/* Email */}
@@ -75,6 +117,7 @@ export default function SignUp() {
           placeholderTextColor="#999"
           keyboardType="email-address"
           autoCapitalize="none"
+          editable={!loading}
         />
 
         {/* Password */}
@@ -87,15 +130,17 @@ export default function SignUp() {
             onChangeText={setPassword}
             style={styles.passwordInput}
             placeholderTextColor="#999"
+            editable={!loading}
           />
           <TouchableOpacity
             onPress={() => setShowPassword(!showPassword)}
             style={styles.eyeIcon}
+            disabled={loading}
           >
             <Ionicons
               name={showPassword ? 'eye' : 'eye-off'}
               size={24}
-              color="#888"
+              color={loading ? '#ccc' : '#888'}
             />
           </TouchableOpacity>
         </View>
@@ -110,29 +155,42 @@ export default function SignUp() {
             onChangeText={setRepeatPassword}
             style={styles.passwordInput}
             placeholderTextColor="#999"
+            editable={!loading}
           />
           <TouchableOpacity
             onPress={() => setShowRepeatPassword(!showRepeatPassword)}
             style={styles.eyeIcon}
+            disabled={loading}
           >
             <Ionicons
               name={showRepeatPassword ? 'eye' : 'eye-off'}
               size={24}
-              color="#888"
+              color={loading ? '#ccc' : '#888'}
             />
           </TouchableOpacity>
         </View>
 
         {/* Sign up button */}
-        <TouchableOpacity onPress={handleSignUp} style={styles.signupButton}>
-          <Text style={styles.signupButtonText}>Continue</Text>
+        <TouchableOpacity 
+          onPress={handleSignUp} 
+          style={[styles.signupButton, loading && styles.signupButtonDisabled]}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.signupButtonText}>Continue</Text>
+          )}
         </TouchableOpacity>
 
         
 
         {/* Already have account */}
-        <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-          <Text style={styles.loginText}>
+        <TouchableOpacity 
+          onPress={() => router.push('/(auth)/login')}
+          disabled={loading}
+        >
+          <Text style={[styles.loginText, loading && { opacity: 0.5 }]}>
             Already have an account? <Text style={styles.loginLink}>Login</Text>
           </Text>
         </TouchableOpacity>
@@ -151,6 +209,19 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 24,
+  },
+  errorContainer: {
+    backgroundColor: '#fee',
+    borderLeftWidth: 4,
+    borderLeftColor: '#f44',
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#c33',
+    fontSize: 14,
+    fontWeight: '600',
   },
   inputLabel: {
     fontSize: 16,
@@ -190,6 +261,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 30,
     marginTop: 30,
+  },
+  signupButtonDisabled: {
+    opacity: 0.6,
   },
   signupButtonText: {
     textAlign: 'center',

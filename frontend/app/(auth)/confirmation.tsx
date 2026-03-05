@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { COLORS } from '../../constants/colors';
 
 export default function Confirmation() {
-  const { username, email } = useLocalSearchParams<{
-    username: string;
+  const { name, email } = useLocalSearchParams<{
+    name: string;
     email: string;
   }>();
 
   return (
     <View style={{ flex: 1, padding: 24, backgroundColor: '#fff' }}>
       <Text style={{ fontSize: 24, fontWeight: 'bold' }}>
-        {username}
+        {name}
       </Text>
 
       <Text style={{ marginTop: 20, color: '#777' }}>
