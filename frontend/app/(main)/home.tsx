@@ -16,7 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Attraction } from '../../constants/types';
 
-const API_BASE = 'http://YOUR_LOCAL_IP:5000/api'; // 🔁 replace with your LAN IP (run ipconfig in terminal)
+const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:5000/api`;// 🔁 replace with your LAN IP (run ipconfig in terminal)
 
 // ── Star Rating ──────────────────────────────────────────────────────
 const StarRating: React.FC<{ rating: number }> = ({ rating }) => (
@@ -56,17 +56,22 @@ const NearestCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => v
 
 // ── Bottom Tab Bar ────────────────────────────────────────────────────
 const BottomTab: React.FC<{ active: string }> = ({ active }) => {
+  const router = useRouter();
   const tabs = [
-    { name: 'Home', icon: '🏠' },
-    { name: 'Plan', icon: '🗺️' },
-    { name: 'Tour Mate', icon: '🧳' },
-    { name: 'Favorites', icon: '♡' },
-    { name: 'View Map', icon: '📍' },
+    { name: 'Home', icon: '🏠', route: '/(main)/home' },
+    { name: 'Plan', icon: '🗺️', route: '/(main)/plan' },
+    { name: 'Tour Mate', icon: '🧳', route: '/(main)/home' },
+    { name: 'Favorites', icon: '♡', route: '/(main)/home' },
+    { name: 'View Map', icon: '📍', route: '/(main)/map' },
   ];
   return (
     <View style={styles.bottomTab}>
       {tabs.map(tab => (
-        <TouchableOpacity key={tab.name} style={styles.tabItem}>
+        <TouchableOpacity
+          key={tab.name}
+          style={styles.tabItem}
+          onPress={() => router.push(tab.route as any)}
+        >
           <Text style={styles.tabIcon}>{tab.icon}</Text>
           <Text style={[styles.tabLabel, tab.name === active && styles.tabLabelActive]}>
             {tab.name}
@@ -147,17 +152,23 @@ export default function HomeScreen() {
 
         {/* ── Header ── */}
         <View style={styles.header}>
-          <View style={styles.locationRow}>
+          <TouchableOpacity 
+           style={styles.locationRow}
+           onPress={() => router.push('/(main)/map' as any)}
+>
             <Text style={styles.locationPin}>📍</Text>
             <Text style={styles.locationText}>Alexandria, Egypt</Text>
-          </View>
+</TouchableOpacity>
           <View style={styles.headerRight}>
             <View style={styles.pointsBadge}>
               <Text style={styles.pointsText}>100 ⭐</Text>
             </View>
-            <TouchableOpacity style={styles.avatarBtn}>
-              <Text style={styles.avatarIcon}>👤</Text>
-            </TouchableOpacity>
+            <TouchableOpacity 
+  style={styles.avatarBtn}
+  onPress={() => router.push('/(main)/settings' as any)}
+>
+  <Text style={styles.avatarIcon}>👤</Text>
+</TouchableOpacity>
           </View>
         </View>
 

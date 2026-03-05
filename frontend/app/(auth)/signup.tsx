@@ -35,8 +35,8 @@ export default function SignUp() {
     }
 
     try {
-      await api.post('/auth/signup', { username, email, password });
-      router.push({
+      await api.post('/auth/register', { username, email, password });
+      (router as any).push({
         pathname: '/(auth)/confirmation',
         params: { username, email },
       });
