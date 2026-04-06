@@ -3,58 +3,23 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Image, FlatList, ActivityIndicator,
-  StatusBar, SafeAreaView, Modal, Dimensions, Animated,
+  StatusBar, Modal, Dimensions, Animated,
   PanResponder, Linking, Platform,
   TouchableWithoutFeedback,Pressable,
   Keyboard,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
+import * as Location from 'expo-location';
+import axios from 'axios';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 
-// ── City coords for weather ───────────────────────────────────────────
-const CITY_COORDS: Record<string, { lat: number; lon: number }> = {
-  'Alexandria': { lat: 31.2001, lon: 29.9187 },
-  'Cairo':      { lat: 30.0444, lon: 31.2357 },
-  'Hurghada':   { lat: 27.2579, lon: 33.8116 },
-  'Luxor':      { lat: 25.6872, lon: 32.6396 },
-  'Aswan':      { lat: 24.0889, lon: 32.8998 },
-  'Sharm El Sheikh': { lat: 27.9158, lon: 34.3300 },
-};
-
-// ── Attraction coordinates (for ride estimation) ──────────────────────
-const ATTRACTION_COORDS: Record<number, { lat: number; lon: number }> = {
-  // Alexandria
-  1:  { lat: 31.2138, lon: 29.8853 }, // Bibliotheca Alexandrina
-  2:  { lat: 31.2001, lon: 29.9053 }, // Qaitbay Citadel
-  3:  { lat: 31.1991, lon: 29.9057 }, // Alexandria National Museum
-  4:  { lat: 31.2156, lon: 29.9553 }, // Montaza Palace
-  5:  { lat: 31.2001, lon: 29.9187 }, // Roman Amphitheatre
-  6:  { lat: 31.2087, lon: 29.9221 }, // Catacombs of Kom el Shoqafa
-  // Cairo
-  7:  { lat: 29.9792, lon: 31.1342 }, // Great Pyramids of Giza
-  8:  { lat: 30.0478, lon: 31.2336 }, // Egyptian Museum
-  9:  { lat: 30.0444, lon: 31.2628 }, // Khan el-Khalili
-  10: { lat: 30.0131, lon: 31.2089 }, // Ibn Tulun Mosque
-  11: { lat: 30.0459, lon: 31.2243 }, // Cairo Tower
-  12: { lat: 29.9764, lon: 31.1305 }, // Sphinx
-  // Luxor
-  13: { lat: 25.7202, lon: 32.6572 }, // Karnak Temple
-  14: { lat: 25.7404, lon: 32.6014 }, // Valley of the Kings
-  15: { lat: 25.6978, lon: 32.6391 }, // Luxor Temple
-  // Aswan
-  16: { lat: 24.0889, lon: 32.8998 }, // Philae Temple
-  17: { lat: 23.9712, lon: 32.8778 }, // Abu Simbel
-  // Hurghada
-  18: { lat: 27.2579, lon: 33.8116 }, // Hurghada Marina
-  // Sharm El Sheikh
-  19: { lat: 27.8623, lon: 34.3088 }, // Ras Mohammed
-};
 
 // ── Safely parse categories from DB (may come as string or array) ────
 const parseCategories = (cats: any): string[] => {
@@ -293,25 +258,44 @@ const StarRating: React.FC<{ rating: number; size?: number; color?: string }> = 
   </View>
 );
 
-// ── Weather Widget ────────────────────────────────────────────────────
-const WeatherWidget: React.FC<{ city: string }> = ({ city }) => {
+
+// ── Weather Widget (uses coordinates, NOT city) ─────────────────────
+const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ latitude, longitude }) => {
   const [weather, setWeather] = useState<{ temp: number; icon: string; label: string } | null>(null);
-  useEffect(() => { fetchWeather(); }, [city]);
-  const fetchWeather = async () => {
-    try {
-      const coords = CITY_COORDS[city] ?? CITY_COORDS['Alexandria'];
-      const res  = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current_weather=true`);
-      const data = await res.json();
-      const info = getWeatherInfo(data.current_weather.weathercode);
-      setWeather({ temp: Math.round(data.current_weather.temperature), icon: info.icon, label: info.label });
-    } catch {}
-  };
+
+  useEffect(() => {
+    if (!latitude || !longitude) return;
+
+    const fetchWeather = async () => {
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`
+        );
+
+        const data = await res.json();
+        const info = getWeatherInfo(data.current_weather.weathercode);
+
+        setWeather({
+          temp: Math.round(data.current_weather.temperature),
+          icon: info.icon,
+          label: info.label,
+        });
+      } catch (err) {
+        console.log(err);
+      }
+    };
+
+    fetchWeather();
+  }, [latitude, longitude]);
+
   if (!weather) return null;
+
   return (
-    <View style={styles.weatherWidget}>
-      <Text style={styles.weatherIcon}>{weather.icon}</Text>
-      <Text style={styles.weatherTemp}>{weather.temp}°C</Text>
-      <Text style={styles.weatherLabel}>{weather.label}</Text>
+    <View style={styles.weatherChip}>
+      <Text style={styles.weatherChipIcon}>{weather.icon}</Text>
+      <Text style={styles.weatherChipTemp}>{weather.temp}°C</Text>
+      <Text style={styles.weatherChipDot}>·</Text>
+      <Text style={styles.weatherChipLabel}>{weather.label}</Text>
     </View>
   );
 };
@@ -321,9 +305,11 @@ interface AttractionSheetProps {
   attraction: Attraction | null;
   visible: boolean;
   onClose: () => void;
+  userLocation: { latitude: number; longitude: number } | null;
 }
 
-const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose }) => {
+const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation }) => {
+  
   const { t, convertPrice } = useApp();
   const slideAnim  = useRef(new Animated.Value(height)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -343,6 +329,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   const [rideInfo, setRideInfo] = useState<{ distance: string; duration: string; fare: string } | null>(null);
   const [rideLoading, setRideLoading] = useState(false);
 
+  
   useEffect(() => {
     if (visible && attraction) {
       fetchImages(attraction.id);
@@ -390,21 +377,45 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
     return `~${egp}–${egp + 20} EGP`;
   };
 
-  const fetchRideInfo = async () => {
-    if (!attraction || rideInfo) return;
-    setRideLoading(true);
+  const fetchAttractionCoordinates = async (name: string, city?: string) => {
     try {
-      // Use city center as origin (user's rough location in that city)
-      const cityCoord = CITY_COORDS[attraction.city] ?? { lat: 30.0444, lon: 31.2357 };
-      const destCoord = ATTRACTION_COORDS[attraction.id];
+      const query = city ? `${name}, ${city}` : name;
+      const res = await axios.get('https://nominatim.openstreetmap.org/search', {
+        params: { q: query, format: 'json', limit: 1 },
+        headers: {
+          'User-Agent': 'TourMateApp/1.0 (tourmate@gmail.com)',
+        },
+      });
+      if (res.data?.length > 0) {
+        return {
+          lat: parseFloat(res.data[0].lat),
+          lon: parseFloat(res.data[0].lon),
+        };
+      } else {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchRideInfo = async () => {
+    if (!attraction || rideInfo || !userLocation) return;
+    setRideLoading(true);
+
+    try {
+      // Origin: user's current location
+      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
+
+      // Destination: fetch dynamically from OpenStreetMap
+      const destCoord = await fetchAttractionCoordinates(attraction.name, attraction.city);
       if (!destCoord) {
-        // Fallback: just show city name
         setRideInfo({ distance: 'Varies', duration: 'Varies', fare: '~30–80 EGP' });
         setRideLoading(false);
         return;
       }
 
-      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${cityCoord.lat},${cityCoord.lon}&destinations=${destCoord.lat},${destCoord.lon}&mode=driving&key=${GOOGLE_MAPS_KEY}`;
+      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.lat},${origin.lon}&destinations=${destCoord.lat},${destCoord.lon}&mode=driving&key=${GOOGLE_MAPS_KEY}`;
       const res = await fetch(url);
       const data = await res.json();
       const element = data.rows?.[0]?.elements?.[0];
@@ -425,18 +436,26 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
     }
   };
 
-  const openUber = () => {
-    if (!attraction) return;
-    const dest = ATTRACTION_COORDS[attraction.id];
-    const cityCoord = CITY_COORDS[attraction.city] ?? { lat: 30.0444, lon: 31.2357 };
-    const uberUrl = dest
-      ? `uber://?action=setPickup&pickup[latitude]=${cityCoord.lat}&pickup[longitude]=${cityCoord.lon}&dropoff[latitude]=${dest.lat}&dropoff[longitude]=${dest.lon}&dropoff[nickname]=${encodeURIComponent(attraction.name)}`
-      : `uber://`;
-    // App Store / Play Store links for Uber
-    const uberIOS     = 'itms-apps://itunes.apple.com/app/id368677368';
-    const uberAndroid = 'https://play.google.com/store/apps/details?id=com.ubercab';
-    Linking.canOpenURL(uberUrl).then(can => {
-      if (can) {
+  const openUber = async () => {
+    if (!attraction || !userLocation) return;
+
+    try {
+      // Origin: user's current location
+      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
+
+      // Destination: fetch dynamically from OpenStreetMap
+      const dest = await fetchAttractionCoordinates(attraction.name, attraction.city);
+
+      const uberUrl = dest
+        ? `uber://?action=setPickup&pickup[latitude]=${origin.lat}&pickup[longitude]=${origin.lon}&dropoff[latitude]=${dest.lat}&dropoff[longitude]=${dest.lon}&dropoff[nickname]=${encodeURIComponent(attraction.name)}`
+        : `uber://`;
+
+      // App Store / Play Store links for Uber
+      const uberIOS = 'itms-apps://itunes.apple.com/app/id368677368';
+      const uberAndroid = 'https://play.google.com/store/apps/details?id=com.ubercab';
+
+      const canOpen = await Linking.canOpenURL(uberUrl);
+      if (canOpen) {
         Linking.openURL(uberUrl);
       } else {
         const storeUrl = Platform.OS === 'ios' ? uberIOS : uberAndroid;
@@ -444,21 +463,31 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
           Linking.openURL('https://apps.apple.com/app/id368677368')
         );
       }
-    });
+    } catch (err) {
+      console.warn('Failed to open Uber:', err);
+    }
   };
 
-  const openCareem = () => {
-    if (!attraction) return;
-    const dest = ATTRACTION_COORDS[attraction.id];
-    const cityCoord = CITY_COORDS[attraction.city] ?? { lat: 30.0444, lon: 31.2357 };
-    const careemUrl = dest
-      ? `careem://ride?pickup_lat=${cityCoord.lat}&pickup_lng=${cityCoord.lon}&dropoff_lat=${dest.lat}&dropoff_lng=${dest.lon}&dropoff_name=${encodeURIComponent(attraction.name)}`
-      : `careem://`;
-    // App Store / Play Store links for Careem
-    const careemIOS     = 'itms-apps://itunes.apple.com/app/id592978487';
-    const careemAndroid = 'https://play.google.com/store/apps/details?id=com.careem.acma';
-    Linking.canOpenURL(careemUrl).then(can => {
-      if (can) {
+  const openCareem = async () => {
+    if (!attraction || !userLocation) return;
+
+    try {
+      // Pickup: user's current location
+      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
+
+      // Destination: fetch dynamically from OpenStreetMap
+      const dest = await fetchAttractionCoordinates(attraction.name, attraction.city);
+
+      const careemUrl = dest
+        ? `careem://ride?pickup_lat=${origin.lat}&pickup_lng=${origin.lon}&dropoff_lat=${dest.lat}&dropoff_lng=${dest.lon}&dropoff_name=${encodeURIComponent(attraction.name)}`
+        : `careem://`;
+
+      // App Store / Play Store links for Careem
+      const careemIOS = 'itms-apps://itunes.apple.com/app/id592978487';
+      const careemAndroid = 'https://play.google.com/store/apps/details?id=com.careem.acma';
+
+      const canOpen = await Linking.canOpenURL(careemUrl);
+      if (canOpen) {
         Linking.openURL(careemUrl);
       } else {
         const storeUrl = Platform.OS === 'ios' ? careemIOS : careemAndroid;
@@ -466,9 +495,10 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
           Linking.openURL('https://apps.apple.com/app/id592978487')
         );
       }
-    });
+    } catch (err) {
+      console.warn('Failed to open Careem:', err);
+    }
   };
-
   const fetchImages = async (id: number) => {
     try {
       const res  = await fetch(`${API_BASE}/attractions/${id}/images`);
@@ -781,55 +811,80 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   );
 };
 
-// ── Popular Card ──────────────────────────────────────────────────────
+// ── Popular Card — cinematic tall rectangle ───────────────────────────
 const PopularCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => void }> = ({ item, onPress }) => {
   const { convertPrice } = useApp();
   return (
-  <TouchableOpacity style={styles.popularCard} onPress={() => onPress(item)} activeOpacity={0.9}>
-    <Image source={{ uri: item.primary_image }} style={styles.popularImage} />
-    <View style={styles.popularOverlay}>
-      <Text style={styles.popularName}>{item.name}</Text>
-      <Text style={styles.popularPrice}>from {convertPrice(item.price_from)}</Text>
-      <StarRating rating={Number(item.rating)} color="#FFF" />
-    </View>
-  </TouchableOpacity>
+    <TouchableOpacity style={styles.popularCard} onPress={() => onPress(item)} activeOpacity={0.88}>
+      <Image source={{ uri: item.primary_image }} style={styles.popularImage} />
+      {/* Gradient overlay via layered Views */}
+      <View style={styles.popularGradient} />
+      <View style={styles.popularOverlay}>
+        <View style={styles.popularRatingBadge}>
+          <Text style={styles.popularRatingText}>⭐ {Number(item.rating).toFixed(1)}</Text>
+        </View>
+        <Text style={styles.popularName} numberOfLines={1}>{item.name}</Text>
+        <View style={styles.popularFooter}>
+          <Text style={styles.popularPrice}>from {convertPrice(item.price_from)}</Text>
+          <View style={styles.popularArrow}>
+            <Text style={styles.popularArrowText}>→</Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 };
 
-// ── Nearest Card ──────────────────────────────────────────────────────
+// ── Nearest Card — horizontal list item ──────────────────────────────
 const NearestCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => void }> = ({ item, onPress }) => {
   const { convertPrice } = useApp();
+  const firstCategory = parseCategories(item.categories)[0] ?? item.category ?? '';
+  const catColor = CATEGORY_COLORS[firstCategory] ?? '#C4873A';
   return (
-  <TouchableOpacity style={styles.nearestCard} onPress={() => onPress(item)} activeOpacity={0.9}>
-    <Image source={{ uri: item.primary_image }} style={styles.nearestImage} />
-    <View style={styles.nearestOverlay}>
-      <Text style={styles.nearestName} numberOfLines={2}>{item.name}</Text>
-      <Text style={styles.nearestPrice}>From {convertPrice(item.price_from)}</Text>
-      <StarRating rating={Number(item.rating)} color="#FFF" />
-    </View>
-  </TouchableOpacity>
+    <TouchableOpacity style={styles.nearestCard} onPress={() => onPress(item)} activeOpacity={0.88}>
+      <Image source={{ uri: item.primary_image }} style={styles.nearestImage} />
+      <View style={styles.nearestInfo}>
+        <View style={[styles.nearestCategoryDot, { backgroundColor: catColor }]} />
+        <Text style={styles.nearestName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.nearestCity}>{item.city}</Text>
+        <View style={styles.nearestFooter}>
+          <StarRating rating={Number(item.rating)} size={10} color="#F0A500" />
+          <Text style={styles.nearestPrice}>{convertPrice(item.price_from)}</Text>
+        </View>
+      </View>
+      <Text style={styles.nearestChevron}>›</Text>
+    </TouchableOpacity>
   );
 };
 
-// ── Bottom Tab ────────────────────────────────────────────────────────
+// ── Bottom Tab — floating pill style ──────────────────────────────────
 const BottomTab: React.FC<{ active: string }> = ({ active }) => {
   const router = useRouter();
   const tabs = [
-    { name: 'Home',      icon: '🏠', route: '/(main)/home' },
-    { name: 'Plan',      icon: '🗺️', route: '/(main)/plan' },
-    { name: 'Tour Mate', icon: '🧳', route: '/(main)/tourmate-ai' },
+    { name: 'Home',      icon: '⌂',  route: '/(main)/home' },
+    { name: 'Plan',      icon: '✦',  route: '/(main)/plan' },
+    { name: 'Tour Mate', icon: '◈',  route: '/(main)/tourmate-ai' },
     { name: 'Favorites', icon: '♡',  route: '/(main)/favorites' },
-    { name: 'View Map',  icon: '📍', route: '/(main)/map' },
+    { name: 'Map',       icon: '◉',  route: '/(main)/map' },
   ];
   return (
-    <View style={styles.bottomTab}>
-      {tabs.map(tab => (
-        <TouchableOpacity key={tab.name} style={styles.tabItem} onPress={() => { if (tab.name !== active) router.push(tab.route as any); }}>
-          <Text style={styles.tabIcon}>{tab.icon}</Text>
-          <Text style={[styles.tabLabel, tab.name === active && styles.tabLabelActive]}>{(tab as any).label ?? tab.name}</Text>
-          {tab.name === active && <View style={styles.tabDot} />}
-        </TouchableOpacity>
-      ))}
+    <View style={styles.bottomTabWrap}>
+      <View style={styles.bottomTab}>
+        {tabs.map(tab => {
+          const isActive = tab.name === active;
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={[styles.tabItem, isActive && styles.tabItemActive]}
+              onPress={() => { if (!isActive) router.push(tab.route as any); }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>{tab.icon}</Text>
+              {isActive && <Text style={styles.tabLabel}>{tab.name}</Text>}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
@@ -931,9 +986,9 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
     </Modal>
   );
 };
-
 // ── HOME SCREEN ───────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const [locationText, setLocationText] = useState('Detecting...');
   const router = useRouter();
   const { t, convertPrice } = useApp();
   const [popular, setPopular]             = useState<Attraction[]>([]);
@@ -942,6 +997,7 @@ export default function HomeScreen() {
   const [searchResults, setSearchResults] = useState<Attraction[]>([]);
   const [loading, setLoading]             = useState(true);
   const [showCurrency, setShowCurrency]   = useState(false);
+  const [coords, setCoords]               = useState<{ latitude: number; longitude: number } | null>(null);
 
   // Filter state
   const [activeFilters, setActiveFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -953,6 +1009,39 @@ export default function HomeScreen() {
 
   // User points state
   const [userPoints, setUserPoints] = useState<number | null>(null);
+
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setLocationText('Permission denied');
+          return;
+        }
+
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+
+        const res = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+          params: { format: 'json', lat: loc.coords.latitude, lon: loc.coords.longitude },
+          headers: { 'User-Agent': 'TourMateApp/1.0', 'Accept-Language': 'en' },
+          timeout: 10000,
+        });
+
+        const city = res.data.address.city || res.data.address.town || res.data.address.village || '';
+        const country = res.data.address.country || '';
+        setLocationText(`${city}${city && country ? ', ' : ''}${country}` || 'Unknown');
+
+      } catch {
+        setLocationText('Unknown');
+      }
+    })();
+  }, []);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -1022,116 +1111,211 @@ export default function HomeScreen() {
     );
   }
 
+const triangleCount = 35;
+
+const triangles = Array.from({ length: triangleCount }).map((_, i) => {
+  const size = Math.random() * 16 + 10;
+
+  // spread vertically evenly
+  const top = i * 80 + Math.random() * 30;
+
+  // alternate left/right zones (prevents clustering)
+  const left =
+    i % 3 === 0
+      ? Math.random() * 30          // left
+      : i % 3 === 1
+      ? 35 + Math.random() * 30     // middle
+      : 70 + Math.random() * 25;    // right
+
+  const opacity = Math.random() * 0.2 + 0.08;
+
+  return (
+    <View
+      key={i}
+      style={{
+        position: 'absolute',
+        left: `${left}%`,
+        top,
+        width: 0,
+        height: 0,
+        borderLeftWidth: size,
+        borderRightWidth: size,
+        borderBottomWidth: size * 1.4,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderBottomColor: `rgba(224,123,57,${opacity})`,
+      }}
+    />
+  );
+});
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F9F5F0" />
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle="light-content" backgroundColor="#1A0A00" />
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+        <View style={{ position: 'relative', flex: 1 }}>
+        {triangles}
 
-        {/* ── Header ── */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.locationRow} onPress={() => router.push('/(main)/map' as any)}>
-            <Text style={styles.locationPin}>📍</Text>
-            <Text style={styles.locationText}>Alexandria, Egypt</Text>
-          </TouchableOpacity>
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.pointsBadge} onPress={() => router.push('/(main)/rewards' as any)}>
-              <Text style={styles.pointsText}>{userPoints !== null ? userPoints : '...'} ⭐</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.avatarBtn} onPress={() => router.push('/(main)/settings' as any)}>
-              <Text style={styles.avatarIcon}>👤</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        {/* ── Hero Banner ── */}
+        <View style={styles.heroBanner}>
+          
+          {/* Pyramid shapes */}
+          <View style={styles.heroPyramid1} />
+          <View style={styles.heroPyramid2} />
+          <View style={styles.heroPyramid3} />
 
-        {/* ── Weather ── */}
-        <WeatherWidget city="Alexandria" />
+          {/* Top row: location + weather + actions */}
+          <View style={styles.heroTopRow}>
 
-        {/* ── Title ── */}
-        <Text style={styles.heroTitle}>{t('planYourTrip')}</Text>
-
-        {/* ── Search ── */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              {...{placeholder: t('search')}}
-              placeholderTextColor="#AAA"
-              value={searchQuery}
-              onChangeText={handleSearch}
-            />
-          </View>
-          <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilter(true)} activeOpacity={0.85}>
-            <Text style={styles.filterIcon}>⚙️</Text>
-            {activeFilterCount > 0 && (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Search Dropdown ── */}
-        {filteredSearch.length > 0 && (
-          <View style={styles.searchDropdown}>
-            {filteredSearch.map(item => (
-              <TouchableOpacity key={item.id} style={styles.searchResultItem} onPress={() => openAttraction(item)}>
-                <Text style={styles.searchResultText}>{item.name}</Text>
-                <Text style={styles.searchResultSub}>{item.city}</Text>
+            {/* LEFT SIDE (location + weather stacked) */}
+            <View>
+              <TouchableOpacity
+                style={styles.locationPill}
+                onPress={() => router.push('/(main)/map' as any)}
+              >
+                <Text style={styles.locationPillText}>{locationText}</Text>
+                <Text style={styles.locationChevron}>›</Text>
               </TouchableOpacity>
-            ))}
+
+              {/* ✅ Weather UNDER location */}
+              <View style={{ marginTop: 4 }}>
+              {userLocation && (
+                <WeatherWidget
+                  latitude={userLocation.latitude}
+                  longitude={userLocation.longitude}
+                />
+              )}
+              </View>
+            </View>
+
+            {/* RIGHT SIDE */}
+            <View style={styles.heroActions}>
+              <TouchableOpacity
+                style={styles.pointsPill}
+                onPress={() => router.push('/(main)/rewards' as any)}
+              >
+                <Text style={styles.pointsPillText}>
+                  {userPoints !== null ? userPoints : '—'} Points
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.avatarBtn}
+                onPress={() => router.push('/(main)/settings' as any)}
+              >
+                <Text style={styles.avatarIcon}>Profile</Text>
+              </TouchableOpacity>
+            </View>
+
           </View>
-        )}
 
-        {/* ── Popular ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Popular locations</Text>
-          {activeFilterCount > 0 && (
-            <Text style={styles.sectionFilterNote}>{filteredPopular.length} result{filteredPopular.length !== 1 ? 's' : ''}</Text>
+          {/* Hero title */}
+          <Text style={styles.heroGreeting}>Good day, explorer</Text>
+          <Text style={styles.heroTitle}>{t('planYourTrip')}</Text>
+
+
+          </View>
+
+          {/* ── Search Bar ── */}
+          <View style={styles.searchWrapper}>
+            <View style={styles.searchBar}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                {...{placeholder: t('search')}}
+                placeholderTextColor="#C0A882"
+                value={searchQuery}
+                onChangeText={handleSearch}
+              />
+            </View>
+            <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilter(true)} activeOpacity={0.85}>
+              <Text style={styles.filterIcon}>⚙</Text>
+              {activeFilterCount > 0 && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* ── Search Dropdown ── */}
+          {filteredSearch.length > 0 && (
+            <View style={styles.searchDropdown}>
+              {filteredSearch.map(item => (
+                <TouchableOpacity key={item.id} style={styles.searchResultItem} onPress={() => openAttraction(item)}>
+                  <View style={styles.searchResultLeft}>
+                    <Text style={styles.searchResultIcon}>🏛</Text>
+                    <View>
+                      <Text style={styles.searchResultText}>{item.name}</Text>
+                      <Text style={styles.searchResultSub}>{item.city}, Egypt</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.searchResultArrow}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
-        </View>
-        {filteredPopular.length === 0
-          ? <Text style={styles.emptyFilterText}>No popular places match your filters.</Text>
-          : <FlatList
-            data={filteredPopular}
-            keyExtractor={item => String(item.id)}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingLeft: 20, paddingRight: 10 }}
-            renderItem={({ item }) => <PopularCard item={item} onPress={openAttraction} />}
-          />
-        }
 
-        {/* ── Nearest ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Nearest Places</Text>
-          {activeFilterCount > 0 && (
-            <Text style={styles.sectionFilterNote}>{filteredNearest.length} result{filteredNearest.length !== 1 ? 's' : ''}</Text>
-          )}
-        </View>
-        {filteredNearest.length === 0
-          ? <Text style={styles.emptyFilterText}>No nearby places match your filters.</Text>
-          : <FlatList
-            data={filteredNearest}
-            keyExtractor={item => String(item.id)}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingLeft: 20, paddingRight: 10, paddingBottom: 10 }}
-            renderItem={({ item }) => <NearestCard item={item} onPress={openAttraction} />}
-          />
-        }
+          {/* ── Quick Info Strip: Currency ── */}
+          <TouchableOpacity style={styles.infoStrip} onPress={() => setShowCurrency(true)} activeOpacity={0.85}>
+            <View style={styles.infoStripLeft}>
+              <View style={styles.infoStripIconBox}>
+                <Text style={styles.infoStripIconText}>💱</Text>
+              </View>
+              <View>
+                <Text style={styles.infoStripTitle}>Currency Exchange</Text>
+                <Text style={styles.infoStripSub}>Live EGP rates · Tap to convert</Text>
+              </View>
+            </View>
+            <Text style={styles.infoStripArrow}>›</Text>
+          </TouchableOpacity>
 
-        <View style={{ height: 120 }} />
+          {/* ── Popular ── */}
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>Popular Locations</Text>
+            </View>
+            {activeFilterCount > 0 && (
+              <Text style={styles.sectionFilterNote}>{filteredPopular.length} found</Text>
+            )}
+          </View>
+          {filteredPopular.length === 0
+            ? <Text style={styles.emptyFilterText}>No popular places match your filters.</Text>
+            : <FlatList
+                data={filteredPopular}
+                keyExtractor={item => String(item.id)}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingLeft: 20, paddingRight: 10 }}
+                renderItem={({ item }) => <PopularCard item={item} onPress={openAttraction} />}
+              />
+          }
+
+          {/* ── Nearest ── */}
+          <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionAccent, { backgroundColor: '#E07B39' }]} />
+              <Text style={styles.sectionTitle}>Nearby Places</Text>
+            </View>
+            {activeFilterCount > 0 && (
+              <Text style={styles.sectionFilterNote}>{filteredNearest.length} found</Text>
+            )}
+          </View>
+          {filteredNearest.length === 0
+            ? <Text style={styles.emptyFilterText}>No nearby places match your filters.</Text>
+            : <FlatList
+                data={filteredNearest}
+                keyExtractor={item => String(item.id)}
+                horizontal={false}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={false}
+                contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+                renderItem={({ item }) => <NearestCard item={item} onPress={openAttraction} />}
+              />
+          }
+        </View> 
       </ScrollView>
-
-      {/* ── Floating Currency Button ── */}
-      <TouchableOpacity style={styles.floatingCurrencyBtn} onPress={() => setShowCurrency(true)} activeOpacity={0.85}>
-        <Text style={styles.floatingCurrencyIcon}>$ → ج.م</Text>
-        <View>
-          <Text style={styles.floatingCurrencyTitle}>Currency</Text>
-          <Text style={styles.floatingCurrencySubtitle}>{t('currency')}</Text>
-        </View>
-      </TouchableOpacity>
 
       <BottomTab active="Home" />
 
@@ -1141,6 +1325,7 @@ export default function HomeScreen() {
         attraction={selectedAttraction}
         visible={showSheet}
         onClose={() => setShowSheet(false)}
+        userLocation={coords} // <- your current coords state from expo-location
       />
       <FilterSheet
         visible={showFilter}
@@ -1152,217 +1337,434 @@ export default function HomeScreen() {
   );
 }
 
-// ── STYLES ────────────────────────────────────────────────────────────
+
+// ── STYLES — Desert Horizon Egyptian Design ───────────────────────────
 const styles = StyleSheet.create({
-  safeArea:        { flex: 1, backgroundColor: '#F9F5F0' },
-  container:       { flex: 1 },
-  loadingContainer:{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9F5F0' },
 
-  // Header
-  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  locationRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EDEBE8', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
-  locationPin:   { fontSize: 12, marginRight: 4 },
-  locationText:  { fontSize: 13, color: '#555', fontWeight: '500' },
-  headerRight:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  pointsBadge:   { backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
-  pointsText:    { fontSize: 13, color: '#E67E22', fontWeight: '700' },
-  avatarBtn:     { backgroundColor: '#EEE', borderRadius: 20, padding: 8 },
-  avatarIcon:    { fontSize: 14 },
+  // ── Base ──────────────────────────────────────────────────────────
+  safeArea:  { flex: 1, backgroundColor: '#FDF8F0' },
+  container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FDF8F0' },
 
-  // Weather
-  weatherWidget: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 8, backgroundColor: '#FFF', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10, gap: 8, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
-  weatherIcon:   { fontSize: 22 },
-  weatherTemp:   { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
-  weatherLabel:  { fontSize: 13, color: '#999', fontWeight: '500' },
+  // ── Hero Banner ───────────────────────────────────────────────────
+  
+  heroBanner: {
+    backgroundColor: '#1A0A00',
+    paddingTop: 16,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 36,
+    borderBottomRightRadius: 36,
+    overflow: 'hidden',
+    marginBottom: 0,
+    position: 'relative',
+  },
 
-  // Hero
-  heroTitle: { fontSize: 26, fontWeight: '800', color: '#1A1A1A', paddingHorizontal: 20, marginTop: 10, marginBottom: 16 },
+  // Bigger pyramids
+  heroPyramid1: {
+    position: 'absolute',
+    bottom: 0,
+    left: 20,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 80,
+    borderRightWidth: 80,
+    borderBottomWidth: 120,
+    borderStyle: 'solid',
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(224,123,57,0.4)',
+    transform: [{ rotate: '-5deg' }],
+  },
+  heroPyramid2: {
+    position: 'absolute',
+    bottom: 0,
+    right: 40,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 60,
+    borderRightWidth: 60,
+    borderBottomWidth: 100,
+    borderStyle: 'solid',
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(196,135,58,0.3)',
+    transform: [{ rotate: '3deg' }],
+  },
+  heroPyramid3: {
+    position: 'absolute',
+    bottom: 0,
+    left: 120,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 50,
+    borderRightWidth: 50,
+    borderBottomWidth: 80,
+    borderStyle: 'solid',
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(240,165,0,0.25)',
+  },
 
-  // Search
-  searchContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginBottom: 24, gap: 10 },
-  searchBar:       { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 30, paddingHorizontal: 16, paddingVertical: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 },
-  searchIcon:      { fontSize: 14, marginRight: 8 },
-  searchInput:     { flex: 1, fontSize: 14, color: '#333' },
-  filterBtn:       { backgroundColor: '#E67E22', borderRadius: 30, padding: 14 },
-  filterIcon:      { fontSize: 16 },
-  filterBadge:     { position: 'absolute', top: -4, right: -4, backgroundColor: '#1A1A1A', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center' },
+  // Hero top row
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  locationPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 22,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  locationPinIcon: { fontSize: 12 },
+  locationPillText: { fontSize: 13, color: '#F5D98B', fontWeight: '600' },
+  locationChevron:  { fontSize: 16, color: 'rgba(245,217,139,0.6)', marginLeft: 2 },
+  heroActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pointsPill: {
+    backgroundColor: 'rgba(196,135,58,0.25)', borderRadius: 22,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(196,135,58,0.4)',
+  },
+  pointsPillText: { fontSize: 12, color: '#F5D98B', fontWeight: '800' },
+  avatarBtn: {
+    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 22,
+    padding: 9, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  avatarIcon: { fontSize: 14 },
+
+  // Hero text
+  heroGreeting: { fontSize: 13, color: 'rgba(245,217,139,0.7)', fontWeight: '500', marginBottom: 4, letterSpacing: 0.5 },
+  heroTitle:    { fontSize: 30, fontWeight: '900', color: '#FFFFFF', marginBottom: 16, letterSpacing: -0.8, lineHeight: 36 },
+
+  // Weather chip — inline in hero
+  weatherChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  weatherChipIcon:  { fontSize: 16 },
+  weatherChipTemp:  { fontSize: 15, fontWeight: '800', color: '#FFF' },
+  weatherChipDot:   { fontSize: 12, color: 'rgba(255,255,255,0.4)' },
+  weatherChipLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
+
+  // ── Search ────────────────────────────────────────────────────────
+  searchWrapper: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, marginTop: -22,
+    marginBottom: 16, gap: 10,
+  },
+  searchBar: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFF', borderRadius: 30,
+    paddingHorizontal: 18, paddingVertical: 14,
+    shadowColor: '#C4873A', shadowOpacity: 0.15, shadowRadius: 16, elevation: 6,
+    borderWidth: 1, borderColor: '#F0E2C8',
+  },
+  searchIcon:  { fontSize: 14, marginRight: 10, color: '#C4873A' },
+  searchInput: { flex: 1, fontSize: 14, color: '#2C1810', fontWeight: '500' },
+  filterBtn: {
+    backgroundColor: '#C4873A', borderRadius: 28, padding: 15,
+    shadowColor: '#C4873A', shadowOpacity: 0.4, shadowRadius: 10, elevation: 5,
+  },
+  filterIcon:      { fontSize: 15, color: '#FFF' },
+  filterBadge:     { position: 'absolute', top: -4, right: -4, backgroundColor: '#E05C2A', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center' },
   filterBadgeText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
-  searchDropdown:  { marginHorizontal: 20, backgroundColor: '#FFF', borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 5, marginBottom: 12, overflow: 'hidden' },
-  searchResultItem:{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  searchResultText:{ fontSize: 14, fontWeight: '600', color: '#333' },
-  searchResultSub: { fontSize: 12, color: '#999', marginTop: 2 },
 
-  // Sections
-  sectionHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12, marginTop: 4 },
-  sectionTitle:      { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  sectionFilterNote: { fontSize: 12, color: '#E67E22', fontWeight: '600' },
-  emptyFilterText:   { fontSize: 13, color: '#AAA', paddingHorizontal: 20, marginBottom: 12, fontStyle: 'italic' },
+  // Search dropdown
+  searchDropdown: {
+    marginHorizontal: 20, backgroundColor: '#FFF', borderRadius: 20,
+    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 16, elevation: 6,
+    marginBottom: 12, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#F0E2C8',
+  },
+  searchResultItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#FBF5EB' },
+  searchResultLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  searchResultIcon: { fontSize: 20 },
+  searchResultText: { fontSize: 14, fontWeight: '700', color: '#2C1810' },
+  searchResultSub:  { fontSize: 12, color: '#A08060', marginTop: 2 },
+  searchResultArrow:{ fontSize: 20, color: '#C4873A', fontWeight: '700' },
 
-  // Popular cards
-  popularCard:    { width: 190, height: 130, borderRadius: 16, overflow: 'hidden', marginRight: 12 },
-  popularImage:   { width: '100%', height: '100%' },
-  popularOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, backgroundColor: 'rgba(0,0,0,0.38)' },
-  popularName:    { color: '#FFF', fontSize: 14, fontWeight: '700' },
-  popularPrice:   { color: '#FFE0A0', fontSize: 11, marginTop: 1 },
+  // ── Info Strip (Currency) ─────────────────────────────────────────
+  infoStrip: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: 20, marginBottom: 24,
+    backgroundColor: '#FFF', borderRadius: 20, padding: 16,
+    shadowColor: '#C4873A', shadowOpacity: 0.1, shadowRadius: 10, elevation: 3,
+    borderWidth: 1, borderColor: '#F0E2C8',
+  },
+  infoStripLeft:    { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  infoStripIconBox: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center' },
+  infoStripIconText:{ fontSize: 22 },
+  infoStripTitle:   { fontSize: 14, fontWeight: '800', color: '#2C1810' },
+  infoStripSub:     { fontSize: 12, color: '#A08060', marginTop: 2 },
+  infoStripArrow:   { fontSize: 22, color: '#C4873A', fontWeight: '700' },
 
-  // Nearest cards
-  nearestCard:    { width: 130, height: 150, borderRadius: 14, overflow: 'hidden', marginRight: 10 },
-  nearestImage:   { width: '100%', height: '100%' },
-  nearestOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: 'rgba(0,0,0,0.38)' },
-  nearestName:    { color: '#FFF', fontSize: 11, fontWeight: '700', lineHeight: 14 },
-  nearestPrice:   { color: '#FFE0A0', fontSize: 10, marginTop: 2 },
+  // ── Sections ──────────────────────────────────────────────────────
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, marginBottom: 14, marginTop: 8,
+  },
+  sectionTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sectionAccent:     { width: 4, height: 22, borderRadius: 2, backgroundColor: '#C4873A' },
+  sectionTitle:      { fontSize: 19, fontWeight: '900', color: '#2C1810', letterSpacing: -0.4 },
+  sectionFilterNote: { fontSize: 12, color: '#C4873A', fontWeight: '700' },
+  emptyFilterText:   { fontSize: 13, color: '#C0A882', paddingHorizontal: 20, marginBottom: 12, fontStyle: 'italic' },
 
-  // Bottom tab
-  bottomTab:      { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#FFF', paddingVertical: 10, paddingHorizontal: 10, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, elevation: 10 },
-  tabItem:        { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabIcon:        { fontSize: 18 },
-  tabLabel:       { fontSize: 10, color: '#AAA', marginTop: 2 },
-  tabLabelActive: { color: '#E67E22', fontWeight: '700' },
-  tabDot:         { width: 5, height: 5, borderRadius: 3, backgroundColor: '#E67E22', marginTop: 2 },
+  // ── Popular Cards — cinematic ─────────────────────────────────────
+  popularCard: {
+    width: 210, height: 270, borderRadius: 24, overflow: 'hidden',
+    marginRight: 14,
+    shadowColor: '#1A0A00', shadowOpacity: 0.2, shadowRadius: 14, elevation: 6,
+  },
+  popularImage:    { width: '100%', height: '100%', position: 'absolute' },
+  popularGradient: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 160,
+    backgroundColor: 'rgba(26,10,0,0)',
+    // Simulate gradient with border radius
+    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
+  },
+  popularOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    padding: 16, paddingBottom: 18,
+    backgroundColor: 'rgba(26,10,0,0.62)',
+    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
+  },
+  popularRatingBadge: {
+    alignSelf: 'flex-start', backgroundColor: 'rgba(196,135,58,0.9)',
+    borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8,
+  },
+  popularRatingText: { fontSize: 11, color: '#FFF', fontWeight: '800' },
+  popularName:       { fontSize: 16, fontWeight: '900', color: '#FFF', marginBottom: 8, letterSpacing: -0.3 },
+  popularFooter:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  popularPrice:      { fontSize: 12, color: '#F5D98B', fontWeight: '700' },
+  popularArrow: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  popularArrowText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 
-  // Floating currency
-  floatingCurrencyBtn:      { position: 'absolute', right: 16, bottom: 88, backgroundColor: '#E67E22', borderRadius: 30, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6, shadowColor: '#E67E22', shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
-  floatingCurrencyIcon:     { fontSize: 14, color: '#FFF', fontWeight: '900' },
-  floatingCurrencyTitle:    { color: '#FFF', fontSize: 12, fontWeight: '800' },
-  floatingCurrencySubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 9, marginTop: 1 },
+  // ── Nearest Cards — horizontal list items ─────────────────────────
+  nearestCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFF', borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#C4873A', shadowOpacity: 0.1, shadowRadius: 10, elevation: 3,
+    borderWidth: 1, borderColor: '#F0E2C8',
+  },
+  nearestImage:   { width: 90, height: 90 },
+  nearestInfo:    { flex: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  nearestCategoryDot: { width: 6, height: 6, borderRadius: 3, marginBottom: 6 },
+  nearestName:    { fontSize: 14, fontWeight: '800', color: '#2C1810', marginBottom: 3 },
+  nearestCity:    { fontSize: 12, color: '#A08060', fontWeight: '500', marginBottom: 6 },
+  nearestFooter:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  nearestPrice:   { fontSize: 12, color: '#C4873A', fontWeight: '700' },
+  nearestChevron: { fontSize: 24, color: '#DDD0BC', paddingRight: 16, fontWeight: '300' },
 
-  // ── Attraction Bottom Sheet ──────────────────────────────────────
-  sheetBackdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
-  sheetContainer:   { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: height * 0.88, overflow: 'hidden' },
-  sheetHandle:      { width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD', alignSelf: 'center', marginTop: 12, marginBottom: 4 },
+  // ── Bottom Tab — floating pill ─────────────────────────────────────
+  bottomTabWrap: {
+    position: 'absolute', bottom: 20, left: 24, right: 24,
+    alignItems: 'center',
+  },
+  bottomTab: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1A0A00',
+    borderRadius: 40, paddingVertical: 8, paddingHorizontal: 8,
+    shadowColor: '#1A0A00', shadowOpacity: 0.35, shadowRadius: 20, elevation: 14,
+    gap: 4,
+  },
+  tabItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 32, gap: 6,
+  },
+  tabItemActive: {
+    backgroundColor: '#C4873A',
+    paddingHorizontal: 18,
+  },
+  tabIcon:       { fontSize: 17, color: 'rgba(255,255,255,0.45)' },
+  tabIconActive: { color: '#FFF' },
+  tabLabel:      { fontSize: 12, color: '#FFF', fontWeight: '800', letterSpacing: 0.2 },
 
-  // Gallery
-  galleryContainer: { width, height: 240, position: 'relative' },
-  galleryImage:     { width, height: 240 },
-  imageDots:        { position: 'absolute', bottom: 12, alignSelf: 'center', flexDirection: 'row', gap: 5, left: 0, right: 0, justifyContent: 'center' },
-  imageDot:         { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
-  imageDotActive:   { backgroundColor: '#FFF', width: 18 },
-  sheetCloseBtn:    { position: 'absolute', top: 14, left: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  sheetCloseBtnText:{ color: '#FFF', fontSize: 14, fontWeight: '700' },
-  sheetFavBtn:      { position: 'absolute', top: 14, right: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  sheetFavIcon:     { color: '#FFF', fontSize: 18 },
-  categoryBadge:    { position: 'absolute', bottom: 14, left: 14, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
-  categoryBadgeText:{ color: '#FFF', fontSize: 11, fontWeight: '700', textTransform: 'capitalize' },
+  // ── Attraction Sheet ──────────────────────────────────────────────
+  sheetBackdrop:  { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(26,10,0,0.65)' },
+  sheetContainer: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: '#FDF8F0', borderTopLeftRadius: 32, borderTopRightRadius: 32,
+    maxHeight: height * 0.88, overflow: 'hidden',
+  },
+  sheetHandle: {
+    width: 44, height: 5, borderRadius: 3, backgroundColor: '#DDD0BC',
+    alignSelf: 'center', marginTop: 12, marginBottom: 4,
+  },
+  galleryContainer:  { width, height: 250, position: 'relative' },
+  galleryImage:      { width, height: 250 },
+  imageDots:         { position: 'absolute', bottom: 14, alignSelf: 'center', flexDirection: 'row', gap: 6, left: 0, right: 0, justifyContent: 'center' },
+  imageDot:          { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.45)' },
+  imageDotActive:    { backgroundColor: '#F5D98B', width: 20 },
+  sheetCloseBtn:     { position: 'absolute', top: 16, left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(26,10,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  sheetCloseBtnText: { color: '#FFF', fontSize: 14, fontWeight: '800' },
+  sheetFavBtn:       { position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(26,10,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  sheetFavIcon:      { color: '#FFF', fontSize: 18 },
+  categoryBadge:     { position: 'absolute', bottom: 16, left: 16, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5 },
+  categoryBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '800', textTransform: 'capitalize', letterSpacing: 0.3 },
 
-  // Content
-  sheetContent:      { paddingHorizontal: 20, paddingTop: 16 },
-  sheetName:         { fontSize: 22, fontWeight: '800', color: '#1A1A1A', marginBottom: 6 },
-  sheetLocationRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  sheetLocationIcon: { fontSize: 13, marginRight: 4 },
-  sheetLocationText: { fontSize: 13, color: '#888', fontWeight: '500' },
-  sheetRatingRow:    { marginBottom: 14 },
-  infoPillsRow:      { marginBottom: 16 },
-  infoPill:          { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F8F8', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, marginRight: 10, gap: 8, borderWidth: 1, borderColor: '#F0F0F0' },
-  infoPillIcon:      { fontSize: 18 },
-  infoPillLabel:     { fontSize: 10, color: '#AAA', fontWeight: '600' },
-  infoPillValue:     { fontSize: 13, fontWeight: '700', color: '#1A1A1A', maxWidth: 100 },
-  sheetAboutTitle:   { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
-  sheetAboutText:    { fontSize: 14, color: '#666', lineHeight: 22 },
+  sheetContent:      { paddingHorizontal: 22, paddingTop: 18 },
+  sheetName:         { fontSize: 24, fontWeight: '900', color: '#2C1810', marginBottom: 6, letterSpacing: -0.5 },
+  sheetLocationRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  sheetLocationIcon: { fontSize: 13, marginRight: 5 },
+  sheetLocationText: { fontSize: 13, color: '#A08060', fontWeight: '600' },
+  sheetRatingRow:    { marginBottom: 16 },
+  infoPillsRow:      { marginBottom: 18 },
+  infoPill: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFF', borderRadius: 16,
+    paddingHorizontal: 14, paddingVertical: 10, marginRight: 10, gap: 10,
+    borderWidth: 1, borderColor: '#F0E2C8',
+    shadowColor: '#C4873A', shadowOpacity: 0.07, shadowRadius: 4, elevation: 1,
+  },
+  infoPillIcon:  { fontSize: 18 },
+  infoPillLabel: { fontSize: 10, color: '#C0A882', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  infoPillValue: { fontSize: 13, fontWeight: '800', color: '#2C1810', maxWidth: 100 },
+  sheetAboutTitle: { fontSize: 16, fontWeight: '800', color: '#2C1810', marginBottom: 8 },
+  sheetAboutText:  { fontSize: 14, color: '#6B5040', lineHeight: 23 },
 
-  // ── Get There ────────────────────────────────────────────────────
-  getRideSection:     { marginTop: 24, backgroundColor: '#F9F9F9', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F0F0F0' },
-  getRideHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  getRideTitle:       { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
-  getRideEstimateBtn: { backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: '#FDDCB5' },
-  getRideEstimateBtnText: { fontSize: 12, color: '#E67E22', fontWeight: '700' },
+  getRideSection: {
+    marginTop: 24, backgroundColor: '#FFF', borderRadius: 20, padding: 18,
+    borderWidth: 1, borderColor: '#F0E2C8',
+    shadowColor: '#C4873A', shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+  },
+  getRideHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  getRideTitle:       { fontSize: 15, fontWeight: '800', color: '#2C1810' },
+  getRideEstimateBtn: { backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1, borderColor: '#F0E2C8' },
+  getRideEstimateBtnText: { fontSize: 12, color: '#C4873A', fontWeight: '800' },
   getRideLoading:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  getRideLoadingText: { fontSize: 13, color: '#999' },
-  getRideInfo:        { flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
-  getRidePill:        { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#EEE' },
-  getRidePillIcon:    { fontSize: 12 },
-  getRidePillValue:   { fontSize: 12, fontWeight: '600', color: '#333' },
-  getRideBtns:        { flexDirection: 'row', gap: 10 },
-  uberBtn:            { flex: 1, backgroundColor: '#000', borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
-  uberBtnText:        { color: '#FFF', fontWeight: '700', fontSize: 14 },
-  careemBtn:          { flex: 1, backgroundColor: '#1DBF73', borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
-  careemBtnText:      { color: '#FFF', fontWeight: '700', fontSize: 14 },
-  getRideNote:        { fontSize: 10, color: '#BBB', textAlign: 'center', marginTop: 8 },
+  getRideLoadingText: { fontSize: 13, color: '#A08060' },
+  getRideInfo:        { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  getRidePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#FBF5EB', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#F0E2C8',
+  },
+  getRidePillIcon:  { fontSize: 12 },
+  getRidePillValue: { fontSize: 12, fontWeight: '700', color: '#2C1810' },
+  getRideBtns:      { flexDirection: 'row', gap: 10 },
+  uberBtn:     { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  uberBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  careemBtn:     { flex: 1, backgroundColor: '#0D9E5B', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  careemBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  getRideNote: { fontSize: 10, color: '#C0A882', textAlign: 'center', marginTop: 10 },
 
-  // Action buttons
-  sheetActions:          { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 32, gap: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
-  sheetFavoritesBtn:     { flex: 1, borderWidth: 2, borderColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  sheetFavoritesBtnText: { color: '#E67E22', fontSize: 15, fontWeight: '700' },
-  sheetPlanBtn:          { flex: 2, backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  sheetPlanBtnText:      { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  sheetActions: {
+    flexDirection: 'row', paddingHorizontal: 22, paddingVertical: 18,
+    paddingBottom: 34, gap: 12,
+    borderTopWidth: 1, borderTopColor: '#F0E2C8',
+    backgroundColor: '#FDF8F0',
+  },
+  sheetFavoritesBtn:     { flex: 1, borderWidth: 2, borderColor: '#C4873A', borderRadius: 30, paddingVertical: 15, alignItems: 'center' },
+  sheetFavoritesBtnText: { color: '#C4873A', fontSize: 15, fontWeight: '800' },
+  sheetPlanBtn:          { flex: 2, backgroundColor: '#1A0A00', borderRadius: 30, paddingVertical: 15, alignItems: 'center', shadowColor: '#1A0A00', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  sheetPlanBtnText:      { color: '#FFF', fontSize: 15, fontWeight: '800' },
 
   // Currency modal
-  modalOverlay:         { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  currencySheet:        { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
-  modalHeader:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  modalTitle:           { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  modalClose:           { fontSize: 18, color: '#999' },
-  liveBadge:            { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  liveDot:              { width: 8, height: 8, borderRadius: 4, backgroundColor: '#27AE60', marginRight: 6 },
-  liveText:             { fontSize: 12, color: '#27AE60', fontWeight: '700' },
-  liveDate:             { fontSize: 12, color: '#999' },
-  currencyLabel:        { fontSize: 12, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  currencySelector:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9F9F9', borderRadius: 16, padding: 14, marginBottom: 8, gap: 10, borderWidth: 1, borderColor: '#EEE' },
-  currencyFlag:         { fontSize: 28 },
-  currencySelectorText: { flex: 1 },
-  currencyCode:         { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-  currencyName:         { fontSize: 12, color: '#999', marginTop: 2 },
-  currencySelectorArrow:{ fontSize: 14, color: '#999' },
-  pickerDropdown:       { backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1, borderColor: '#EEE', marginBottom: 12, overflow: 'hidden' },
-  pickerItem:           { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
-  pickerItemActive:     { backgroundColor: '#FFF8F0' },
-  pickerFlag:           { fontSize: 20 },
-  pickerCode:           { fontSize: 13, fontWeight: '700', color: '#1A1A1A', width: 40 },
-  pickerName:           { flex: 1, fontSize: 12, color: '#666' },
-  pickerCheck:          { fontSize: 13, color: '#E67E22', fontWeight: '700' },
-  amountRow:            { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9F9F9', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8, borderWidth: 1, borderColor: '#EEE', gap: 10 },
-  amountCurrencyCode:   { fontSize: 15, fontWeight: '700', color: '#E67E22' },
-  amountInput:          { flex: 1, fontSize: 22, fontWeight: '700', color: '#1A1A1A' },
-  convertArrow:         { alignItems: 'center', marginVertical: 8 },
-  convertArrowIcon:     { fontSize: 22, color: '#E67E22', fontWeight: '700' },
-  resultBox:            { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF3E0', borderRadius: 16, padding: 14, marginBottom: 10, gap: 10, borderWidth: 1, borderColor: '#FDDCB5' },
-  resultFlag:           { fontSize: 28 },
-  resultTextBox:        { flex: 1 },
-  resultCode:           { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-  resultName:           { fontSize: 12, color: '#999', marginTop: 2 },
-  resultAmount:         { fontSize: 22, fontWeight: '800', color: '#E67E22' },
-  rateInfo:             { fontSize: 12, color: '#999', textAlign: 'center', marginTop: 4 },
+  modalOverlay:   { flex: 1, backgroundColor: 'rgba(26,10,0,0.6)', justifyContent: 'flex-end' },
+  currencySheet:  { backgroundColor: '#FDF8F0', borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 44 },
+  modalHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  modalTitle:     { fontSize: 18, fontWeight: '900', color: '#2C1810' },
+  modalClose:     { fontSize: 18, color: '#A08060', fontWeight: '700' },
+  liveBadge:      { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
+  liveDot:        { width: 8, height: 8, borderRadius: 4, backgroundColor: '#27AE60', marginRight: 7 },
+  liveText:       { fontSize: 12, color: '#27AE60', fontWeight: '800' },
+  liveDate:       { fontSize: 12, color: '#A08060' },
+  currencyLabel:  { fontSize: 11, fontWeight: '800', color: '#A08060', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 },
+  currencySelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 18, padding: 14, marginBottom: 10, gap: 12, borderWidth: 1, borderColor: '#F0E2C8' },
+  currencyFlag:          { fontSize: 28 },
+  currencySelectorText:  { flex: 1 },
+  currencyCode:          { fontSize: 16, fontWeight: '800', color: '#2C1810' },
+  currencyName:          { fontSize: 12, color: '#A08060', marginTop: 2 },
+  currencySelectorArrow: { fontSize: 14, color: '#A08060' },
+  pickerDropdown:   { backgroundColor: '#FFF', borderRadius: 16, borderWidth: 1, borderColor: '#F0E2C8', marginBottom: 12, overflow: 'hidden' },
+  pickerItem:       { flexDirection: 'row', alignItems: 'center', padding: 13, gap: 10, borderBottomWidth: 1, borderBottomColor: '#FBF5EB' },
+  pickerItemActive: { backgroundColor: '#FBF5EB' },
+  pickerFlag:       { fontSize: 20 },
+  pickerCode:       { fontSize: 13, fontWeight: '800', color: '#2C1810', width: 42 },
+  pickerName:       { flex: 1, fontSize: 12, color: '#6B5040' },
+  pickerCheck:      { fontSize: 13, color: '#C4873A', fontWeight: '800' },
+  amountRow:        { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 18, paddingHorizontal: 16, paddingVertical: 13, marginBottom: 10, borderWidth: 1, borderColor: '#F0E2C8', gap: 10 },
+  amountCurrencyCode: { fontSize: 15, fontWeight: '800', color: '#C4873A' },
+  amountInput:        { flex: 1, fontSize: 22, fontWeight: '800', color: '#2C1810' },
+  convertArrow:       { alignItems: 'center', marginVertical: 8 },
+  convertArrowIcon:   { fontSize: 22, color: '#C4873A', fontWeight: '800' },
+  resultBox:          { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A0A00', borderRadius: 18, padding: 16, marginBottom: 10, gap: 12 },
+  resultFlag:         { fontSize: 28 },
+  resultTextBox:      { flex: 1 },
+  resultCode:         { fontSize: 16, fontWeight: '800', color: '#F5D98B' },
+  resultName:         { fontSize: 12, color: 'rgba(245,217,139,0.65)', marginTop: 2 },
+  resultAmount:       { fontSize: 24, fontWeight: '900', color: '#F5D98B' },
+  rateInfo:           { fontSize: 12, color: '#A08060', textAlign: 'center', marginTop: 4 },
 
-  // ── Filter Sheet ──────────────────────────────────────────────────
-  filterSheet:           { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: height * 0.80, overflow: 'hidden', paddingHorizontal: 20 },
-  filterHeader:          { flexDirection: 'row', alignItems: 'center', paddingTop: 4, paddingBottom: 16 },
-  filterTitle:           { fontSize: 18, fontWeight: '800', color: '#1A1A1A', flex: 1 },
+  // Filter sheet
+  filterSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FDF8F0', borderTopLeftRadius: 32, borderTopRightRadius: 32, maxHeight: height * 0.80, overflow: 'hidden', paddingHorizontal: 22 },
+  filterHeader:          { flexDirection: 'row', alignItems: 'center', paddingTop: 6, paddingBottom: 18 },
+  filterTitle:           { fontSize: 19, fontWeight: '900', color: '#2C1810', flex: 1, letterSpacing: -0.3 },
   filterActiveBadge:     { backgroundColor: '#FFF3E0', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, marginRight: 10 },
-  filterActiveBadgeText: { color: '#E67E22', fontSize: 11, fontWeight: '700' },
-  filterCloseBtn:        { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
-  filterCloseBtnText:    { fontSize: 13, color: '#555', fontWeight: '700' },
-  filterSectionLabel:    { fontSize: 11, fontWeight: '800', color: '#AAA', letterSpacing: 0.8, marginBottom: 12, marginTop: 4 },
-  filterChipsWrap:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  filterChip:            { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1.5, borderColor: '#E0E0E0', backgroundColor: '#FFF' },
-  filterChipText:        { fontSize: 13, color: '#555', fontWeight: '600' },
+  filterActiveBadgeText: { color: '#C4873A', fontSize: 11, fontWeight: '800' },
+  filterCloseBtn:        { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F0E2C8', justifyContent: 'center', alignItems: 'center' },
+  filterCloseBtnText:    { fontSize: 13, color: '#5C3A1E', fontWeight: '800' },
+  filterSectionLabel:    { fontSize: 11, fontWeight: '800', color: '#A08060', letterSpacing: 1, marginBottom: 12, marginTop: 4, textTransform: 'uppercase' },
+  filterChipsWrap:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 22 },
+  filterChip:            { borderRadius: 22, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1.5, borderColor: '#DDD0BC', backgroundColor: '#FFF' },
+  filterChipText:        { fontSize: 13, color: '#5C3A1E', fontWeight: '600' },
   filterChipTextActive:  { color: '#FFF' },
-  filterPriceRow:        { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  filterPriceBtn:        { flex: 1, borderRadius: 14, paddingVertical: 10, borderWidth: 1.5, borderColor: '#E0E0E0', alignItems: 'center', backgroundColor: '#FFF' },
-  filterPriceBtnActive:  { backgroundColor: '#E67E22', borderColor: '#E67E22' },
-  filterPriceBtnText:    { fontSize: 13, color: '#555', fontWeight: '600' },
+  filterPriceRow:        { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  filterPriceBtn:        { flex: 1, borderRadius: 16, paddingVertical: 11, borderWidth: 1.5, borderColor: '#DDD0BC', alignItems: 'center', backgroundColor: '#FFF' },
+  filterPriceBtnActive:  { backgroundColor: '#1A0A00', borderColor: '#1A0A00' },
+  filterPriceBtnText:    { fontSize: 13, color: '#5C3A1E', fontWeight: '700' },
   filterPriceBtnTextActive: { color: '#FFF' },
   filterStarRow:         { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 24 },
-  filterStar:            { fontSize: 32, color: '#E0E0E0' },
-  filterStarActive:      { color: '#FFC107' },
-  filterStarLabel:       { fontSize: 13, color: '#999', fontWeight: '600', marginLeft: 4 },
-  filterActions:         { flexDirection: 'row', gap: 12, paddingVertical: 16, paddingBottom: 32, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
-  filterResetBtn:        { flex: 1, borderWidth: 2, borderColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  filterResetBtnText:    { color: '#E67E22', fontSize: 15, fontWeight: '700' },
-  filterApplyBtn:        { flex: 2, backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  filterApplyBtnText:    { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  filterStar:            { fontSize: 30, color: '#DDD0BC' },
+  filterStarActive:      { color: '#F0A500' },
+  filterStarLabel:       { fontSize: 13, color: '#A08060', fontWeight: '600', marginLeft: 4 },
+  filterActions:         { flexDirection: 'row', gap: 12, paddingVertical: 18, paddingBottom: 34, borderTopWidth: 1, borderTopColor: '#F0E2C8' },
+  filterResetBtn:        { flex: 1, borderWidth: 2, borderColor: '#C4873A', borderRadius: 30, paddingVertical: 15, alignItems: 'center' },
+  filterResetBtnText:    { color: '#C4873A', fontSize: 15, fontWeight: '800' },
+  filterApplyBtn:        { flex: 2, backgroundColor: '#1A0A00', borderRadius: 30, paddingVertical: 15, alignItems: 'center', shadowColor: '#1A0A00', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  filterApplyBtnText:    { color: '#FFF', fontSize: 15, fontWeight: '800' },
 
-  // ── Audio Guide ──────────────────────────────────────────────────
-  audioGuideBox:      { backgroundColor: '#F8F4FF', borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: '#E8DAFF' },
-  audioGuideHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  audioGuideTitle:    { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
-  langToggle:         { flexDirection: 'row', backgroundColor: '#EEE', borderRadius: 20, padding: 2, gap: 2 },
-  langBtn:            { borderRadius: 18, paddingHorizontal: 10, paddingVertical: 4 },
-  langBtnActive:      { backgroundColor: '#7B2FBE' },
-  langBtnText:        { fontSize: 11, fontWeight: '700', color: '#888' },
-  langBtnTextActive:  { color: '#FFF' },
-  audioPlayBtn:       { backgroundColor: '#7B2FBE', borderRadius: 30, paddingVertical: 12, alignItems: 'center', marginBottom: 8 },
-  audioPlayBtnActive: { backgroundColor: '#E74C3C' },
-  audioPlayBtnText:   { color: '#FFF', fontSize: 14, fontWeight: '800' },
-  audioLoadingText:   { fontSize: 12, color: '#999', textAlign: 'center', marginBottom: 8, fontStyle: 'italic' },
-  audioScriptToggle:  { fontSize: 12, color: '#7B2FBE', fontWeight: '700', textAlign: 'center', marginTop: 4, marginBottom: 8 },
-  audioScriptText:    { fontSize: 13, color: '#555', lineHeight: 20, fontStyle: 'italic' },
+  // Audio Guide
+  audioGuideBox: {
+    backgroundColor: '#FFF', borderRadius: 20, padding: 18, marginBottom: 22,
+    borderWidth: 1, borderColor: '#F0E2C8',
+    shadowColor: '#C4873A', shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+  },
+  audioGuideHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  audioGuideTitle:    { fontSize: 15, fontWeight: '800', color: '#2C1810' },
+  langToggle:         { flexDirection: 'row', backgroundColor: '#F0E2C8', borderRadius: 22, padding: 3, gap: 2 },
+  langBtn:            { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  langBtnActive:      { backgroundColor: '#1A0A00' },
+  langBtnText:        { fontSize: 11, fontWeight: '700', color: '#A08060' },
+  langBtnTextActive:  { color: '#F5D98B' },
+  audioPlayBtn:       { backgroundColor: '#C4873A', borderRadius: 30, paddingVertical: 13, alignItems: 'center', marginBottom: 8, shadowColor: '#C4873A', shadowOpacity: 0.3, shadowRadius: 8, elevation: 3 },
+  audioPlayBtnActive: { backgroundColor: '#C0392B' },
+  audioPlayBtnText:   { color: '#FFF', fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
+  audioLoadingText:   { fontSize: 12, color: '#A08060', textAlign: 'center', marginBottom: 8, fontStyle: 'italic' },
+  audioScriptToggle:  { fontSize: 12, color: '#C4873A', fontWeight: '800', textAlign: 'center', marginTop: 4, marginBottom: 8 },
+  audioScriptText:    { fontSize: 13, color: '#6B5040', lineHeight: 21, fontStyle: 'italic' },
+
+  // Unused legacy (kept to avoid TS errors)
+  weatherWidget: { display: 'none' },
+  weatherIcon:   { display: 'none' },
+  weatherTemp:   { display: 'none' },
+  weatherLabel:  { display: 'none' },
+  floatingCurrencyBtn:      { display: 'none' },
+  floatingCurrencyIcon:     { display: 'none' },
+  floatingCurrencyTitle:    { display: 'none' },
+  floatingCurrencySubtitle: { display: 'none' },
+  header:      { display: 'none' },
+  locationRow: { display: 'none' },
+  locationPin: { display: 'none' },
+  locationText: { display: 'none' },
+  headerRight:  { display: 'none' },
+  pointsBadge:  { display: 'none' },
+  pointsText:   { display: 'none' },
 });

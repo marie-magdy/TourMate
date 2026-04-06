@@ -164,6 +164,9 @@ const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, 
 
 // ── MAP SCREEN ────────────────────────────────────────────────────────
 export default function MapScreen() {
+  const [itinerary, setItinerary]           = useState<any[]>([]);
+  const [showItinerary, setShowItinerary]   = useState(false);
+  const [selectedDay, setSelectedDay]       = useState<number | null>(null);
   const router = useRouter();
   const { t } = useApp();
   const mapRef = useRef<MapView>(null);
@@ -181,6 +184,7 @@ export default function MapScreen() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [routeDistance, setRouteDistance]   = useState<string | null>(null);
   const [routeDuration, setRouteDuration]   = useState<string | null>(null);
+  const [bannerShownOnce, setBannerShownOnce] = useState(false);
 
   // Walkable banner state
   const [walkBanner, setWalkBanner] = useState<WalkableBanner>({ visible: false, place: null, distance_km: 0 });
@@ -188,17 +192,57 @@ export default function MapScreen() {
   const [earnedPoints, setEarnedPoints]     = useState(0);
   const [walkedPlaces, setWalkedPlaces]     = useState<Set<string>>(new Set());
 
-  useEffect(() => { getUserLocation(); }, []);
+  const DAY_COLORS = ['#E67E22', '#3498DB', '#27AE60', '#9B59B6', '#E74C3C', '#F39C12', '#1ABC9C'];
+
+  // const fetchItinerary = async () => {
+  //   try {
+  //     const res = await fetch(`${API_BASE}/itineraries?user_id=${USER_ID}`);
+      
+  //     // Get raw response before parsing
+  //     const text = await res.text();
+  //     console.log('Raw response:', text); // <-- this will always print
+
+  //     // Now try parsing
+  //     const data = JSON.parse(text);
+
+  //     if (data.success && data.data?.length > 0) {
+  //       const active = data.data.find((i: any) => i.status === 'active') ?? data.data[0];
+  //       const detailRes = await fetch(`${API_BASE}/itineraries/${active.id}`);
+        
+  //       const detailText = await detailRes.text();
+  //       console.log('Raw detail response:', detailText);
+  //       const detailData = JSON.parse(detailText);
+
+  //       if (detailData.success) {
+  //         setItinerary(detailData.data.items ?? []);
+  //         setShowItinerary(true);
+  //       }
+  //     }
+  //   } catch (err) {
+  //     console.error('Itinerary fetch error:', err);
+  //   }
+  // };
+  // Add to your main useEffect
+  useEffect(() => { 
+    getUserLocation(); 
+    // fetchItinerary();  // ← add this
+  }, []);
 
   // ── Check walkable attractions when user location updates ─────────
   useEffect(() => {
     if (userLocation && nearbyAttractions.length > 0) {
-      checkWalkableAttractions();
+      // Wait 3 seconds before showing walkable banner
+      // so user has time to see the map first
+      const timer = setTimeout(() => {
+        checkWalkableAttractions();
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-  }, [userLocation, nearbyAttractions]);
+  }, [nearbyAttractions]); // ← only trigger when attractions load, NOT on every location update
+
 
   const checkWalkableAttractions = () => {
-    if (!userLocation) return;
+    if (!userLocation || bannerShownOnce) return; // ← don't show again
     for (const attraction of nearbyAttractions) {
       const dist = getDistanceKm(
         userLocation.latitude, userLocation.longitude,
@@ -206,7 +250,8 @@ export default function MapScreen() {
       );
       if (dist <= WALKABLE_DISTANCE_KM && !walkedPlaces.has(attraction.id)) {
         setWalkBanner({ visible: true, place: attraction, distance_km: dist });
-        break; // Show one at a time
+        setBannerShownOnce(true); // ← mark as shown
+        break;
       }
     }
   };
@@ -238,7 +283,15 @@ export default function MapScreen() {
   // ── Fetch real attractions from backend ───────────────────────────
   const fetchAttractions = async (lat: number, lon: number) => {
     try {
-      const res  = await fetch(`${API_BASE}/attractions?city=Alexandria`);
+      // Reverse geocode to get city name
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
+        { headers: { 'User-Agent': 'TourMateApp/1.0 (tourmate@gmail.com)' } }
+      );
+      const geoData = await geoRes.json();
+      const city = geoData.address?.city || geoData.address?.town || 'Alexandria';
+
+      const res  = await fetch(`${API_BASE}/attractions?city=${encodeURIComponent(city)}`);
       const data = await res.json();
       if (data.success) {
         const places: Place[] = data.data
@@ -408,11 +461,11 @@ export default function MapScreen() {
 
   const clearRoute = () => { setSelectedPlaces([]); setRouteCoords([]); setRouteDistance(null); setRouteDuration(null); };
 
-  if (loadingLocation) {
+  if (loadingLocation || !userLocation) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E67E22" />
-        <Text style={styles.loadingText}>{t('map')}...</Text>
+        <Text style={styles.loadingText}>Getting your location...</Text>
       </View>
     );
   }
@@ -438,13 +491,22 @@ export default function MapScreen() {
 
         {nearbyAttractions.map(attraction => {
           const isWalkable = (attraction.distance_km ?? 99) <= WALKABLE_DISTANCE_KM;
+          const isSelected = selectedPlaces.find(p => p.id === attraction.id);
           return (
             <Marker
               key={attraction.id}
               coordinate={{ latitude: attraction.latitude, longitude: attraction.longitude }}
               title={attraction.name}
-              description={isWalkable ? '🚶 Walkable from your location!' : undefined}
-              pinColor={isWalkable ? '#27AE60' : '#3498DB'}
+              description={
+                isWalkable 
+                  ? '🚶 Walkable! Tap to add to route' 
+                  : '📍 Tap to add to route'
+              }
+              pinColor={
+                isSelected  ? '#E67E22' :   // orange = selected
+                isWalkable  ? '#27AE60' :   // green  = walkable
+                              '#3498DB'     // blue   = normal
+              }
               onCalloutPress={() => addAttractionToRoute(attraction)}
             />
           );
@@ -458,6 +520,35 @@ export default function MapScreen() {
             pinColor="#E67E22"
           />
         ))}
+        {/* ── Itinerary Day Markers ── */}
+        {showItinerary && itinerary
+          .filter(item => 
+            item.attraction?.latitude && 
+            item.attraction?.longitude &&
+            (selectedDay === null || item.day_number === selectedDay)
+          )
+          .map((item, index) => {
+            const dayColor = DAY_COLORS[(item.day_number - 1) % DAY_COLORS.length];
+            return (
+              <Marker
+                key={`itinerary_${item.id}`}
+                coordinate={{
+                  latitude:  parseFloat(item.attraction.latitude),
+                  longitude: parseFloat(item.attraction.longitude),
+                }}
+                title={`Day ${item.day_number}: ${item.attraction.name}`}
+                description={`Stop ${item.visit_order} · ${item.scheduled_time ?? ''}`}
+                pinColor={dayColor}
+                onCalloutPress={() => addAttractionToRoute({
+                  id:        String(item.attraction.id),
+                  name:      item.attraction.name,
+                  latitude:  parseFloat(item.attraction.latitude),
+                  longitude: parseFloat(item.attraction.longitude),
+                })}
+              />
+            );
+          })
+        }
 
         {routeCoords.length > 0 && (
           <Polyline
