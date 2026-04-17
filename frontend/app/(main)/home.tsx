@@ -1,5 +1,6 @@
 // app/(main)/home.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Image, FlatList, ActivityIndicator,
@@ -15,6 +16,7 @@ import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
 import * as Location from 'expo-location';
 import axios from 'axios';
+import AttractionSheet from '../../components/AttractionSheet';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -32,27 +34,28 @@ const parseCategories = (cats: any): string[] => {
   return [];
 };
 
-const getWeatherInfo = (code: number) => {
-  if (code === 0)  return { icon: '☀️', label: 'Clear' };
-  if (code <= 2)   return { icon: '⛅', label: 'Partly Cloudy' };
-  if (code === 3)  return { icon: '☁️', label: 'Cloudy' };
-  if (code <= 49)  return { icon: '🌫️', label: 'Foggy' };
-  if (code <= 59)  return { icon: '🌦️', label: 'Drizzle' };
-  if (code <= 69)  return { icon: '🌧️', label: 'Rainy' };
-  if (code <= 79)  return { icon: '❄️', label: 'Snowy' };
-  if (code <= 99)  return { icon: '⛈️', label: 'Stormy' };
-  return { icon: '🌡️', label: 'Unknown' };
+type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+const getWeatherInfo = (code: number): { iconName: MCIconName; iconColor: string; label: string } => {
+  if (code === 0)  return { iconName: 'weather-sunny',           iconColor: '#F5A623', label: 'Clear' };
+  if (code <= 2)   return { iconName: 'weather-partly-cloudy',   iconColor: '#78909C', label: 'Partly Cloudy' };
+  if (code === 3)  return { iconName: 'weather-cloudy',          iconColor: '#90A4AE', label: 'Cloudy' };
+  if (code <= 49)  return { iconName: 'weather-fog',             iconColor: '#B0BEC5', label: 'Foggy' };
+  if (code <= 59)  return { iconName: 'weather-rainy',           iconColor: '#64B5F6', label: 'Drizzle' };
+  if (code <= 69)  return { iconName: 'weather-pouring',         iconColor: '#42A5F5', label: 'Rainy' };
+  if (code <= 79)  return { iconName: 'weather-snowy',           iconColor: '#90CAF9', label: 'Snowy' };
+  if (code <= 99)  return { iconName: 'weather-lightning-rainy', iconColor: '#5C6BC0', label: 'Stormy' };
+  return           { iconName: 'weather-cloudy',                 iconColor: '#90A4AE', label: 'Unknown' };
 };
 
 const CURRENCIES = [
-  { code: 'USD', name: 'US Dollar',       flag: '🇺🇸' },
-  { code: 'EUR', name: 'Euro',            flag: '🇪🇺' },
-  { code: 'GBP', name: 'British Pound',   flag: '🇬🇧' },
-  { code: 'SAR', name: 'Saudi Riyal',     flag: '🇸🇦' },
-  { code: 'AED', name: 'UAE Dirham',      flag: '🇦🇪' },
-  { code: 'KWD', name: 'Kuwaiti Dinar',   flag: '🇰🇼' },
-  { code: 'CAD', name: 'Canadian Dollar', flag: '🇨🇦' },
-  { code: 'JPY', name: 'Japanese Yen',    flag: '🇯🇵' },
+  { code: 'USD', name: 'US Dollar' },
+  { code: 'EUR', name: 'Euro' },
+  { code: 'GBP', name: 'British Pound' },
+  { code: 'SAR', name: 'Saudi Riyal' },
+  { code: 'AED', name: 'UAE Dirham' },
+  { code: 'KWD', name: 'Kuwaiti Dinar' },
+  { code: 'CAD', name: 'Canadian Dollar' },
+  { code: 'JPY', name: 'Japanese Yen' },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -69,10 +72,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const ALL_CATEGORIES = ['Historical', 'Beaches', 'Restaurants', 'Shopping', 'Nature', 'Diving', 'Culture', 'Nightlife', 'Adventure'];
 const PRICE_PRESETS = [
-  { label: 'Any', max: null },
-  { label: '< $50', max: 50 },
-  { label: '< $100', max: 100 },
-  { label: '< $200', max: 200 },
+  { label: 'Any',        max: null },
+  { label: '< 100 EGP',  max: 100  },
+  { label: '< 300 EGP',  max: 300  },
+  { label: '< 600 EGP',  max: 600  },
 ];
 
 // ── Filter Sheet ──────────────────────────────────────────────────────
@@ -149,7 +152,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
             </View>
           )}
           <TouchableOpacity onPress={onClose} style={styles.filterCloseBtn}>
-            <Text style={styles.filterCloseBtnText}>✕</Text>
+            <MaterialCommunityIcons name="close" size={20} color="#666" />
           </TouchableOpacity>
         </View>
 
@@ -209,12 +212,11 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
                 onPress={() => setDraft(prev => ({ ...prev, minRating: prev.minRating === star ? 0 : star }))}
                 activeOpacity={0.7}
               >
-                <Text style={[
-                  styles.filterStar,
-                  star <= draft.minRating && styles.filterStarActive,
-                ]}>
-                  ★
-                </Text>
+                <MaterialCommunityIcons
+                  name={star <= draft.minRating ? 'star' : 'star-outline'}
+                  size={26}
+                  color={star <= draft.minRating ? '#FFC107' : '#DDD'}
+                />
               </TouchableOpacity>
             ))}
             <Text style={styles.filterStarLabel}>
@@ -252,7 +254,12 @@ const StarRating: React.FC<{ rating: number; size?: number; color?: string }> = 
 }) => (
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
     {[1,2,3,4,5].map(i => (
-      <Text key={i} style={{ color: i <= Math.round(rating) ? color : '#DDD', fontSize: size }}>★</Text>
+      <MaterialCommunityIcons
+        key={i}
+        name={i <= Math.round(rating) ? 'star' : 'star-outline'}
+        size={size}
+        color={i <= Math.round(rating) ? color : '#DDD'}
+      />
     ))}
     <Text style={{ color: '#888', fontSize: size - 1, marginLeft: 3 }}>{rating}</Text>
   </View>
@@ -261,7 +268,7 @@ const StarRating: React.FC<{ rating: number; size?: number; color?: string }> = 
 
 // ── Weather Widget (uses coordinates, NOT city) ─────────────────────
 const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ latitude, longitude }) => {
-  const [weather, setWeather] = useState<{ temp: number; icon: string; label: string } | null>(null);
+  const [weather, setWeather] = useState<{ temp: number; iconName: MCIconName; iconColor: string; label: string } | null>(null);
 
   useEffect(() => {
     if (!latitude || !longitude) return;
@@ -277,8 +284,9 @@ const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ lati
 
         setWeather({
           temp: Math.round(data.current_weather.temperature),
-          icon: info.icon,
-          label: info.label,
+          iconName:  info.iconName,
+          iconColor: info.iconColor,
+          label:     info.label,
         });
       } catch (err) {
         console.log(err);
@@ -292,7 +300,7 @@ const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ lati
 
   return (
     <View style={styles.weatherChip}>
-      <Text style={styles.weatherChipIcon}>{weather.icon}</Text>
+      <MaterialCommunityIcons name={weather.iconName} size={16} color={weather.iconColor} />
       <Text style={styles.weatherChipTemp}>{weather.temp}°C</Text>
       <Text style={styles.weatherChipDot}>·</Text>
       <Text style={styles.weatherChipLabel}>{weather.label}</Text>
@@ -300,516 +308,7 @@ const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ lati
   );
 };
 
-// ── Attraction Bottom Sheet ───────────────────────────────────────────
-interface AttractionSheetProps {
-  attraction: Attraction | null;
-  visible: boolean;
-  onClose: () => void;
-  userLocation: { latitude: number; longitude: number } | null;
-}
-
-const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation }) => {
-  
-  const { t, convertPrice } = useApp();
-  const slideAnim  = useRef(new Animated.Value(height)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const [isFavorited, setIsFavorited] = useState(false);
-  const [images, setImages] = useState<string[]>([]);
-  const [activeImage, setActiveImage] = useState(0);
-
-  // ── Audio Guide state ─────────────────────────────────────────────
-  const [audioLang, setAudioLang] = useState<'en' | 'ar'>('en');
-  const [audioLoading, setAudioLoading] = useState(false);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioScript, setAudioScript] = useState('');
-  const [showScript, setShowScript] = useState(false);
-  const soundRef = useRef<any>(null);
-
-  // ── Get There state ───────────────────────────────────────────────
-  const [rideInfo, setRideInfo] = useState<{ distance: string; duration: string; fare: string } | null>(null);
-  const [rideLoading, setRideLoading] = useState(false);
-
-  
-  useEffect(() => {
-    if (visible && attraction) {
-      fetchImages(attraction.id);
-      Animated.parallel([
-        Animated.spring(slideAnim, { toValue: 0, damping: 18, stiffness: 120, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      stopAudio();
-      setAudioScript('');
-      setShowScript(false);
-      setRideInfo(null);
-      Animated.parallel([
-        Animated.timing(slideAnim,  { toValue: height, duration: 280, useNativeDriver: true }),
-        Animated.timing(opacityAnim,{ toValue: 0,      duration: 200, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [visible, attraction]);
-
-  // Reset audio when language changes
-  useEffect(() => {
-    stopAudio();
-    setAudioScript('');
-    setShowScript(false);
-  }, [audioLang]);
-
-  const stopAudio = async () => {
-    if (soundRef.current) {
-      try {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
-      } catch {}
-      soundRef.current = null;
-    }
-    setAudioPlaying(false);
-  };
-
-  // ── Get There helpers ─────────────────────────────────────────────
-  const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
-
-  // Egypt ride fare estimate: ~5 EGP/km base, minimum 30 EGP
-  const estimateFare = (distanceMeters: number) => {
-    const km = distanceMeters / 1000;
-    const egp = Math.max(30, Math.round(km * 5));
-    return `~${egp}–${egp + 20} EGP`;
-  };
-
-  const fetchAttractionCoordinates = async (name: string, city?: string) => {
-    try {
-      const query = city ? `${name}, ${city}` : name;
-      const res = await axios.get('https://nominatim.openstreetmap.org/search', {
-        params: { q: query, format: 'json', limit: 1 },
-        headers: {
-          'User-Agent': 'TourMateApp/1.0 (tourmate@gmail.com)',
-        },
-      });
-      if (res.data?.length > 0) {
-        return {
-          lat: parseFloat(res.data[0].lat),
-          lon: parseFloat(res.data[0].lon),
-        };
-      } else {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-  };
-
-  const fetchRideInfo = async () => {
-    if (!attraction || rideInfo || !userLocation) return;
-    setRideLoading(true);
-
-    try {
-      // Origin: user's current location
-      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
-
-      // Destination: fetch dynamically from OpenStreetMap
-      const destCoord = await fetchAttractionCoordinates(attraction.name, attraction.city);
-      if (!destCoord) {
-        setRideInfo({ distance: 'Varies', duration: 'Varies', fare: '~30–80 EGP' });
-        setRideLoading(false);
-        return;
-      }
-
-      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.lat},${origin.lon}&destinations=${destCoord.lat},${destCoord.lon}&mode=driving&key=${GOOGLE_MAPS_KEY}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const element = data.rows?.[0]?.elements?.[0];
-
-      if (element?.status === 'OK') {
-        setRideInfo({
-          distance: element.distance.text,
-          duration: element.duration.text,
-          fare: estimateFare(element.distance.value),
-        });
-      } else {
-        setRideInfo({ distance: 'N/A', duration: 'N/A', fare: '~30–80 EGP' });
-      }
-    } catch {
-      setRideInfo({ distance: 'N/A', duration: 'N/A', fare: '~30–80 EGP' });
-    } finally {
-      setRideLoading(false);
-    }
-  };
-
-  const openUber = async () => {
-    if (!attraction || !userLocation) return;
-
-    try {
-      // Origin: user's current location
-      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
-
-      // Destination: fetch dynamically from OpenStreetMap
-      const dest = await fetchAttractionCoordinates(attraction.name, attraction.city);
-
-      const uberUrl = dest
-        ? `uber://?action=setPickup&pickup[latitude]=${origin.lat}&pickup[longitude]=${origin.lon}&dropoff[latitude]=${dest.lat}&dropoff[longitude]=${dest.lon}&dropoff[nickname]=${encodeURIComponent(attraction.name)}`
-        : `uber://`;
-
-      // App Store / Play Store links for Uber
-      const uberIOS = 'itms-apps://itunes.apple.com/app/id368677368';
-      const uberAndroid = 'https://play.google.com/store/apps/details?id=com.ubercab';
-
-      const canOpen = await Linking.canOpenURL(uberUrl);
-      if (canOpen) {
-        Linking.openURL(uberUrl);
-      } else {
-        const storeUrl = Platform.OS === 'ios' ? uberIOS : uberAndroid;
-        Linking.openURL(storeUrl).catch(() =>
-          Linking.openURL('https://apps.apple.com/app/id368677368')
-        );
-      }
-    } catch (err) {
-      console.warn('Failed to open Uber:', err);
-    }
-  };
-
-  const openCareem = async () => {
-    if (!attraction || !userLocation) return;
-
-    try {
-      // Pickup: user's current location
-      const origin = { lat: userLocation.latitude, lon: userLocation.longitude };
-
-      // Destination: fetch dynamically from OpenStreetMap
-      const dest = await fetchAttractionCoordinates(attraction.name, attraction.city);
-
-      const careemUrl = dest
-        ? `careem://ride?pickup_lat=${origin.lat}&pickup_lng=${origin.lon}&dropoff_lat=${dest.lat}&dropoff_lng=${dest.lon}&dropoff_name=${encodeURIComponent(attraction.name)}`
-        : `careem://`;
-
-      // App Store / Play Store links for Careem
-      const careemIOS = 'itms-apps://itunes.apple.com/app/id592978487';
-      const careemAndroid = 'https://play.google.com/store/apps/details?id=com.careem.acma';
-
-      const canOpen = await Linking.canOpenURL(careemUrl);
-      if (canOpen) {
-        Linking.openURL(careemUrl);
-      } else {
-        const storeUrl = Platform.OS === 'ios' ? careemIOS : careemAndroid;
-        Linking.openURL(storeUrl).catch(() =>
-          Linking.openURL('https://apps.apple.com/app/id592978487')
-        );
-      }
-    } catch (err) {
-      console.warn('Failed to open Careem:', err);
-    }
-  };
-  const fetchImages = async (id: number) => {
-    try {
-      const res  = await fetch(`${API_BASE}/attractions/${id}/images`);
-      const data = await res.json();
-      if (data.success && data.data.length > 0) {
-        setImages(data.data.map((img: any) => img.image_url));
-      } else {
-          setImages(attraction?.primary_image ? [attraction.primary_image] : []);
-      }
-      setActiveImage(0);
-    } catch {
-      setImages(attraction?.primary_image ? [attraction.primary_image] : []);
-    }
-  };
-
-  const toggleFavorite = async () => {
-    setIsFavorited(prev => !prev);
-    try {
-      await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: 1 }),
-      });
-    } catch {
-      setIsFavorited(prev => !prev);
-    }
-  };
-
-  const handleAudioGuide = async () => {
-    if (!attraction) return;
-    if (audioPlaying) { await stopAudio(); return; }
-
-    setAudioLoading(true);
-    try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-
-      const res = await fetch(`${API_BASE}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: attraction.name,
-          city: attraction.city,
-          category: parseCategories(attraction.categories)[0] ?? attraction.category,
-          description: attraction.description,
-          price_from: attraction.price_from,
-          opening_hours: attraction.opening_hours,
-          language: audioLang,
-        }),
-      });
-
-      const data = await res.json();
-      if (!data.success) throw new Error('TTS failed');
-
-      setAudioScript(data.script);
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: `data:audio/mpeg;base64,${data.audio}` },
-        { shouldPlay: true }
-      );
-      soundRef.current = sound;
-      setAudioPlaying(true);
-
-      sound.setOnPlaybackStatusUpdate((status: any) => {
-        if (status.didJustFinish) {
-          setAudioPlaying(false);
-          soundRef.current = null;
-        }
-      });
-    } catch (err) {
-      console.error('Audio guide error:', err);
-    } finally {
-      setAudioLoading(false);
-    }
-  };
-
-  if (!attraction) return null;
-
-  const firstCategory = parseCategories(attraction.categories)[0] ?? attraction.category ?? '';
-  const categoryColor = CATEGORY_COLORS[firstCategory] ?? '#E67E22';
-
-  return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      {/* Backdrop */}
-      <Animated.View style={[styles.sheetBackdrop, { opacity: opacityAnim }]}>
-        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
-      </Animated.View>
-
-      {/* Sheet */}
-      <Animated.View style={[styles.sheetContainer, { transform: [{ translateY: slideAnim }] }]}>
-
-        {/* Drag handle */}
-        <View style={styles.sheetHandle} />
-
-        {/* Image Gallery */}
-        <View style={styles.galleryContainer}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={e => setActiveImage(Math.round(e.nativeEvent.contentOffset.x / width))}
-          >
-            {(images.length > 0 ? images : [attraction.image_url]).map((img, i) => (
-              <Image key={i} source={{ uri: img }} style={styles.galleryImage} resizeMode="cover" />
-            ))}
-          </ScrollView>
-
-          {/* Image dots */}
-          {images.length > 1 && (
-            <View style={styles.imageDots}>
-              {images.map((_, i) => (
-                <View key={i} style={[styles.imageDot, i === activeImage && styles.imageDotActive]} />
-              ))}
-            </View>
-          )}
-
-          {/* Close button */}
-          <TouchableOpacity style={styles.sheetCloseBtn} onPress={onClose}>
-            <Text style={styles.sheetCloseBtnText}>✕</Text>
-          </TouchableOpacity>
-
-          {/* Favorite button */}
-          <TouchableOpacity style={styles.sheetFavBtn} onPress={toggleFavorite}>
-            <Text style={[styles.sheetFavIcon, isFavorited && { color: '#E74C3C' }]}>
-              {isFavorited ? '♥' : '♡'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Category badge */}
-          <View style={[styles.categoryBadge, { backgroundColor: categoryColor }]}>
-            <Text style={styles.categoryBadgeText}>{firstCategory}</Text>
-          </View>
-        </View>
-
-        {/* Content */}
-        <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
-
-          {/* Name & Location */}
-          <Text style={styles.sheetName}>{attraction.name}</Text>
-          <View style={styles.sheetLocationRow}>
-            <Text style={styles.sheetLocationIcon}>📍</Text>
-            <Text style={styles.sheetLocationText}>{attraction.city}, Egypt</Text>
-          </View>
-
-          {/* Rating row */}
-          <View style={styles.sheetRatingRow}>
-            <StarRating rating={Number(attraction.rating)} size={14} />
-          </View>
-
-          {/* Info pills */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoPillsRow}>
-            <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>💰</Text>
-              <View>
-                <Text style={styles.infoPillLabel}>{t('priceFrom')}</Text>
-                <Text style={styles.infoPillValue}>{convertPrice(attraction.price_from)}</Text>
-              </View>
-            </View>
-            <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>🕐</Text>
-              <View>
-                <Text style={styles.infoPillLabel}>{t('hours')}</Text>
-                <Text style={styles.infoPillValue} numberOfLines={1}>{attraction.opening_hours ?? t('seeWebsite')}</Text>
-              </View>
-            </View>
-            <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>🏷️</Text>
-              <View>
-                <Text style={styles.infoPillLabel}>{t('category')}</Text>
-                <Text style={[styles.infoPillValue, { textTransform: 'capitalize' }]}>
-                  {parseCategories(attraction.categories).join(', ') || attraction.category}
-                </Text>
-              </View>
-            </View>
-          </ScrollView>
-
-          {/* ── Audio Guide ── */}
-          <View style={styles.audioGuideBox}>
-            <View style={styles.audioGuideHeader}>
-              <Text style={styles.audioGuideTitle}>🎧 Audio Guide</Text>
-              {/* Language toggle */}
-              <View style={styles.langToggle}>
-                <TouchableOpacity
-                  style={[styles.langBtn, audioLang === 'en' && styles.langBtnActive]}
-                  onPress={() => setAudioLang('en')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.langBtnText, audioLang === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.langBtn, audioLang === 'ar' && styles.langBtnActive]}
-                  onPress={() => setAudioLang('ar')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.langBtnText, audioLang === 'ar' && styles.langBtnTextActive]}>🇪🇬 AR</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Play button */}
-            <TouchableOpacity
-              style={[styles.audioPlayBtn, audioPlaying && styles.audioPlayBtnActive]}
-              onPress={handleAudioGuide}
-              activeOpacity={0.85}
-              disabled={audioLoading}
-            >
-              {audioLoading ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={styles.audioPlayBtnText}>
-                  {audioPlaying ? '⏹ Stop' : '▶ Play Guide'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            {audioLoading && (
-              <Text style={styles.audioLoadingText}>
-                {audioLang === 'ar' ? 'جاري توليد الدليل الصوتي...' : 'Generating your audio guide...'}
-              </Text>
-            )}
-
-            {/* Script toggle */}
-            {audioScript.length > 0 && (
-              <TouchableOpacity onPress={() => setShowScript(p => !p)} activeOpacity={0.7}>
-                <Text style={styles.audioScriptToggle}>
-                  {showScript ? '▲ Hide script' : '▼ Show script'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {showScript && audioScript.length > 0 && (
-              <Text style={[styles.audioScriptText, audioLang === 'ar' && { textAlign: 'right' }]}>
-                {audioScript}
-              </Text>
-            )}
-          </View>
-
-          {/* Description */}
-          <Text style={styles.sheetAboutTitle}>{t('about')}</Text>
-          <Text style={styles.sheetAboutText}>{attraction.description}</Text>
-
-          {/* ── Get There ───────────────────────────────────────── */}
-          <View style={styles.getRideSection}>
-            <View style={styles.getRideHeader}>
-              <Text style={styles.getRideTitle}>🚗 Get There</Text>
-              {!rideInfo && !rideLoading && (
-                <TouchableOpacity style={styles.getRideEstimateBtn} onPress={fetchRideInfo}>
-                  <Text style={styles.getRideEstimateBtnText}>Check ride</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {rideLoading && (
-              <View style={styles.getRideLoading}>
-                <ActivityIndicator size="small" color="#E67E22" />
-                <Text style={styles.getRideLoadingText}>Estimating ride...</Text>
-              </View>
-            )}
-
-            {rideInfo && !rideLoading && (
-              <View style={styles.getRideInfo}>
-                <View style={styles.getRidePill}>
-                  <Text style={styles.getRidePillIcon}>📍</Text>
-                  <Text style={styles.getRidePillValue}>{rideInfo.distance}</Text>
-                </View>
-                <View style={styles.getRidePill}>
-                  <Text style={styles.getRidePillIcon}>⏱</Text>
-                  <Text style={styles.getRidePillValue}>{rideInfo.duration}</Text>
-                </View>
-                <View style={styles.getRidePill}>
-                  <Text style={styles.getRidePillIcon}>💰</Text>
-                  <Text style={styles.getRidePillValue}>{rideInfo.fare}</Text>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.getRideBtns}>
-              <TouchableOpacity style={styles.uberBtn} onPress={openUber} activeOpacity={0.85}>
-                <Text style={styles.uberBtnText}>🖤 Uber</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.careemBtn} onPress={openCareem} activeOpacity={0.85}>
-                <Text style={styles.careemBtnText}>🟢 Careem</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.getRideNote}>App installed → opens with destination pre-filled · Not installed → download from store</Text>
-          </View>
-
-          <View style={{ height: 20 }} />
-        </ScrollView>
-
-        {/* Action Buttons */}
-        <View style={styles.sheetActions}>
-          <TouchableOpacity
-            style={styles.sheetFavoritesBtn}
-            onPress={toggleFavorite}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.sheetFavoritesBtnText}>
-              {isFavorited ? t('saved') : t('save')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.sheetPlanBtn}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.sheetPlanBtnText}>{t('addToPlan')}</Text>
-          </TouchableOpacity>
-        </View>
-
-      </Animated.View>
-    </Modal>
-  );
-};
+// ── AttractionSheet imported from ../../components/AttractionSheet ────
 
 // ── Popular Card — cinematic tall rectangle ───────────────────────────
 const PopularCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => void }> = ({ item, onPress }) => {
@@ -821,13 +320,14 @@ const PopularCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => v
       <View style={styles.popularGradient} />
       <View style={styles.popularOverlay}>
         <View style={styles.popularRatingBadge}>
-          <Text style={styles.popularRatingText}>⭐ {Number(item.rating).toFixed(1)}</Text>
+          <MaterialCommunityIcons name="star" size={11} color="#FFC107" />
+          <Text style={styles.popularRatingText}> {Number(item.rating).toFixed(1)}</Text>
         </View>
         <Text style={styles.popularName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.popularFooter}>
           <Text style={styles.popularPrice}>from {convertPrice(item.price_from)}</Text>
           <View style={styles.popularArrow}>
-            <Text style={styles.popularArrowText}>→</Text>
+            <MaterialCommunityIcons name="arrow-right" size={16} color="#FFF" />
           </View>
         </View>
       </View>
@@ -838,7 +338,7 @@ const PopularCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => v
 // ── Nearest Card — horizontal list item ──────────────────────────────
 const NearestCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => void }> = ({ item, onPress }) => {
   const { convertPrice } = useApp();
-  const firstCategory = parseCategories(item.categories)[0] ?? item.category ?? '';
+  const firstCategory = parseCategories(item.categories)[0] ?? '';
   const catColor = CATEGORY_COLORS[firstCategory] ?? '#C4873A';
   return (
     <TouchableOpacity style={styles.nearestCard} onPress={() => onPress(item)} activeOpacity={0.88}>
@@ -852,35 +352,51 @@ const NearestCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => v
           <Text style={styles.nearestPrice}>{convertPrice(item.price_from)}</Text>
         </View>
       </View>
-      <Text style={styles.nearestChevron}>›</Text>
+      <MaterialCommunityIcons name="chevron-right" size={22} color="#CCC" />
     </TouchableOpacity>
   );
 };
 
 // ── Bottom Tab — floating pill style ──────────────────────────────────
+interface TabItem {
+  name: string;
+  label: string;
+  iconDefault: MCIconName;
+  iconActive: MCIconName;
+  route: string;
+}
+
+const TABS: TabItem[] = [
+  { name: 'Home',      label: 'Home',   iconDefault: 'home-outline',               iconActive: 'home',                  route: '/(main)/home' },
+  { name: 'Plan',      label: 'Plan',   iconDefault: 'calendar-plus-outline',      iconActive: 'calendar-plus',         route: '/(main)/plan' },
+  { name: 'Tour Mate', label: 'AI',     iconDefault: 'robot-outline',              iconActive: 'robot',                 route: '/(main)/tourmate-ai' },
+  { name: 'Favorites', label: 'Saved',  iconDefault: 'heart-outline',              iconActive: 'heart',                 route: '/(main)/favorites' },
+  { name: 'My Plans',  label: 'Plans',  iconDefault: 'bookmark-multiple-outline',  iconActive: 'bookmark-multiple',     route: '/(main)/saved-plans' },
+  { name: 'View Map',  label: 'Map',    iconDefault: 'map-marker-outline',         iconActive: 'map-marker',            route: '/(main)/map' },
+];
+
 const BottomTab: React.FC<{ active: string }> = ({ active }) => {
   const router = useRouter();
-  const tabs = [
-    { name: 'Home',      icon: '⌂',  route: '/(main)/home' },
-    { name: 'Plan',      icon: '✦',  route: '/(main)/plan' },
-    { name: 'Tour Mate', icon: '◈',  route: '/(main)/tourmate-ai' },
-    { name: 'Favorites', icon: '♡',  route: '/(main)/favorites' },
-    { name: 'Map',       icon: '◉',  route: '/(main)/map' },
-  ];
   return (
     <View style={styles.bottomTabWrap}>
       <View style={styles.bottomTab}>
-        {tabs.map(tab => {
+        {TABS.map(tab => {
           const isActive = tab.name === active;
           return (
             <TouchableOpacity
               key={tab.name}
               style={[styles.tabItem, isActive && styles.tabItemActive]}
               onPress={() => { if (!isActive) router.push(tab.route as any); }}
-              activeOpacity={0.8}
+              activeOpacity={0.75}
             >
-              <Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>{tab.icon}</Text>
-              {isActive && <Text style={styles.tabLabel}>{tab.name}</Text>}
+              <MaterialCommunityIcons
+                name={isActive ? tab.iconActive : tab.iconDefault}
+                size={22}
+                color={isActive ? '#FFF' : 'rgba(255,255,255,0.45)'}
+              />
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                {tab.label}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -926,8 +442,8 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
         <Pressable style={styles.currencySheet} onPress={Keyboard.dismiss}>
 
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>💱 Currency Exchange</Text>
-            <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+            <Text style={styles.modalTitle}>Currency Exchange</Text>
+            <TouchableOpacity onPress={onClose}><MaterialCommunityIcons name="close" size={22} color="#999" /></TouchableOpacity>
           </View>
           <View style={styles.liveBadge}>
             <View style={styles.liveDot} />
@@ -936,22 +452,22 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
           </View>
           <Text style={styles.currencyLabel}>From</Text>
           <TouchableOpacity style={styles.currencySelector} onPress={() => setShowPicker(!showPicker)}>
-            <Text style={styles.currencyFlag}>{selectedCurrency.flag}</Text>
+            <MaterialCommunityIcons name="flag-variant" size={24} color="#888" />
             <View style={styles.currencySelectorText}>
               <Text style={styles.currencyCode}>{selectedCurrency.code}</Text>
               <Text style={styles.currencyName}>{selectedCurrency.name}</Text>
             </View>
-            <Text style={styles.currencySelectorArrow}>▾</Text>
+            <MaterialCommunityIcons name="chevron-down" size={18} color="#999" />
           </TouchableOpacity>
           {showPicker && (
             <View style={styles.pickerDropdown}>
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 200 }}>
                 {CURRENCIES.map(c => (
                   <TouchableOpacity key={c.code} style={[styles.pickerItem, selectedCurrency.code === c.code && styles.pickerItemActive]} onPress={() => selectCurrency(c)}>
-                    <Text style={styles.pickerFlag}>{c.flag}</Text>
+                    <MaterialCommunityIcons name="flag-variant" size={18} color="#888" />
                     <Text style={styles.pickerCode}>{c.code}</Text>
                     <Text style={styles.pickerName}>{c.name}</Text>
-                    {selectedCurrency.code === c.code && <Text style={styles.pickerCheck}>✓</Text>}
+                    {selectedCurrency.code === c.code && <MaterialCommunityIcons name="check" size={16} color="#E67E22" />}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -969,10 +485,10 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
               placeholderTextColor="#AAA"
             />
           </View>
-          <View style={styles.convertArrow}><Text style={styles.convertArrowIcon}>↓</Text></View>
+          <View style={styles.convertArrow}><MaterialCommunityIcons name="arrow-down" size={20} color="#E67E22" /></View>
           <Text style={styles.currencyLabel}>To</Text>
           <View style={styles.resultBox}>
-            <Text style={styles.resultFlag}>🇪🇬</Text>
+            <MaterialCommunityIcons name="flag-variant" size={24} color="#E67E22" />
             <View style={styles.resultTextBox}>
               <Text style={styles.resultCode}>EGP</Text>
               <Text style={styles.resultName}>Egyptian Pound</Text>
@@ -1047,20 +563,16 @@ export default function HomeScreen() {
 
   const fetchData = async () => {
     try {
-      const [popRes, nearRes, pointsRes] = await Promise.all([
-        fetch(`${API_BASE}/attractions/popular`),
-        fetch(`${API_BASE}/attractions/nearest?city=Alexandria`),
-        fetch(`${API_BASE}/points/1`),
+      const [popResult, nearResult, pointsResult] = await Promise.allSettled([
+        fetch(`${API_BASE}/attractions/popular`).then(r => r.json()),
+        fetch(`${API_BASE}/attractions/nearest?city=Alexandria`).then(r => r.json()),
+        fetch(`${API_BASE}/points/1`).then(r => r.json()),
       ]);
-      const popData    = await popRes.json();
-      const nearData   = await nearRes.json();
-      const pointsData = await pointsRes.json();
 
-      setPopular(popData.data  ?? []);
-      setNearest(nearData.data ?? []);
-      if (pointsData.success) {
-        setUserPoints(pointsData.data.points);
-      }
+      if (popResult.status === 'fulfilled')    setPopular(popResult.value.data ?? []);
+      if (nearResult.status === 'fulfilled')   setNearest(nearResult.value.data ?? []);
+      if (pointsResult.status === 'fulfilled' && pointsResult.value.success)
+        setUserPoints(pointsResult.value.data.points);
     } catch (err) { console.error('Fetch error:', err); }
     finally { setLoading(false); }
   };
@@ -1174,7 +686,7 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
                 onPress={() => router.push('/(main)/map' as any)}
               >
                 <Text style={styles.locationPillText}>{locationText}</Text>
-                <Text style={styles.locationChevron}>›</Text>
+                <MaterialCommunityIcons name="chevron-right" size={16} color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
 
               {/* ✅ Weather UNDER location */}
@@ -1219,7 +731,7 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
           {/* ── Search Bar ── */}
           <View style={styles.searchWrapper}>
             <View style={styles.searchBar}>
-              <Text style={styles.searchIcon}>🔍</Text>
+              <MaterialCommunityIcons name="magnify" size={18} color="#C0A882" />
               <TextInput
                 style={styles.searchInput}
                 {...{placeholder: t('search')}}
@@ -1229,7 +741,7 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
               />
             </View>
             <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilter(true)} activeOpacity={0.85}>
-              <Text style={styles.filterIcon}>⚙</Text>
+              <MaterialCommunityIcons name="tune-variant" size={18} color="#FFF" />
               {activeFilterCount > 0 && (
                 <View style={styles.filterBadge}>
                   <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
@@ -1244,13 +756,13 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
               {filteredSearch.map(item => (
                 <TouchableOpacity key={item.id} style={styles.searchResultItem} onPress={() => openAttraction(item)}>
                   <View style={styles.searchResultLeft}>
-                    <Text style={styles.searchResultIcon}>🏛</Text>
+                    <MaterialCommunityIcons name="map-marker-radius" size={18} color="#E67E22" />
                     <View>
                       <Text style={styles.searchResultText}>{item.name}</Text>
                       <Text style={styles.searchResultSub}>{item.city}, Egypt</Text>
                     </View>
                   </View>
-                  <Text style={styles.searchResultArrow}>›</Text>
+                  <MaterialCommunityIcons name="chevron-right" size={18} color="#CCC" />
                 </TouchableOpacity>
               ))}
             </View>
@@ -1260,14 +772,14 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
           <TouchableOpacity style={styles.infoStrip} onPress={() => setShowCurrency(true)} activeOpacity={0.85}>
             <View style={styles.infoStripLeft}>
               <View style={styles.infoStripIconBox}>
-                <Text style={styles.infoStripIconText}>💱</Text>
+                <MaterialCommunityIcons name="swap-horizontal" size={22} color="#E67E22" />
               </View>
               <View>
                 <Text style={styles.infoStripTitle}>Currency Exchange</Text>
                 <Text style={styles.infoStripSub}>Live EGP rates · Tap to convert</Text>
               </View>
             </View>
-            <Text style={styles.infoStripArrow}>›</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#CCC" />
           </TouchableOpacity>
 
           {/* ── Popular ── */}
@@ -1531,6 +1043,7 @@ const styles = StyleSheet.create({
   popularRatingBadge: {
     alignSelf: 'flex-start', backgroundColor: 'rgba(196,135,58,0.9)',
     borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
   },
   popularRatingText: { fontSize: 11, color: '#FFF', fontWeight: '800' },
   popularName:       { fontSize: 16, fontWeight: '900', color: '#FFF', marginBottom: 8, letterSpacing: -0.3 },
@@ -1563,27 +1076,45 @@ const styles = StyleSheet.create({
 
   // ── Bottom Tab — floating pill ─────────────────────────────────────
   bottomTabWrap: {
-    position: 'absolute', bottom: 20, left: 24, right: 24,
+    position: 'absolute', bottom: 20, left: 16, right: 16,
     alignItems: 'center',
   },
   bottomTab: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#1A0A00',
-    borderRadius: 40, paddingVertical: 8, paddingHorizontal: 8,
-    shadowColor: '#1A0A00', shadowOpacity: 0.35, shadowRadius: 20, elevation: 14,
-    gap: 4,
+    borderRadius: 28,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    shadowColor: '#1A0A00',
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 16,
+    width: '100%',
+    justifyContent: 'space-around',
   },
   tabItem: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 32, gap: 6,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderRadius: 20,
+    gap: 3,
   },
   tabItemActive: {
     backgroundColor: '#C4873A',
-    paddingHorizontal: 18,
   },
-  tabIcon:       { fontSize: 17, color: 'rgba(255,255,255,0.45)' },
-  tabIconActive: { color: '#FFF' },
-  tabLabel:      { fontSize: 12, color: '#FFF', fontWeight: '800', letterSpacing: 0.2 },
+  tabLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  tabLabelActive: {
+    color: '#FFF',
+    fontWeight: '800',
+  },
 
   // ── Attraction Sheet ──────────────────────────────────────────────
   sheetBackdrop:  { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(26,10,0,0.65)' },
@@ -1624,7 +1155,7 @@ const styles = StyleSheet.create({
   },
   infoPillIcon:  { fontSize: 18 },
   infoPillLabel: { fontSize: 10, color: '#C0A882', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  infoPillValue: { fontSize: 13, fontWeight: '800', color: '#2C1810', maxWidth: 100 },
+  infoPillValue: { fontSize: 13, fontWeight: '800', color: '#2C1810', maxWidth: 160, flexWrap: 'wrap' },
   sheetAboutTitle: { fontSize: 16, fontWeight: '800', color: '#2C1810', marginBottom: 8 },
   sheetAboutText:  { fontSize: 14, color: '#6B5040', lineHeight: 23 },
 
@@ -1649,9 +1180,9 @@ const styles = StyleSheet.create({
   getRidePillIcon:  { fontSize: 12 },
   getRidePillValue: { fontSize: 12, fontWeight: '700', color: '#2C1810' },
   getRideBtns:      { flexDirection: 'row', gap: 10 },
-  uberBtn:     { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  uberBtn:     { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 14, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   uberBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
-  careemBtn:     { flex: 1, backgroundColor: '#0D9E5B', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  careemBtn:     { flex: 1, backgroundColor: '#0D9E5B', borderRadius: 14, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   careemBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
   getRideNote: { fontSize: 10, color: '#C0A882', textAlign: 'center', marginTop: 10 },
 

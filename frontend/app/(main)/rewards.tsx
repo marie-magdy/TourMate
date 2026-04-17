@@ -1,5 +1,6 @@
 // app/(main)/rewards.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, StatusBar, Dimensions,
@@ -15,11 +16,12 @@ interface UserPoints { points: number; total_earned: number; }
 interface Reward { id: number; title: string; description: string; points_required: number; category: string; icon: string; }
 interface HistoryItem { id: number; points: number; action: string; description: string; created_at: string; }
 
-const LEVELS = [
-  { name: 'Explorer',    min: 0,    max: 500,  color: '#8B7355', icon: '🧭' },
-  { name: 'Adventurer',  min: 500,  max: 1500, color: '#2D6A4F', icon: '🏕️' },
-  { name: 'Trailblazer', min: 1500, max: 3000, color: '#0077B6', icon: '⚡' },
-  { name: 'Legend',      min: 3000, max: 99999, color: '#E67E22', icon: '👑' },
+type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+const LEVELS: { name: string; min: number; max: number; color: string; iconName: MCIconName }[] = [
+  { name: 'Explorer',    min: 0,     max: 500,   color: '#8B7355', iconName: 'compass-outline' },
+  { name: 'Adventurer',  min: 500,   max: 1500,  color: '#2D6A4F', iconName: 'tent' },
+  { name: 'Trailblazer', min: 1500,  max: 3000,  color: '#0077B6', iconName: 'lightning-bolt' },
+  { name: 'Legend',      min: 3000,  max: 99999, color: '#E67E22', iconName: 'crown' },
 ];
 
 const getLevel = (total: number) => LEVELS.find(l => total >= l.min && total < l.max) ?? LEVELS[0];
@@ -39,14 +41,14 @@ const CelebrationModal: React.FC<{ visible: boolean; reward: Reward | null; onCl
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.celebrationOverlay}>
         <Animated.View style={[styles.celebrationCard, { transform: [{ scale: scaleAnim }] }]}>
-          <Text style={styles.celebrationEmoji}>🎉</Text>
+          <MaterialCommunityIcons name="party-popper" size={48} color="#E67E22" style={{ marginBottom: 8 }} />
           <Text style={styles.celebrationTitle}>Reward Redeemed!</Text>
           <Text style={styles.celebrationRewardIcon}>{reward?.icon}</Text>
           <Text style={styles.celebrationRewardName}>{reward?.title}</Text>
           <Text style={styles.celebrationDesc}>{reward?.description}</Text>
           <Text style={styles.celebrationNote}>Show this screen at any partner location to claim your reward!</Text>
           <TouchableOpacity style={styles.celebrationBtn} onPress={onClose}>
-            <Text style={styles.celebrationBtnText}>Awesome! 🙌</Text>
+            <Text style={styles.celebrationBtnText}>Awesome!</Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -102,7 +104,7 @@ const RewardCard: React.FC<{
         activeOpacity={0.85}
       >
         <Text style={[styles.redeemBtnText, !canAfford && styles.redeemBtnTextDisabled]}>
-          {canAfford ? '🎁 Redeem Now' : '🔒 Locked'}
+          {canAfford ? 'Redeem Now' : 'Locked'}
         </Text>
       </TouchableOpacity>
     </View>
@@ -114,15 +116,15 @@ const HistoryRow: React.FC<{ item: HistoryItem }> = ({ item }) => {
   const isEarn   = item.points > 0;
   const date     = new Date(item.created_at);
   const dateStr  = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const ACTION_ICONS: Record<string, string> = {
-    walk: '🚶', checkin: '📍', favorite: '❤️', plan: '🗺️', redeem: '🎁', visit: '✈️', default: '⭐',
+  const ACTION_ICONS: Record<string, MCIconName> = {
+    walk: 'walk', checkin: 'map-marker', favorite: 'heart', plan: 'map', redeem: 'gift-outline', visit: 'airplane-takeoff', default: 'star',
   };
-  const icon = ACTION_ICONS[item.action] ?? ACTION_ICONS.default;
+  const iconName: MCIconName = ACTION_ICONS[item.action] ?? ACTION_ICONS.default;
 
   return (
     <View style={styles.historyRow}>
       <View style={styles.historyIconBox}>
-        <Text style={styles.historyIcon}>{icon}</Text>
+        <MaterialCommunityIcons name={iconName} size={18} color={isEarn ? '#27AE60' : '#E67E22'} />
       </View>
       <View style={styles.historyContent}>
         <Text style={styles.historyAction}>{item.description ?? item.action}</Text>
@@ -235,7 +237,7 @@ export default function RewardsScreen() {
         {/* ── Points Hero ── */}
         <View style={styles.pointsHero}>
           <View style={styles.levelBadge}>
-            <Text style={styles.levelIcon}>{level.icon}</Text>
+            <MaterialCommunityIcons name={level.iconName} size={18} color="#FFD580" />
             <Text style={styles.levelName}>{level.name}</Text>
           </View>
           <Animated.Text style={styles.pointsNumber}>
@@ -250,9 +252,13 @@ export default function RewardsScreen() {
               <View style={styles.levelProgressBar}>
                 <View style={[styles.levelProgressFill, { width: `${levelProgress * 100}%`, backgroundColor: level.color }]} />
               </View>
-              <Text style={styles.levelProgressLabel}>
-                {nextLevel.min - (userPoints?.total_earned ?? 0)} pts to {nextLevel.icon} {nextLevel.name}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <Text style={styles.levelProgressLabel}>
+                  {nextLevel.min - (userPoints?.total_earned ?? 0)} pts to
+                </Text>
+                <MaterialCommunityIcons name={nextLevel.iconName} size={13} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.levelProgressLabel}>{nextLevel.name}</Text>
+              </View>
             </View>
           )}
         </View>
@@ -261,15 +267,15 @@ export default function RewardsScreen() {
         <View style={styles.howToEarn}>
           <Text style={styles.howToEarnTitle}>How to earn points</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.earnPills}>
-            {[
-              { icon: '🚶', label: 'Walk to attraction', pts: '+50' },
-              { icon: '📍', label: 'Check in', pts: '+30' },
-              { icon: '❤️', label: 'Save favorite', pts: '+10' },
-              { icon: '🗺️', label: 'Complete plan', pts: '+100' },
-              { icon: '✈️', label: 'Visit new city', pts: '+75' },
-            ].map((item, i) => (
+            {([
+              { iconName: 'walk'            as MCIconName, label: 'Walk to attraction', pts: '+50' },
+              { iconName: 'map-marker'      as MCIconName, label: 'Check in',           pts: '+30' },
+              { iconName: 'heart'           as MCIconName, label: 'Save favorite',      pts: '+10' },
+              { iconName: 'map'             as MCIconName, label: 'Complete plan',      pts: '+100' },
+              { iconName: 'airplane-takeoff'as MCIconName, label: 'Visit new city',     pts: '+75' },
+            ]).map((item, i) => (
               <View key={i} style={styles.earnPill}>
-                <Text style={styles.earnPillIcon}>{item.icon}</Text>
+                <MaterialCommunityIcons name={item.iconName} size={22} color="#E67E22" style={{ marginBottom: 4 }} />
                 <Text style={styles.earnPillLabel}>{item.label}</Text>
                 <Text style={styles.earnPillPts}>{item.pts}</Text>
               </View>
@@ -283,13 +289,19 @@ export default function RewardsScreen() {
             style={[styles.tab, activeTab === 'rewards' && styles.tabActive]}
             onPress={() => setActiveTab('rewards')}
           >
-            <Text style={[styles.tabText, activeTab === 'rewards' && styles.tabTextActive]}>🎁 Rewards</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialCommunityIcons name="gift-outline" size={15} color={activeTab === 'rewards' ? '#1A1A1A' : '#999'} />
+              <Text style={[styles.tabText, activeTab === 'rewards' && styles.tabTextActive]}>Rewards</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'history' && styles.tabActive]}
             onPress={() => setActiveTab('history')}
           >
-            <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>📋 History</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialCommunityIcons name="clock-outline" size={15} color={activeTab === 'history' ? '#1A1A1A' : '#999'} />
+              <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>History</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -312,7 +324,7 @@ export default function RewardsScreen() {
           <View style={styles.historyList}>
             {history.length === 0 ? (
               <View style={styles.emptyHistory}>
-                <Text style={styles.emptyHistoryEmoji}>📋</Text>
+                <MaterialCommunityIcons name="clipboard-text-outline" size={40} color="#CCC" style={{ marginBottom: 12 }} />
                 <Text style={styles.emptyHistoryText}>No activity yet — start exploring to earn points!</Text>
               </View>
             ) : (

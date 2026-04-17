@@ -9,7 +9,7 @@ const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 export type CurrencyCode = 'USD' | 'EGP' | 'EUR' | 'GBP' | 'SAR';
 
 export const CURRENCY_SYMBOLS: Record<CurrencyCode, string> = {
-  USD: '$', EGP: 'ج.م', EUR: '€', GBP: '£', SAR: 'ر.س',
+  USD: '$', EGP: 'EGP ', EUR: '€', GBP: '£', SAR: 'SR',
 };
 
 interface AppContextType {
@@ -32,16 +32,16 @@ const AppContext = createContext<AppContextType>({
   setLanguage: () => {},
   t: (key) => key,
   isRTL: false,
-  currency: 'USD',
+  currency: 'EGP',
   setCurrency: () => {},
-  convertPrice: (p) => `$${p}`,
-  currencySymbol: '$',
+  convertPrice: (p) => `EGP ${p}`,
+  currencySymbol: 'EGP ',
   exchangeRate: 1,
 });
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>('en');
-  const [currency, setCurrencyState] = useState<CurrencyCode>('USD');
+  const [currency, setCurrencyState] = useState<CurrencyCode>('EGP');
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
 
   useEffect(() => {
@@ -95,11 +95,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   };
 
-  // price is assumed to be in USD
-  const convertPrice = (priceInUSD: number): string => {
-    if (currency === 'USD') return `$${priceInUSD}`;
-    const rate = exchangeRates[currency] ?? 1;
-    const converted = (priceInUSD * rate).toFixed(0);
+  // price is in EGP (as stored in the DB)
+  const convertPrice = (priceInEGP: number): string => {
+    if (currency === 'EGP') return `EGP ${priceInEGP}`;
+    // Convert EGP → USD first, then USD → target currency
+    const egpPerUsd = exchangeRates['EGP'] ?? 50;
+    const usdPrice = priceInEGP / egpPerUsd;
+    const converted = (usdPrice * (exchangeRates[currency] ?? 1)).toFixed(0);
     return `${CURRENCY_SYMBOLS[currency]}${converted}`;
   };
 

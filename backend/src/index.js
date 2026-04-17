@@ -11,6 +11,8 @@ import attractionsRouter from './routes/attractions.js';
 import pointsRouter from './routes/points.js';
 import ttsRouter from './routes/tts.js';
 import recognitionRouter from './routes/recognition.js';  // ← ADD THIS
+import recommendationsRouter from './routes/recommendations.js';
+import plansRouter from './routes/plans.js';
 
 dotenv.config();
 
@@ -34,6 +36,8 @@ app.use('/api/hotels', hotelsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/tts', ttsRouter);
 app.use('/api/recognition', recognitionRouter);  // ← ADD THIS
+app.use('/api/recommendations', recommendationsRouter);
+app.use('/api/plans', plansRouter);
 
 app.get('/', (req, res) => {
   res.json({ message: 'TourMate API is running' });

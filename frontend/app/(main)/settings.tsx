@@ -1,5 +1,6 @@
 // app/(main)/settings.tsx
 import React, { useState, useEffect } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Switch, Alert, SafeAreaView, ActivityIndicator, Modal, TextInput,
@@ -12,17 +13,17 @@ const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 const USER_ID  = 1;
 
 interface SettingRowProps {
-  icon: string; label: string; value?: string;
+  icon: React.ReactNode; label: string; value?: string;
   onPress?: () => void; showArrow?: boolean; danger?: boolean;
 }
 interface ToggleRowProps {
-  icon: string; label: string; value: boolean; onToggle: (v: boolean) => void;
+  icon: React.ReactNode; label: string; value: boolean; onToggle: (v: boolean) => void;
 }
 
 const SettingRow: React.FC<SettingRowProps> = ({ icon, label, value, onPress, showArrow = true, danger = false }) => (
   <TouchableOpacity style={styles.settingRow} onPress={onPress} activeOpacity={0.7}>
     <View style={styles.settingLeft}>
-      <Text style={styles.settingIcon}>{icon}</Text>
+      <View style={styles.settingIconView}>{icon}</View>
       <Text style={[styles.settingLabel, danger && styles.dangerText]}>{label}</Text>
     </View>
     <View style={styles.settingRight}>
@@ -35,7 +36,7 @@ const SettingRow: React.FC<SettingRowProps> = ({ icon, label, value, onPress, sh
 const ToggleRow: React.FC<ToggleRowProps> = ({ icon, label, value, onToggle }) => (
   <View style={styles.settingRow}>
     <View style={styles.settingLeft}>
-      <Text style={styles.settingIcon}>{icon}</Text>
+      <View style={styles.settingIconView}>{icon}</View>
       <Text style={styles.settingLabel}>{label}</Text>
     </View>
     <Switch value={value} onValueChange={onToggle} trackColor={{ false: '#DDD', true: '#E67E22' }} thumbColor="#FFF" />
@@ -84,7 +85,7 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>🔒 Change Password</Text>
+          <Text style={styles.modalTitle}>Change Password</Text>
           {[
             { label: 'Current Password', value: current, setter: setCurrent },
             { label: 'New Password',     value: newPass, setter: setNewPass },
@@ -107,7 +108,7 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
           ))}
           <TouchableOpacity onPress={() => setShowPass(p => !p)} style={{ marginBottom: 16 }}>
             <Text style={{ color: '#E67E22', fontSize: 13, fontWeight: '600' }}>
-              {showPass ? '🙈 Hide passwords' : '👁 Show passwords'}
+              {showPass ? 'Hide passwords' : 'Show passwords'}
             </Text>
           </TouchableOpacity>
           <View style={styles.modalActions}>
@@ -162,7 +163,7 @@ const EditProfileModal: React.FC<{
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>👤 Edit Profile</Text>
+          <Text style={styles.modalTitle}>Edit Profile</Text>
           <View style={styles.modalFieldGroup}>
             <Text style={styles.modalFieldLabel}>Display Name</Text>
             <TextInput style={styles.modalInput} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#AAA" />
@@ -240,17 +241,17 @@ export default function SettingsScreen() {
 
   const handleToggleNotifications = (val: boolean) => {
     setNotifications(val); savePref({ notifications: val });
-    Alert.alert(val ? '🔔 Notifications On' : '🔕 Notifications Off', val ? 'You will receive travel tips and updates.' : 'You will no longer receive notifications.');
+    Alert.alert(val ? 'Notifications On' : 'Notifications Off', val ? 'You will receive travel tips and updates.' : 'You will no longer receive notifications.');
   };
 
   const handleToggleDarkMode = (val: boolean) => {
     setDarkMode(val); savePref({ darkMode: val });
-    Alert.alert(val ? '🌙 Dark Mode Enabled' : '☀️ Light Mode Enabled', 'Restart the app to apply the theme change.');
+    Alert.alert(val ? 'Dark Mode Enabled' : 'Light Mode Enabled', 'Restart the app to apply the theme change.');
   };
 
   const handleToggleLocation = (val: boolean) => {
     setLocationServices(val); savePref({ locationServices: val });
-    if (!val) Alert.alert('📍 Location Off', 'Map and walkability features require location services.');
+    if (!val) Alert.alert('Location Off', 'Map and walkability features require location services.');
   };
 
   const LANG_DISPLAY: Record<Language, string> = { en: 'English', ar: 'العربية', fr: 'Français', de: 'Deutsch' };
@@ -300,7 +301,7 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert('⚠️ Delete Account', 'This permanently deletes your account, favorites, and all points. Cannot be undone.', [
+    Alert.alert('Delete Account', 'This permanently deletes your account, favorites, and all points. Cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete Forever', style: 'destructive',
@@ -365,7 +366,7 @@ export default function SettingsScreen() {
         {/* ── Rewards Banner ── */}
         <TouchableOpacity style={styles.rewardsBanner} onPress={() => router.push('/(main)/rewards' as any)} activeOpacity={0.85}>
           <View style={styles.rewardsBannerLeft}>
-            <Text style={styles.rewardsBannerEmoji}>⭐</Text>
+            <MaterialCommunityIcons name="star-circle" size={32} color="#E67E22" />
             <View>
               <Text style={styles.rewardsBannerTitle}>{t('yourPoints')}</Text>
               <Text style={styles.rewardsBannerSub}>{t('tapToViewRewards')}</Text>
@@ -380,61 +381,65 @@ export default function SettingsScreen() {
         {/* ── Account ── */}
         <SectionHeader title={t('account')} />
         <View style={styles.section}>
-          <SettingRow icon="👤" label={t('editProfile')}     onPress={() => setShowEditProfile(true)} />
+          <SettingRow icon={<MaterialCommunityIcons name="account-outline"    size={20} color="#555" />} label={t('editProfile')}     onPress={() => setShowEditProfile(true)} />
           <Divider />
-          <SettingRow icon="🔒" label={t('changePassword')}  onPress={() => setShowChangePassword(true)} />
+          <SettingRow icon={<MaterialCommunityIcons name="lock-outline"       size={20} color="#555" />} label={t('changePassword')}  onPress={() => setShowChangePassword(true)} />
           <Divider />
-          <SettingRow icon="🎁" label={t('rewardsPoints')} value={`${userPoints} ${t('pts')}`} onPress={() => router.push('/(main)/rewards' as any)} />
+          <SettingRow icon={<MaterialCommunityIcons name="gift-outline"       size={20} color="#555" />} label={t('rewardsPoints')} value={`${userPoints} ${t('pts')}`} onPress={() => router.push('/(main)/rewards' as any)} />
         </View>
 
         {/* ── Preferences ── */}
         <SectionHeader title={t('preferences')} />
         <View style={styles.section}>
-          <SettingRow   icon="🌐" label={t('language')}         value={LANG_DISPLAY[language]}         onPress={handleLanguage} />
+          <SettingRow   icon={<MaterialCommunityIcons name="web"                  size={20} color="#555" />} label={t('language')}         value={LANG_DISPLAY[language]}     onPress={handleLanguage} />
           <Divider />
-          <SettingRow   icon="💰" label={t('currency')}         value={CURRENCY_DISPLAY[currency]}         onPress={handleCurrency} />
+          <SettingRow   icon={<MaterialCommunityIcons name="currency-usd"        size={20} color="#555" />} label={t('currency')}         value={CURRENCY_DISPLAY[currency]} onPress={handleCurrency} />
           <Divider />
-          <ToggleRow    icon="🔔" label={t('notifications')}    value={notifications}    onToggle={handleToggleNotifications} />
+          <ToggleRow    icon={<MaterialCommunityIcons name="bell-outline"         size={20} color="#555" />} label={t('notifications')}    value={notifications}    onToggle={handleToggleNotifications} />
           <Divider />
-          <ToggleRow    icon="📍" label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
+          <ToggleRow    icon={<MaterialCommunityIcons name="map-marker-outline"   size={20} color="#555" />} label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
           <Divider />
-          <ToggleRow    icon="🌙" label={t('darkMode')}        value={darkMode}         onToggle={handleToggleDarkMode} />
+          <ToggleRow    icon={<MaterialCommunityIcons name="weather-night"        size={20} color="#555" />} label={t('darkMode')}         value={darkMode}         onToggle={handleToggleDarkMode} />
         </View>
 
         {/* ── App ── */}
         <SectionHeader title={t('appSection')} />
         <View style={styles.section}>
-          <SettingRow icon="🗑️" label={t('clearCache')}    onPress={handleClearCache} showArrow={false} />
+          <SettingRow icon={<MaterialCommunityIcons name="delete-outline"          size={20} color="#555" />} label={t('clearCache')}    onPress={handleClearCache} showArrow={false} />
           <Divider />
-          <SettingRow icon="ℹ️" label="About TourMate" value="v1.0.0" onPress={() => Alert.alert('TourMate v1.0.0', 'Your ultimate guide to exploring Egypt.\nMade with ❤️ in Egypt')} />
+          <SettingRow icon={<MaterialCommunityIcons name="information-outline"    size={20} color="#555" />} label="About TourMate" value="v1.0.0" onPress={() => Alert.alert('TourMate v1.0.0', 'Your ultimate guide to exploring Egypt. Made with love in Egypt.')} />
           <Divider />
-          <SettingRow icon="📋" label="Privacy Policy"  onPress={() => Alert.alert('Privacy Policy', 'We respect your privacy. Your data is never sold to third parties.')} />
+          <SettingRow icon={<MaterialCommunityIcons name="shield-outline"         size={20} color="#555" />} label="Privacy Policy"  onPress={() => Alert.alert('Privacy Policy', 'We respect your privacy. Your data is never sold to third parties.')} />
           <Divider />
-          <SettingRow icon="📄" label="Terms of Service" onPress={() => Alert.alert('Terms of Service', 'By using TourMate you agree to use the app responsibly.')} />
+          <SettingRow icon={<MaterialCommunityIcons name="file-document-outline"  size={20} color="#555" />} label="Terms of Service" onPress={() => Alert.alert('Terms of Service', 'By using TourMate you agree to use the app responsibly.')} />
         </View>
 
         {/* ── Support ── */}
         <SectionHeader title={t('support')} />
         <View style={styles.section}>
-          <SettingRow icon="⭐" label="Rate TourMate" onPress={() => Alert.alert('Rate TourMate', 'Thank you! ⭐⭐⭐⭐⭐')} />
+          <SettingRow icon={<MaterialCommunityIcons name="star-outline"   size={20} color="#555" />} label="Rate TourMate" onPress={() => Alert.alert('Rate TourMate', 'Thank you for your support!')} />
           <Divider />
-          <SettingRow icon="📧" label="Contact Us"    value="support@tourmate.com" onPress={() => Alert.alert('Contact Us', 'Email: support@tourmate.com\nWe reply within 24 hours!')} />
+          <SettingRow icon={<MaterialCommunityIcons name="email-outline"  size={20} color="#555" />} label="Contact Us"    value="support@tourmate.com" onPress={() => Alert.alert('Contact Us', 'Email: support@tourmate.com\nWe reply within 24 hours!')} />
           <Divider />
-          <SettingRow icon="🐛" label="Report a Bug"  onPress={() => Alert.alert('Report Bug', 'Email: bugs@tourmate.com\nThank you for helping us improve!')} />
+          <SettingRow icon={<MaterialCommunityIcons name="bug-outline"    size={20} color="#555" />} label="Report a Bug"  onPress={() => Alert.alert('Report Bug', 'Email: bugs@tourmate.com\nThank you for helping us improve!')} />
         </View>
 
         {/* ── Account Actions ── */}
         <SectionHeader title={t('accountActions')} />
         <View style={styles.section}>
-          <SettingRow icon="🚪" label={t('logout')}         onPress={handleLogout}        showArrow={false} danger />
+          <SettingRow icon={<MaterialCommunityIcons name="logout"        size={20} color="#E74C3C" />} label={t('logout')}         onPress={handleLogout}        showArrow={false} danger />
           <Divider />
-          <SettingRow icon="⚠️" label={t('deleteAccount')} onPress={handleDeleteAccount} showArrow={false} danger />
+          <SettingRow icon={<MaterialCommunityIcons name="alert-outline" size={20} color="#E74C3C" />} label={t('deleteAccount')} onPress={handleDeleteAccount} showArrow={false} danger />
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerLogo}>🧳 TourMate</Text>
+          <Text style={styles.footerLogo}>TourMate</Text>
           <Text style={styles.footerVersion}>Version 1.0.0</Text>
-          <Text style={styles.footerMade}>Made with ❤️ in Egypt</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.footerMade}>Made with</Text>
+            <MaterialCommunityIcons name="heart" size={13} color="#E74C3C" />
+            <Text style={styles.footerMade}>in Egypt</Text>
+          </View>
         </View>
 
         <View style={{ height: 40 }} />
@@ -488,7 +493,8 @@ const styles = StyleSheet.create({
 
   settingRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   settingLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  settingIcon:  { fontSize: 20, width: 28, textAlign: 'center' },
+  settingIcon:  { fontSize: 20, width: 28, textAlign: 'center' },  // legacy – kept for safety
+  settingIconView: { width: 28, alignItems: 'center', justifyContent: 'center' },
   settingLabel: { fontSize: 15, color: '#1A1A1A', fontWeight: '500' },
   settingRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   settingValue: { fontSize: 14, color: '#999' },

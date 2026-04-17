@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator 
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '@/components/ScreenWrapper';
 
@@ -76,7 +77,7 @@ export default function Login() {
 
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoEmoji}>🧳</Text>
+          <MaterialCommunityIcons name="briefcase-outline" size={52} color="#E67E22" style={{ marginBottom: 8 }} />
           <Text style={styles.logoText}>TourMate</Text>
           <Text style={styles.logoSubtitle}>Your Egyptian adventure awaits</Text>
         </View>

@@ -6,6 +6,7 @@ import {
   TextInput, Modal, ScrollView, Switch, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 
@@ -143,7 +144,7 @@ const EditModal: React.FC<{
                     <Image source={{ uri }} style={styles.imageThumb} />
                     {i === 0 && <View style={styles.primaryBadge}><Text style={styles.primaryBadgeText}>Cover</Text></View>}
                     <TouchableOpacity style={styles.removeImageBtn} onPress={() => handleRemoveImage(i)}>
-                      <Text style={styles.removeImageBtnText}>✕</Text>
+                      <MaterialCommunityIcons name="close" size={10} color="#FFF" />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -164,7 +165,10 @@ const EditModal: React.FC<{
                 <Text style={styles.addImageBtnText}>Add</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.imageHint}>💡 Supports Google Drive share links & direct URLs</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+              <MaterialCommunityIcons name="lightbulb-on-outline" size={14} color="#BBB" />
+              <Text style={[styles.imageHint, { marginTop: 0 }]}>Supports Google Drive share links & direct URLs</Text>
+            </View>
           </View>
 
           {/* ── Text Fields ── */}
@@ -298,7 +302,7 @@ export default function AdminAttractionsScreen() {
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <MaterialCommunityIcons name="arrow-left" size={18} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Attractions ({attractions.length})</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/(admin)/add-attraction' as any)}>
@@ -307,7 +311,7 @@ export default function AdminAttractionsScreen() {
       </View>
 
       <View style={styles.searchBar}>
-        <Text>🔍  </Text>
+        <MaterialCommunityIcons name="magnify" size={20} color="#AAA" style={{ marginRight: 8 }} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search attractions..."
@@ -330,20 +334,22 @@ export default function AdminAttractionsScreen() {
                 <Image source={{ uri: item.primary_image }} style={styles.attractionThumb} />
               ) : (
                 <View style={[styles.attractionThumb, styles.attractionThumbEmpty]}>
-                  <Text style={{ fontSize: 20 }}>🏛️</Text>
+                  <MaterialCommunityIcons name="bank" size={24} color="#CCC" />
                 </View>
               )}
               <View style={styles.attractionInfo}>
                 <Text style={styles.attractionName}>{item.name}</Text>
-                <Text style={styles.attractionMeta}>{item.city} · {item.category} · ⭐{item.rating}</Text>
+                <Text style={styles.attractionMeta}>
+                  {item.city} · {item.category} · <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {item.rating}
+                </Text>
                 {item.is_popular && <View style={styles.popularBadge}><Text style={styles.popularBadgeText}>Popular</Text></View>}
               </View>
               <View style={styles.attractionActions}>
                 <TouchableOpacity style={styles.editBtn} onPress={() => handleEdit(item)}>
-                  <Text style={styles.editBtnText}>✏️</Text>
+                  <MaterialCommunityIcons name="pencil" size={16} color="#555" />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)}>
-                  <Text style={styles.deleteBtnText}>🗑️</Text>
+                  <MaterialCommunityIcons name="trash-can" size={16} color="#E74C3C" />
                 </TouchableOpacity>
               </View>
             </View>

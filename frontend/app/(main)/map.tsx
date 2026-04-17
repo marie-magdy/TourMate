@@ -1,5 +1,6 @@
 // app/(main)/map.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   FlatList, ActivityIndicator, SafeAreaView, Alert,
@@ -8,7 +9,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 
 const { width, height } = Dimensions.get('window');
@@ -43,6 +44,22 @@ interface WalkableBanner {
   distance_km: number;
 }
 
+interface PlannedActivity {
+  id: string;
+  time: string;
+  title: string;
+  latitude?: number;
+  longitude?: number;
+  duration_hrs?: number;
+  cost_egp?: number;
+}
+
+interface PlannedDay {
+  day: number;
+  date: string;
+  activities: PlannedActivity[];
+}
+
 // ── Distance calculator (Haversine formula) ───────────────────────────
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R    = 6371;
@@ -56,12 +73,12 @@ const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): 
 
 // ── Walking tips ──────────────────────────────────────────────────────
 const WALKING_TIPS = [
-  '🫁 Walking reduces stress and boosts mood instantly!',
-  '💪 A 15-min walk burns around 80 calories!',
-  '🌍 Walking instead of driving reduces CO₂ emissions!',
-  '❤️ Regular walking lowers the risk of heart disease by 30%!',
-  '🧠 Walking improves memory and creative thinking!',
-  '🌿 You\'ll see more of Egypt\'s beauty on foot!',
+  'Walking reduces stress and boosts mood instantly!',
+  'A 15-min walk burns around 80 calories!',
+  'Walking instead of driving reduces CO₂ emissions!',
+  'Regular walking lowers the risk of heart disease by 30%!',
+  'Walking improves memory and creative thinking!',
+  'You\'ll see more of Egypt\'s beauty on foot!',
 ];
 
 // ── Walkable Banner Modal ─────────────────────────────────────────────
@@ -89,7 +106,7 @@ const WalkableBannerModal: React.FC<{
       {/* Header */}
       <View style={styles.walkBannerHeader}>
         <View style={styles.walkBannerLeft}>
-          <Text style={styles.walkBannerEmoji}>🚶</Text>
+          <MaterialCommunityIcons name="walk" size={28} color="#27AE60" />
           <View>
             <Text style={styles.walkBannerTitle}>You can walk here!</Text>
             <Text style={styles.walkBannerSubtitle}>{banner.place.name}</Text>
@@ -103,19 +120,19 @@ const WalkableBannerModal: React.FC<{
       {/* Distance & time */}
       <View style={styles.walkStats}>
         <View style={styles.walkStat}>
-          <Text style={styles.walkStatIcon}>📏</Text>
+          <MaterialCommunityIcons name="ruler" size={20} color="#555" />
           <Text style={styles.walkStatValue}>{banner.distance_km.toFixed(2)} km</Text>
           <Text style={styles.walkStatLabel}>distance</Text>
         </View>
         <View style={styles.walkStatDivider} />
         <View style={styles.walkStat}>
-          <Text style={styles.walkStatIcon}>⏱️</Text>
+          <MaterialCommunityIcons name="clock-outline" size={20} color="#555" />
           <Text style={styles.walkStatValue}>~{walkMins} min</Text>
           <Text style={styles.walkStatLabel}>walk time</Text>
         </View>
         <View style={styles.walkStatDivider} />
         <View style={styles.walkStat}>
-          <Text style={styles.walkStatIcon}>⭐</Text>
+          <MaterialCommunityIcons name="star-outline" size={20} color="#E67E22" />
           <Text style={styles.walkStatValue}>+50 pts</Text>
           <Text style={styles.walkStatLabel}>you earn</Text>
         </View>
@@ -129,10 +146,13 @@ const WalkableBannerModal: React.FC<{
       {/* Actions */}
       <View style={styles.walkActions}>
         <TouchableOpacity style={styles.walkSkipBtn} onPress={onDismiss}>
-          <Text style={styles.walkSkipText}>Skip 🚗</Text>
+          <Text style={styles.walkSkipText}>Skip</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.walkGoBtn} onPress={onWalk} activeOpacity={0.85}>
-          <Text style={styles.walkGoBtnText}>🚶 Walk & Earn 50pts</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <MaterialCommunityIcons name="walk" size={18} color="#FFF" />
+            <Text style={styles.walkGoBtnText}>Walk & Earn 50pts</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -155,7 +175,7 @@ const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, 
 
   return (
     <Animated.View style={[styles.pointsToast, { transform: [{ translateY: slideAnim }] }]}>
-      <Text style={styles.pointsToastEmoji}>🎉</Text>
+      <MaterialCommunityIcons name="party-popper" size={22} color="#FFF" />
       <Text style={styles.pointsToastText}>+{points} points earned!</Text>
       <Text style={styles.pointsToastSubtext}>Keep walking to earn more!</Text>
     </Animated.View>
@@ -164,9 +184,11 @@ const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, 
 
 // ── MAP SCREEN ────────────────────────────────────────────────────────
 export default function MapScreen() {
+  const params = useLocalSearchParams<{ itineraryData?: string; city?: string }>();
   const [itinerary, setItinerary]           = useState<any[]>([]);
   const [showItinerary, setShowItinerary]   = useState(false);
   const [selectedDay, setSelectedDay]       = useState<number | null>(null);
+  const [plannedDays, setPlannedDays]       = useState<PlannedDay[]>([]);
   const router = useRouter();
   const { t } = useApp();
   const mapRef = useRef<MapView>(null);
@@ -193,6 +215,17 @@ export default function MapScreen() {
   const [walkedPlaces, setWalkedPlaces]     = useState<Set<string>>(new Set());
 
   const DAY_COLORS = ['#E67E22', '#3498DB', '#27AE60', '#9B59B6', '#E74C3C', '#F39C12', '#1ABC9C'];
+  const mapStops = plannedDays
+    .filter(day => selectedDay === null || day.day === selectedDay)
+    .flatMap(day =>
+      day.activities
+        .filter(activity => typeof activity.latitude === 'number' && typeof activity.longitude === 'number')
+        .map(activity => ({
+          ...activity,
+          day: day.day,
+          date: day.date,
+        }))
+    );
 
   // const fetchItinerary = async () => {
   //   try {
@@ -227,6 +260,38 @@ export default function MapScreen() {
     getUserLocation(); 
     // fetchItinerary();  // ← add this
   }, []);
+
+  useEffect(() => {
+    if (!params.itineraryData) return;
+    try {
+      const parsed = JSON.parse(params.itineraryData);
+      if (Array.isArray(parsed)) {
+        setPlannedDays(parsed);
+        setSelectedDay(parsed[0]?.day ?? null);
+      }
+    } catch (err) {
+      console.error('Could not parse itinerary map data:', err);
+    }
+  }, [params.itineraryData]);
+
+  useEffect(() => {
+    const routePlaces: Place[] = mapStops.map((stop, index) => ({
+      id: `${stop.id}-${index}`,
+      name: stop.title,
+      latitude: stop.latitude!,
+      longitude: stop.longitude!,
+    }));
+
+    setSelectedPlaces(routePlaces);
+
+    if (routePlaces.length >= 2) {
+      fetchRoute(routePlaces, routeMode);
+    } else {
+      setRouteCoords([]);
+      setRouteDistance(null);
+      setRouteDuration(null);
+    }
+  }, [selectedDay, plannedDays, routeMode]);
 
   // ── Check walkable attractions when user location updates ─────────
   useEffect(() => {
@@ -340,7 +405,7 @@ export default function MapScreen() {
           user_id:     USER_ID,
           points:      50,
           action:      'walk',
-          description: `Walked to ${place.name} 🚶`,
+          description: `Walked to ${place.name}`,
         }),
       });
       const data = await res.json();
@@ -498,9 +563,9 @@ export default function MapScreen() {
               coordinate={{ latitude: attraction.latitude, longitude: attraction.longitude }}
               title={attraction.name}
               description={
-                isWalkable 
-                  ? '🚶 Walkable! Tap to add to route' 
-                  : '📍 Tap to add to route'
+                isWalkable
+                  ? 'Walkable! Tap to add to route'
+                  : 'Tap to add to route'
               }
               pinColor={
                 isSelected  ? '#E67E22' :   // orange = selected
@@ -520,6 +585,53 @@ export default function MapScreen() {
             pinColor="#E67E22"
           />
         ))}
+        {mapStops.map((stop, index) => {
+          const dayColor = DAY_COLORS[((stop.day ?? 1) - 1) % DAY_COLORS.length];
+          const descParts: string[] = [];
+          if (stop.time) descParts.push(stop.time);
+          if (stop.duration_hrs != null) {
+            descParts.push(
+              stop.duration_hrs >= 1
+                ? `${stop.duration_hrs.toFixed(1)} hr`
+                : `${Math.round(stop.duration_hrs * 60)} min`
+            );
+          }
+          if (stop.cost_egp != null) {
+            descParts.push(stop.cost_egp === 0 ? 'Free' : `~${Math.round(stop.cost_egp)} EGP`);
+          }
+          return (
+            <Marker
+              key={`planned_${stop.id}_${index}`}
+              coordinate={{ latitude: stop.latitude!, longitude: stop.longitude! }}
+              title={`${index + 1}. ${stop.title}`}
+              description={descParts.join(' · ')}
+              pinColor={dayColor}
+              onCalloutPress={() => {
+                if (!userLocation) return;
+                const destination: Place = {
+                  id: `dest_${stop.id}_${index}`,
+                  name: stop.title,
+                  latitude: stop.latitude!,
+                  longitude: stop.longitude!,
+                };
+                const origin: Place = {
+                  id: 'user',
+                  name: 'Your Location',
+                  latitude: userLocation.latitude,
+                  longitude: userLocation.longitude,
+                };
+                setSelectedPlaces([origin, destination]);
+                fetchRoute([origin, destination], routeMode);
+                mapRef.current?.animateToRegion({
+                  latitude: stop.latitude!,
+                  longitude: stop.longitude!,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                }, 800);
+              }}
+            />
+          );
+        })}
         {/* ── Itinerary Day Markers ── */}
         {showItinerary && itinerary
           .filter(item => 
@@ -569,7 +681,7 @@ export default function MapScreen() {
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <MaterialCommunityIcons name="magnify" size={16} color="#AAA" style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
                 {...{placeholder: t('search')}}
@@ -583,7 +695,7 @@ export default function MapScreen() {
             {loadingSearch && <ActivityIndicator size="small" color="#E67E22" />}
           </View>
           <TouchableOpacity style={styles.locationBtn} onPress={getUserLocation}>
-            <Text style={styles.locationBtnIcon}>📍</Text>
+            <MaterialCommunityIcons name="crosshairs-gps" size={20} color="#E67E22" />
           </TouchableOpacity>
         </View>
 
@@ -591,7 +703,7 @@ export default function MapScreen() {
           <View style={styles.searchDropdown}>
             {searchResults.map(result => (
               <TouchableOpacity key={result.place_id} style={styles.searchResultItem} onPress={() => selectPlace(result)}>
-                <Text style={styles.searchResultIcon}>📍</Text>
+                <MaterialCommunityIcons name="map-marker-outline" size={16} color="#E67E22" style={{ marginRight: 10 }} />
                 <View style={styles.searchResultText}>
                   <Text style={styles.searchResultName} numberOfLines={1}>{result.display_name.split(',')[0]}</Text>
                   <Text style={styles.searchResultAddress} numberOfLines={1}>{result.display_name}</Text>
@@ -605,9 +717,15 @@ export default function MapScreen() {
       {/* ── Walkable Banner ── */}
       {!walkBanner.visible && (
         <View style={styles.legendRow}>
+          {plannedDays.length > 0 && (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#E67E22' }]} />
+              <Text style={styles.legendText}>Plan stop</Text>
+            </View>
+          )}
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: '#27AE60' }]} />
-            <Text style={styles.legendText}>Walkable 🚶 +50pts</Text>
+            <Text style={styles.legendText}>Walkable +50pts</Text>
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: '#3498DB' }]} />
@@ -619,19 +737,101 @@ export default function MapScreen() {
       {/* ── Bottom Panel ── */}
       {!walkBanner.visible && (
         <View style={styles.bottomPanel}>
+          {plannedDays.length > 0 && (
+            <View style={styles.planSection}>
+              <View style={styles.planSectionHeader}>
+                <Text style={styles.planSectionTitle}>Your Plan on Map</Text>
+                <Text style={styles.planSectionSubtitle}>{params.city ?? 'Trip plan'}</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.planDayTabs}>
+                {plannedDays.map(day => (
+                  <TouchableOpacity
+                    key={day.day}
+                    style={[styles.planDayChip, selectedDay === day.day && styles.planDayChipActive]}
+                    onPress={() => setSelectedDay(day.day)}
+                  >
+                    <Text style={[styles.planDayChipText, selectedDay === day.day && styles.planDayChipTextActive]}>
+                      Day {day.day}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <ScrollView style={styles.planStopsList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {mapStops.length === 0 ? (
+                  <Text style={styles.planEmptyText}>This plan has no map coordinates yet for the selected day.</Text>
+                ) : (
+                  mapStops.map((stop, index) => {
+                    const metaParts: string[] = [];
+                    if (stop.time) metaParts.push(stop.time);
+                    if (stop.duration_hrs != null) {
+                      metaParts.push(
+                        stop.duration_hrs >= 1
+                          ? `${stop.duration_hrs.toFixed(1)} hr`
+                          : `${Math.round(stop.duration_hrs * 60)} min`
+                      );
+                    }
+                    if (stop.cost_egp != null) {
+                      metaParts.push(stop.cost_egp === 0 ? 'Free' : `~${Math.round(stop.cost_egp)} EGP`);
+                    }
+                    return (
+                      <TouchableOpacity
+                        key={`${stop.id}-list-${index}`}
+                        style={styles.planStopRow}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (!userLocation) return;
+                          const destination: Place = {
+                            id: `dest_list_${stop.id}_${index}`,
+                            name: stop.title,
+                            latitude: stop.latitude!,
+                            longitude: stop.longitude!,
+                          };
+                          const origin: Place = {
+                            id: 'user',
+                            name: 'Your Location',
+                            latitude: userLocation.latitude,
+                            longitude: userLocation.longitude,
+                          };
+                          setSelectedPlaces([origin, destination]);
+                          fetchRoute([origin, destination], routeMode);
+                          mapRef.current?.animateToRegion({
+                            latitude: stop.latitude!,
+                            longitude: stop.longitude!,
+                            latitudeDelta: 0.02,
+                            longitudeDelta: 0.02,
+                          }, 800);
+                        }}
+                      >
+                        <View style={styles.planStopBadge}>
+                          <Text style={styles.planStopBadgeText}>{index + 1}</Text>
+                        </View>
+                        <View style={styles.planStopText}>
+                          <Text style={styles.planStopTitle} numberOfLines={1}>{stop.title}</Text>
+                          {metaParts.length > 0 && (
+                            <Text style={styles.planStopMeta}>{metaParts.join(' · ')}</Text>
+                          )}
+                        </View>
+                        <Text style={styles.planStopArrow}>›</Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
           <View style={styles.routeModeRow}>
             <TouchableOpacity
               style={[styles.routeModeBtn, routeMode === 'fastest' && styles.routeModeBtnActive]}
               onPress={() => switchRouteMode('fastest')}
             >
-              <Text style={styles.routeModeIcon}>⚡</Text>
+              <MaterialCommunityIcons name="lightning-bolt" size={16} color={routeMode === 'fastest' ? '#E67E22' : '#999'} />
               <Text style={[styles.routeModeText, routeMode === 'fastest' && styles.routeModeTextActive]}>Fastest</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.routeModeBtn, routeMode === 'walk' && styles.routeModeBtnActiveEco]}
               onPress={() => switchRouteMode('walk')}
             >
-              <Text style={styles.routeModeIcon}>🚶</Text>
+              <MaterialCommunityIcons name="walk" size={16} color={routeMode === 'walk' ? '#27AE60' : '#999'} />
               <Text style={[styles.routeModeText, routeMode === 'walk' && styles.routeModeTextActiveEco]}>Walk +50pts</Text>
             </TouchableOpacity>
           </View>
@@ -639,19 +839,19 @@ export default function MapScreen() {
           {routeDistance && routeDuration && (
             <View style={styles.routeInfo}>
               <View style={styles.routeInfoItem}>
-                <Text style={styles.routeInfoIcon}>🛣️</Text>
+                <MaterialCommunityIcons name="road-variant" size={16} color="#555" />
                 <Text style={styles.routeInfoValue}>{routeDistance}</Text>
               </View>
               <View style={styles.routeInfoDivider} />
               <View style={styles.routeInfoItem}>
-                <Text style={styles.routeInfoIcon}>⏱️</Text>
+                <MaterialCommunityIcons name="clock-outline" size={16} color="#555" />
                 <Text style={styles.routeInfoValue}>{routeDuration}</Text>
               </View>
               {routeMode === 'walk' && (
                 <>
                   <View style={styles.routeInfoDivider} />
                   <View style={styles.routeInfoItem}>
-                    <Text style={styles.routeInfoIcon}>⭐</Text>
+                    <MaterialCommunityIcons name="star-outline" size={16} color="#E67E22" />
                     <Text style={[styles.routeInfoValue, { color: '#E67E22' }]}>+50 pts</Text>
                   </View>
                 </>
@@ -684,8 +884,8 @@ export default function MapScreen() {
           {selectedPlaces.length === 0 && (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>
-                🗺️ Search or tap a pin to build your route{'\n'}
-                <Text style={{ color: '#27AE60', fontWeight: '700' }}>🟢 Green pins = walkable & earn 50 pts!</Text>
+                Search or tap a pin to build your route{'\n'}
+                <Text style={{ color: '#27AE60', fontWeight: '700' }}>Green pins = walkable & earn 50 pts!</Text>
               </Text>
             </View>
           )}
@@ -747,6 +947,27 @@ const styles = StyleSheet.create({
 
   // Bottom panel
   bottomPanel: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 30, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, elevation: 10 },
+  planSection: { marginBottom: 14, backgroundColor: '#F9F5F0', borderRadius: 18, padding: 14 },
+  planSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  planSectionTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  planSectionSubtitle: { fontSize: 12, color: '#888' },
+  planDayTabs: { gap: 8, paddingBottom: 10 },
+  planDayChip: { backgroundColor: '#FFF', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#EEE' },
+  planDayChipActive: { backgroundColor: '#FFF3E0', borderColor: '#E67E22' },
+  planDayChipText: { fontSize: 12, color: '#666', fontWeight: '600' },
+  planDayChipTextActive: { color: '#E67E22' },
+  planStopsList: { maxHeight: 180, gap: 8 },
+  planEmptyText: { fontSize: 12, color: '#888', lineHeight: 18 },
+  planStopRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#FFF', borderRadius: 14, padding: 10, marginBottom: 6,
+  },
+  planStopBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center' },
+  planStopBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  planStopText: { flex: 1 },
+  planStopTitle: { fontSize: 13, fontWeight: '600', color: '#333' },
+  planStopMeta: { fontSize: 11, color: '#999', marginTop: 2 },
+  planStopArrow: { fontSize: 20, color: '#CCC', fontWeight: '300', paddingHorizontal: 4 },
   routeModeRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   routeModeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F5F5', borderRadius: 30, paddingVertical: 10, gap: 6 },
   routeModeBtnActive:    { backgroundColor: '#FFF3E0' },

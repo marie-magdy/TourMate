@@ -1,5 +1,6 @@
 // app/(main)/favorites.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
   ActivityIndicator, SafeAreaView, StatusBar, Dimensions,
@@ -104,7 +105,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   };
 
   if (!attraction) return null;
-  const categoryColor = CATEGORY_COLORS[attraction.category] ?? '#E67E22';
+  const categoryColor = CATEGORY_COLORS[attraction.category ?? ''] ?? '#E67E22';
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -139,9 +140,11 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.sheetFavBtn} onPress={toggleFavorite}>
-            <Text style={[styles.sheetFavIcon, { color: isFavorited ? '#E74C3C' : '#FFF' }]}>
-              {isFavorited ? '♥' : '♡'}
-            </Text>
+            <MaterialCommunityIcons
+              name={isFavorited ? 'heart' : 'heart-outline'}
+              size={20}
+              color={isFavorited ? '#E74C3C' : '#FFF'}
+            />
           </TouchableOpacity>
 
           <View style={[styles.categoryBadge, { backgroundColor: categoryColor }]}>
@@ -153,7 +156,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
         <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
           <Text style={styles.sheetName}>{attraction.name}</Text>
           <View style={styles.sheetLocationRow}>
-            <Text style={styles.sheetLocationIcon}>📍</Text>
+            <MaterialCommunityIcons name="map-marker" size={14} color="#E67E22" style={{ marginRight: 4 }} />
             <Text style={styles.sheetLocationText}>{attraction.city}, Egypt</Text>
           </View>
           <View style={styles.sheetRatingRow}>
@@ -162,21 +165,21 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoPillsRow}>
             <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>💰</Text>
+              <MaterialCommunityIcons name="cash-multiple" size={18} color="#E67E22" />
               <View>
                 <Text style={styles.infoPillLabel}>{t('priceFrom')}</Text>
                 <Text style={styles.infoPillValue}>{convertPrice(attraction.price_from)}</Text>
               </View>
             </View>
             <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>🕐</Text>
+              <MaterialCommunityIcons name="clock-outline" size={18} color="#E67E22" />
               <View>
                 <Text style={styles.infoPillLabel}>{t('hours')}</Text>
                 <Text style={styles.infoPillValue} numberOfLines={1}>{attraction.opening_hours ?? t('seeWebsite')}</Text>
               </View>
             </View>
             <View style={styles.infoPill}>
-              <Text style={styles.infoPillIcon}>🏷️</Text>
+              <MaterialCommunityIcons name="tag-outline" size={18} color="#E67E22" />
               <View>
                 <Text style={styles.infoPillLabel}>{t('category')}</Text>
                 <Text style={styles.infoPillValue}>{attraction.category}</Text>
@@ -210,18 +213,18 @@ const FavoriteCard: React.FC<{
   item: Attraction;
   onPress: (item: Attraction) => void;
 }> = ({ item, onPress }) => {
-  const categoryColor = CATEGORY_COLORS[item.category] ?? '#E67E22';
+  const categoryColor = CATEGORY_COLORS[item.category ?? ''] ?? '#E67E22';
   const { convertPrice } = useApp();
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.92}>
-      <Image source={{ uri: item.image_url }} style={styles.cardImage} resizeMode="cover" />
+      <Image source={{ uri: item.primary_image || item.image_url }} style={styles.cardImage} resizeMode="cover" />
       <View style={[styles.categoryBadgeCard, { backgroundColor: categoryColor }]}>
         <Text style={styles.categoryBadgeText}>{item.category}</Text>
       </View>
       <View style={styles.cardContent}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.cardLocationRow}>
-          <Text style={styles.cardLocationIcon}>📍</Text>
+          <MaterialCommunityIcons name="map-marker" size={10} color="#999" style={{ marginRight: 3 }} />
           <Text style={styles.cardLocationText}>{item.city}, Egypt</Text>
         </View>
         <View style={styles.cardFooter}>
@@ -238,7 +241,7 @@ const EmptyState: React.FC<{ onExplore: () => void }> = ({ onExplore }) => {
   const { t } = useApp();
   return (
   <View style={styles.emptyContainer}>
-    <Text style={styles.emptyEmoji}>🏛️</Text>
+    <MaterialCommunityIcons name="heart-off-outline" size={64} color="#DDD" style={{ marginBottom: 16 }} />
     <Text style={styles.emptyTitle}>{t('noFavorites')}</Text>
     <Text style={styles.emptySubtitle}>{t('noFavoritesMsg')}</Text>
     <TouchableOpacity style={styles.exploreBtn} onPress={onExplore} activeOpacity={0.85}>
@@ -248,26 +251,44 @@ const EmptyState: React.FC<{ onExplore: () => void }> = ({ onExplore }) => {
   );
 };
 
-// ── Bottom Tab ────────────────────────────────────────────────────────
+type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+// ── Bottom Tab — same floating pill style as home ─────────────────────
+interface TabItem { name: string; label: string; iconDefault: MCIconName; iconActive: MCIconName; route: string; }
+
+const TABS: TabItem[] = [
+  { name: 'Home',      label: 'Home',   iconDefault: 'home-outline',               iconActive: 'home',                  route: '/(main)/home' },
+  { name: 'Plan',      label: 'Plan',   iconDefault: 'calendar-plus-outline',      iconActive: 'calendar-plus',         route: '/(main)/plan' },
+  { name: 'Tour Mate', label: 'AI',     iconDefault: 'robot-outline',              iconActive: 'robot',                 route: '/(main)/tourmate-ai' },
+  { name: 'Favorites', label: 'Saved',  iconDefault: 'heart-outline',              iconActive: 'heart',                 route: '/(main)/favorites' },
+  { name: 'My Plans',  label: 'Plans',  iconDefault: 'bookmark-multiple-outline',  iconActive: 'bookmark-multiple',     route: '/(main)/saved-plans' },
+  { name: 'View Map',  label: 'Map',    iconDefault: 'map-marker-outline',         iconActive: 'map-marker',            route: '/(main)/map' },
+];
+
 const BottomTab: React.FC<{ active: string }> = ({ active }) => {
   const router = useRouter();
-  const { t } = useApp();
-  const tabs = [
-    { name: 'Home',      label: t('home'),      icon: '🏠', route: '/(main)/home' },
-    { name: 'Plan',      label: t('plan'),      icon: '🗺️', route: '/(main)/plan' },
-    { name: 'Tour Mate', label: 'TourMate',     icon: '🧳', route: '/(main)/tourmate-ai' },
-    { name: 'Favorites', label: t('favorites'), icon: '♡',  route: '/(main)/favorites' },
-    { name: 'View Map',  label: t('map'),       icon: '📍', route: '/(main)/map' },
-  ];
   return (
-    <View style={styles.bottomTab}>
-      {tabs.map(tab => (
-        <TouchableOpacity key={tab.name} style={styles.tabItem} onPress={() => { if (tab.name !== active) router.push(tab.route as any); }}>
-          <Text style={styles.tabIcon}>{tab.icon}</Text>
-          <Text style={[styles.tabLabel, tab.name === active && styles.tabLabelActive]}>{(tab as any).label ?? tab.name}</Text>
-          {tab.name === active && <View style={styles.tabDot} />}
-        </TouchableOpacity>
-      ))}
+    <View style={styles.bottomTabWrap}>
+      <View style={styles.bottomTab}>
+        {TABS.map(tab => {
+          const isActive = tab.name === active;
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={[styles.tabItem, isActive && styles.tabItemActive]}
+              onPress={() => { if (!isActive) router.push(tab.route as any); }}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons
+                name={isActive ? tab.iconActive : tab.iconDefault}
+                size={22}
+                color={isActive ? '#FFF' : 'rgba(255,255,255,0.45)'}
+              />
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
@@ -371,7 +392,7 @@ const styles = StyleSheet.create({
   countBadge:     { backgroundColor: '#E67E22', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
   countBadgeText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
 
-  grid:    { paddingHorizontal: 16, paddingBottom: 120, paddingTop: 4 },
+  grid:    { paddingHorizontal: 16, paddingBottom: 140, paddingTop: 4 },
   gridRow: { justifyContent: 'space-between', marginBottom: 16 },
 
   card:             { width: CARD_WIDTH, backgroundColor: '#FFF', borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 4 },
@@ -393,12 +414,12 @@ const styles = StyleSheet.create({
   exploreBtn:     { backgroundColor: '#E67E22', borderRadius: 30, paddingHorizontal: 28, paddingVertical: 14 },
   exploreBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
 
-  bottomTab:      { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#FFF', paddingVertical: 10, paddingHorizontal: 10, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, elevation: 10 },
-  tabItem:        { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabIcon:        { fontSize: 18 },
-  tabLabel:       { fontSize: 10, color: '#AAA', marginTop: 2 },
-  tabLabelActive: { color: '#E67E22', fontWeight: '700' },
-  tabDot:         { width: 5, height: 5, borderRadius: 3, backgroundColor: '#E67E22', marginTop: 2 },
+  bottomTabWrap:  { position: 'absolute', bottom: 20, left: 16, right: 16, alignItems: 'center' },
+  bottomTab:      { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A0A00', borderRadius: 28, paddingVertical: 10, paddingHorizontal: 6, shadowColor: '#1A0A00', shadowOpacity: 0.4, shadowRadius: 24, elevation: 16, width: '100%', justifyContent: 'space-around' },
+  tabItem:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, paddingHorizontal: 4, borderRadius: 20, gap: 3 },
+  tabItemActive:  { backgroundColor: '#C4873A' },
+  tabLabel:       { fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: 0.2 },
+  tabLabelActive: { color: '#FFF', fontWeight: '800' },
 
   // Bottom Sheet
   sheetBackdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },

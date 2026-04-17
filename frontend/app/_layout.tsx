@@ -23,6 +23,7 @@ export default function RootLayout() {
         <Stack.Screen name="(main)/tourmate-ai" />
         <Stack.Screen name="(main)/favorites" />
         <Stack.Screen name="(main)/rewards" />
+        <Stack.Screen name="(main)/saved-plans" />
       </Stack>
     </AppProvider>
   );

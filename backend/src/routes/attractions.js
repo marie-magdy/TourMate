@@ -1,18 +1,41 @@
 // backend/src/routes/attractions.js
+//
+// ── IMPORTANT — DATABASE SEPARATION NOTE ─────────────────────────────────────
+// This router serves the PostgreSQL attractions table (integer IDs: 1, 2, 3...).
+// It is used by: home.tsx (popular/nearest/search/images/favorite),
+//                favorites.tsx (favorites list/toggle), attraction.tsx (detail),
+//                map.tsx (city pins), and admin screens (CRUD).
+//
+// The PLAN FLOW (pick-spots → itinerary) does NOT use this router.
+// It uses /api/recommendations/* → Flask → TourMate_attractions.xlsx (IDs: "ATT001").
+//
+// Do NOT add a fallback from the plan flow back to this router.
+// The two ID namespaces are incompatible and will silently break favorites.
+// ─────────────────────────────────────────────────────────────────────────────
 import express from 'express';
 import pool from '../db.js';
 
 const router = express.Router();
 
 // ── Helper: base SELECT that joins cities + aggregates categories ─────
+// Category resolution order:
+//   1. attraction_categories join table  (46 attractions populated)
+//   2. a.categories TEXT column fallback (remaining 77 attractions store
+//      comma-separated values like 'historical,outdoor,ancient' directly)
 const BASE_SELECT = `
   SELECT
     a.*,
     ci.name AS city,
-    COALESCE(
-      ARRAY_AGG(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL),
-      '{}'
-    ) AS categories,
+    CASE
+      WHEN COUNT(c.name) > 0
+        THEN ARRAY_AGG(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL)
+      WHEN a.categories IS NOT NULL AND trim(a.categories) != ''
+        THEN string_to_array(
+               regexp_replace(trim(a.categories), '\\s*,\\s*', ',', 'g'),
+               ','
+             )
+      ELSE ARRAY[]::text[]
+    END AS categories,
     (
       SELECT ai.image_url
       FROM attraction_images ai
@@ -112,7 +135,7 @@ router.get('/favorites/:user_id', async (req, res) => {
        INNER JOIN favorites f ON a.id = f.attraction_id
        WHERE f.user_id = $1
        ${GROUP_BY}
-       ORDER BY f.created_at DESC`,
+       ORDER BY MAX(f.created_at) DESC`,
       [user_id]
     );
     res.json({ success: true, data: result.rows });

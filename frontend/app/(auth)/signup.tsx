@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { api } from '../../api';
 import { COLORS } from '../../constants/colors';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 
 export default function SignUp() {
@@ -138,7 +138,7 @@ export default function SignUp() {
             placeholderTextColor="#999"
           />
           <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-            <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
+            <MaterialCommunityIcons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
           </TouchableOpacity>
         </View>
         {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
@@ -162,7 +162,7 @@ export default function SignUp() {
             placeholderTextColor="#999"
           />
           <TouchableOpacity onPress={() => setShowRepeatPassword(!showRepeatPassword)} style={styles.eyeIcon}>
-            <Ionicons name={showRepeatPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
+            <MaterialCommunityIcons name={showRepeatPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
           </TouchableOpacity>
         </View>
         {errors.repeatPassword ? <Text style={styles.errorText}>{errors.repeatPassword}</Text> : null}
