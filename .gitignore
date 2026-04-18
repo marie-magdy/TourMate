@@ -53,3 +53,7 @@
 /backend/npm-debug.*
 /backend/yarn-debug.*
 /backend/yarn-error.*
+
+/recommandation_service/.venv/
+/recommandation_service/__pycache__/
+/recommandation_service/.env
