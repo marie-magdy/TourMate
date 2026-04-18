@@ -323,27 +323,71 @@ export default function MapScreen() {
 
   // ── Get user location ─────────────────────────────────────────────
   const getUserLocation = async (): Promise<void> => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
-        setLoadingLocation(false);
-        fetchAttractions(31.2001, 29.9187);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const coords   = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+  try {
+    // Step 1: Show last known position instantly (no spinner needed)
+    const lastKnown = await Location.getLastKnownPositionAsync();
+    if (lastKnown) {
+      const coords = { latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude };
       setUserLocation(coords);
-      mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 1000);
+      setLoadingLocation(false); // hide spinner immediately
       fetchAttractions(coords.latitude, coords.longitude);
-    } catch (err) {
+      mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 800);
+    } else {
+      // No cached position — fall back to Alexandria while we wait
       setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
-      fetchAttractions(31.2001, 29.9187);
-    } finally {
       setLoadingLocation(false);
+      fetchAttractions(31.2001, 29.9187);
     }
-  };
+
+    // Step 2: Get accurate position in background (user already sees the map)
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const location = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced // was High — much faster
+    });
+    const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+    setUserLocation(coords);
+    mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 800);
+
+    // Only re-fetch attractions if user is far from the cached position
+    if (lastKnown) {
+      const dist = getDistanceKm(
+        lastKnown.coords.latitude, lastKnown.coords.longitude,
+        coords.latitude, coords.longitude
+      );
+      if (dist > 0.5) fetchAttractions(coords.latitude, coords.longitude); // re-fetch only if moved >500m
+    }
+
+  } catch (err) {
+    // Full fallback if everything fails
+    setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
+    fetchAttractions(31.2001, 29.9187);
+    setLoadingLocation(false);
+  }
+};
+  // const getUserLocation = async (): Promise<void> => {
+  //   try {
+  //     const { status } = await Location.requestForegroundPermissionsAsync();
+  //     if (status !== 'granted') {
+  //       setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
+  //       setLoadingLocation(false);
+  //       fetchAttractions(31.2001, 29.9187);
+  //       return;
+  //     }
+
+  //     const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  //     const coords   = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+  //     setUserLocation(coords);
+  //     mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 1000);
+  //     fetchAttractions(coords.latitude, coords.longitude);
+  //   } catch (err) {
+  //     setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
+  //     fetchAttractions(31.2001, 29.9187);
+  //   } finally {
+  //     setLoadingLocation(false);
+  //   }
+  // };
 
   // ── Fetch real attractions from backend ───────────────────────────
   const fetchAttractions = async (lat: number, lon: number) => {
