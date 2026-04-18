@@ -2,14 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Switch, Alert, SafeAreaView, ActivityIndicator, Modal, TextInput,
+  Switch, Alert, ActivityIndicator, Modal, TextInput,
+  TouchableWithoutFeedback, KeyboardAvoidingView, Keyboard, Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp, CurrencyCode, Language } from '../../constants/AppContext';
 
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1;
 
 interface SettingRowProps {
   icon: string; label: string; value?: string;
@@ -49,7 +50,11 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
 const Divider = () => <View style={styles.divider} />;
 
 // ── Change Password Modal ─────────────────────────────────────────────
-const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
+const ChangePasswordModal: React.FC<{
+  visible: boolean;
+  userId: number | null;
+  onClose: () => void;
+}> = ({ visible, onClose, userId }) => {
   const [current, setCurrent] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -64,7 +69,7 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
     if (newPass.length < 6) { Alert.alert('Error', 'Password must be at least 6 characters.'); return; }
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}/password`, {
+      const res = await fetch(`${API_BASE}/auth/user/${userId}/password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: current, new_password: newPass }),
@@ -82,44 +87,50 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>🔒 Change Password</Text>
-          {[
-            { label: 'Current Password', value: current, setter: setCurrent },
-            { label: 'New Password',     value: newPass, setter: setNewPass },
-            { label: 'Confirm New Password', value: confirm, setter: setConfirm },
-          ].map(f => (
-            <View key={f.label} style={styles.modalFieldGroup}>
-              <Text style={styles.modalFieldLabel}>{f.label}</Text>
-              <View style={styles.passwordRow}>
-                <TextInput
-                  style={[styles.modalInput, { flex: 1 }]}
-                  value={f.value}
-                  onChangeText={f.setter}
-                  secureTextEntry={!showPass}
-                  placeholder="••••••••"
-                  placeholderTextColor="#AAA"
-                  autoCapitalize="none"
-                />
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>🔒 Change Password</Text>
+              {[
+                { label: 'Current Password',     value: current, setter: setCurrent },
+                { label: 'New Password',         value: newPass, setter: setNewPass },
+                { label: 'Confirm New Password', value: confirm, setter: setConfirm },
+              ].map(f => (
+                <View key={f.label} style={styles.modalFieldGroup}>
+                  <Text style={styles.modalFieldLabel}>{f.label}</Text>
+                  <View style={styles.passwordRow}>
+                    <TextInput
+                      style={[styles.modalInput, { flex: 1 }]}
+                      value={f.value}
+                      onChangeText={f.setter}
+                      secureTextEntry={!showPass}
+                      placeholder="••••••••"
+                      placeholderTextColor="#AAA"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                </View>
+              ))}
+              <TouchableOpacity onPress={() => setShowPass(p => !p)} style={{ marginBottom: 16 }}>
+                <Text style={{ color: '#E67E22', fontSize: 13, fontWeight: '600' }}>
+                  {showPass ? '🙈 Hide passwords' : '👁 Show passwords'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { reset(); onClose(); }}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleSave} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalConfirmText}>Save</Text>}
+                </TouchableOpacity>
               </View>
             </View>
-          ))}
-          <TouchableOpacity onPress={() => setShowPass(p => !p)} style={{ marginBottom: 16 }}>
-            <Text style={{ color: '#E67E22', fontSize: 13, fontWeight: '600' }}>
-              {showPass ? '🙈 Hide passwords' : '👁 Show passwords'}
-            </Text>
-          </TouchableOpacity>
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { reset(); onClose(); }}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleSave} disabled={loading}>
-              {loading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalConfirmText}>Save</Text>}
-            </TouchableOpacity>
-          </View>
+          </KeyboardAvoidingView>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -128,8 +139,9 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
 const EditProfileModal: React.FC<{
   visible: boolean; onClose: () => void;
   currentName: string; currentEmail: string;
+  userId: number | null;
   onSaved: (name: string, email: string) => void;
-}> = ({ visible, onClose, currentName, currentEmail, onSaved }) => {
+}> = ({ visible, onClose, currentName, currentEmail, userId, onSaved }) => {
   const [name, setName]   = useState(currentName);
   const [email, setEmail] = useState(currentEmail);
   const [loading, setLoading] = useState(false);
@@ -141,7 +153,7 @@ const EditProfileModal: React.FC<{
     if (!email.includes('@')) { Alert.alert('Error', 'Please enter a valid email.'); return; }
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}`, {
+      const res = await fetch(`${API_BASE}/auth/user/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: name.trim(), email: email.trim() }),
@@ -160,27 +172,47 @@ const EditProfileModal: React.FC<{
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>👤 Edit Profile</Text>
-          <View style={styles.modalFieldGroup}>
-            <Text style={styles.modalFieldLabel}>Display Name</Text>
-            <TextInput style={styles.modalInput} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#AAA" />
-          </View>
-          <View style={styles.modalFieldGroup}>
-            <Text style={styles.modalFieldLabel}>Email</Text>
-            <TextInput style={styles.modalInput} value={email} onChangeText={setEmail} placeholder="your@email.com" placeholderTextColor="#AAA" keyboardType="email-address" autoCapitalize="none" />
-          </View>
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleSave} disabled={loading}>
-              {loading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalConfirmText}>Save</Text>}
-            </TouchableOpacity>
-          </View>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>👤 Edit Profile</Text>
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Display Name</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Your name"
+                  placeholderTextColor="#AAA"
+                />
+              </View>
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Email</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="your@email.com"
+                  placeholderTextColor="#AAA"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleSave} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.modalConfirmText}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -190,8 +222,9 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage, currency, setCurrency, isRTL } = useApp();
 
-  const [userName, setUserName]   = useState('');
-  const [userEmail, setUserEmail] = useState('');
+  const [userId, setUserId]         = useState<number | null>(null);
+  const [userName, setUserName]     = useState('');
+  const [userEmail, setUserEmail]   = useState('');
   const [userPoints, setUserPoints] = useState(0);
   const [loadingUser, setLoadingUser] = useState(true);
 
@@ -206,16 +239,38 @@ export default function SettingsScreen() {
 
   const fetchUser = async () => {
     try {
+      const raw = await AsyncStorage.getItem('user');
+      if (!raw) {
+        setUserName('Traveler');
+        setUserEmail('');
+        setLoadingUser(false);
+        return;
+      }
+
+      const storedUser = JSON.parse(raw);
+      const userId = storedUser.id;
+      setUserId(userId);
+
       const [userRes, pointsRes] = await Promise.all([
-        fetch(`${API_BASE}/auth/user/${USER_ID}`),
-        fetch(`${API_BASE}/points/${USER_ID}`),
+        fetch(`${API_BASE}/auth/user/${userId}`),
+        fetch(`${API_BASE}/points/${userId}`),
       ]);
+
       const userData   = await userRes.json();
       const pointsData = await pointsRes.json();
-      if (userData.success)   { setUserName(userData.data.name); setUserEmail(userData.data.email); }
+
+      if (userData.success) {
+        setUserName(userData.data.name);
+        setUserEmail(userData.data.email);
+      }
       if (pointsData.success) setUserPoints(pointsData.data?.points ?? 0);
-    } catch { setUserName('Traveler'); setUserEmail(''); }
-    finally { setLoadingUser(false); }
+
+    } catch {
+      setUserName('Traveler');
+      setUserEmail('');
+    } finally {
+      setLoadingUser(false);
+    }
   };
 
   const loadPreferences = async () => {
@@ -240,12 +295,18 @@ export default function SettingsScreen() {
 
   const handleToggleNotifications = (val: boolean) => {
     setNotifications(val); savePref({ notifications: val });
-    Alert.alert(val ? '🔔 Notifications On' : '🔕 Notifications Off', val ? 'You will receive travel tips and updates.' : 'You will no longer receive notifications.');
+    Alert.alert(
+      val ? '🔔 Notifications On' : '🔕 Notifications Off',
+      val ? 'You will receive travel tips and updates.' : 'You will no longer receive notifications.'
+    );
   };
 
   const handleToggleDarkMode = (val: boolean) => {
     setDarkMode(val); savePref({ darkMode: val });
-    Alert.alert(val ? '🌙 Dark Mode Enabled' : '☀️ Light Mode Enabled', 'Restart the app to apply the theme change.');
+    Alert.alert(
+      val ? '🌙 Dark Mode Enabled' : '☀️ Light Mode Enabled',
+      'Restart the app to apply the theme change.'
+    );
   };
 
   const handleToggleLocation = (val: boolean) => {
@@ -253,7 +314,9 @@ export default function SettingsScreen() {
     if (!val) Alert.alert('📍 Location Off', 'Map and walkability features require location services.');
   };
 
-  const LANG_DISPLAY: Record<Language, string> = { en: 'English', ar: 'العربية', fr: 'Français', de: 'Deutsch' };
+  const LANG_DISPLAY: Record<Language, string> = {
+    en: 'English', ar: 'العربية', fr: 'Français', de: 'Deutsch',
+  };
 
   const handleLanguage = () => {
     Alert.alert(t('selectLanguage'), '', [
@@ -265,7 +328,9 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const CURRENCY_DISPLAY: Record<CurrencyCode, string> = { USD: 'USD ($)', EGP: 'EGP (ج.م)', EUR: 'EUR (€)', GBP: 'GBP (£)', SAR: 'SAR (ر.س)' };
+  const CURRENCY_DISPLAY: Record<CurrencyCode, string> = {
+    USD: 'USD ($)', EGP: 'EGP (ج.م)', EUR: 'EUR (€)', GBP: 'GBP (£)', SAR: 'SAR (ر.س)',
+  };
 
   const handleCurrency = () => {
     Alert.alert(t('selectCurrency'), '', [
@@ -306,7 +371,7 @@ export default function SettingsScreen() {
         text: 'Delete Forever', style: 'destructive',
         onPress: async () => {
           try {
-            const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}`, { method: 'DELETE' });
+            const res  = await fetch(`${API_BASE}/auth/user/${userId}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
               await AsyncStorage.clear();
@@ -336,6 +401,8 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+
+      {/* ── Fixed Header (outside keyboard handling) ── */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Text style={styles.backIcon}>←</Text>
@@ -344,113 +411,172 @@ export default function SettingsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* ── Keyboard + Dismiss wrapper (only around scrollable content) ── */}
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <ScrollView
+            style={styles.container}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={true}
+          >
+            {/* ── Profile Card ── */}
+            {loadingUser ? (
+              <View style={styles.profileCardLoading}>
+                <ActivityIndicator color="#E67E22" />
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.profileCard}
+                activeOpacity={0.85}
+                onPress={() => setShowEditProfile(true)}
+              >
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarInitial}>
+                    {userName ? userName[0].toUpperCase() : '?'}
+                  </Text>
+                </View>
+                <View style={styles.profileInfo}>
+                  <Text style={styles.profileName}>{userName || 'Traveler'}</Text>
+                  <Text style={styles.profileEmail}>{userEmail || ''}</Text>
+                  <Text style={styles.profileEditHint}>{t('tapToEditProfile')}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
 
-        {/* ── Profile Card ── */}
-        {loadingUser ? (
-          <View style={styles.profileCardLoading}><ActivityIndicator color="#E67E22" /></View>
-        ) : (
-          <TouchableOpacity style={styles.profileCard} activeOpacity={0.85} onPress={() => setShowEditProfile(true)}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarInitial}>{userName ? userName[0].toUpperCase() : '?'}</Text>
+            {/* ── Rewards Banner ── */}
+            <TouchableOpacity
+              style={styles.rewardsBanner}
+              onPress={() => router.push('/(main)/rewards' as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.rewardsBannerLeft}>
+                <Text style={styles.rewardsBannerEmoji}>⭐</Text>
+                <View>
+                  <Text style={styles.rewardsBannerTitle}>{t('yourPoints')}</Text>
+                  <Text style={styles.rewardsBannerSub}>{t('tapToViewRewards')}</Text>
+                </View>
+              </View>
+              <View style={styles.rewardsBannerRight}>
+                <Text style={styles.rewardsBannerPoints}>{userPoints}</Text>
+                <Text style={styles.rewardsBannerPts}>{t('pts')}</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* ── Account ── */}
+            <SectionHeader title={t('account')} />
+            <View style={styles.section}>
+              <SettingRow icon="👤" label={t('editProfile')}    onPress={() => setShowEditProfile(true)} />
+              <Divider />
+              <SettingRow icon="🔒" label={t('changePassword')} onPress={() => setShowChangePassword(true)} />
+              <Divider />
+              <SettingRow
+                icon="🎁"
+                label={t('rewardsPoints')}
+                value={`${userPoints} ${t('pts')}`}
+                onPress={() => router.push('/(main)/rewards' as any)}
+              />
             </View>
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{userName || 'Traveler'}</Text>
-              <Text style={styles.profileEmail}>{userEmail || ''}</Text>
-              <Text style={styles.profileEditHint}>{t('tapToEditProfile')}</Text>
+
+            {/* ── Preferences ── */}
+            <SectionHeader title={t('preferences')} />
+            <View style={styles.section}>
+              <SettingRow icon="🌐" label={t('language')} value={LANG_DISPLAY[language]}       onPress={handleLanguage} />
+              <Divider />
+              <SettingRow icon="💰" label={t('currency')} value={CURRENCY_DISPLAY[currency]}   onPress={handleCurrency} />
+              <Divider />
+              <ToggleRow  icon="🔔" label={t('notifications')}    value={notifications}    onToggle={handleToggleNotifications} />
+              <Divider />
+              <ToggleRow  icon="📍" label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
+              <Divider />
+              <ToggleRow  icon="🌙" label={t('darkMode')}         value={darkMode}         onToggle={handleToggleDarkMode} />
             </View>
-          </TouchableOpacity>
-        )}
 
-        {/* ── Rewards Banner ── */}
-        <TouchableOpacity style={styles.rewardsBanner} onPress={() => router.push('/(main)/rewards' as any)} activeOpacity={0.85}>
-          <View style={styles.rewardsBannerLeft}>
-            <Text style={styles.rewardsBannerEmoji}>⭐</Text>
-            <View>
-              <Text style={styles.rewardsBannerTitle}>{t('yourPoints')}</Text>
-              <Text style={styles.rewardsBannerSub}>{t('tapToViewRewards')}</Text>
+            {/* ── App ── */}
+            <SectionHeader title={t('appSection')} />
+            <View style={styles.section}>
+              <SettingRow icon="🗑️" label={t('clearCache')} onPress={handleClearCache} showArrow={false} />
+              <Divider />
+              <SettingRow
+                icon="ℹ️"
+                label="About TourMate"
+                value="v1.0.0"
+                onPress={() => Alert.alert('TourMate v1.0.0', 'Your ultimate guide to exploring Egypt.\nMade with ❤️ in Egypt')}
+              />
+              <Divider />
+              <SettingRow
+                icon="📋"
+                label="Privacy Policy"
+                onPress={() => Alert.alert('Privacy Policy', 'We respect your privacy. Your data is never sold to third parties.')}
+              />
+              <Divider />
+              <SettingRow
+                icon="📄"
+                label="Terms of Service"
+                onPress={() => Alert.alert('Terms of Service', 'By using TourMate you agree to use the app responsibly.')}
+              />
             </View>
-          </View>
-          <View style={styles.rewardsBannerRight}>
-            <Text style={styles.rewardsBannerPoints}>{userPoints}</Text>
-            <Text style={styles.rewardsBannerPts}>{t('pts')}</Text>
-          </View>
-        </TouchableOpacity>
 
-        {/* ── Account ── */}
-        <SectionHeader title={t('account')} />
-        <View style={styles.section}>
-          <SettingRow icon="👤" label={t('editProfile')}     onPress={() => setShowEditProfile(true)} />
-          <Divider />
-          <SettingRow icon="🔒" label={t('changePassword')}  onPress={() => setShowChangePassword(true)} />
-          <Divider />
-          <SettingRow icon="🎁" label={t('rewardsPoints')} value={`${userPoints} ${t('pts')}`} onPress={() => router.push('/(main)/rewards' as any)} />
-        </View>
+            {/* ── Support ── */}
+            <SectionHeader title={t('support')} />
+            <View style={styles.section}>
+              <SettingRow
+                icon="⭐"
+                label="Rate TourMate"
+                onPress={() => Alert.alert('Rate TourMate', 'Thank you! ⭐⭐⭐⭐⭐')}
+              />
+              <Divider />
+              <SettingRow
+                icon="📧"
+                label="Contact Us"
+                value="support@tourmate.com"
+                onPress={() => Alert.alert('Contact Us', 'Email: support@tourmate.com\nWe reply within 24 hours!')}
+              />
+              <Divider />
+              <SettingRow
+                icon="🐛"
+                label="Report a Bug"
+                onPress={() => Alert.alert('Report Bug', 'Email: bugs@tourmate.com\nThank you for helping us improve!')}
+              />
+            </View>
 
-        {/* ── Preferences ── */}
-        <SectionHeader title={t('preferences')} />
-        <View style={styles.section}>
-          <SettingRow   icon="🌐" label={t('language')}         value={LANG_DISPLAY[language]}         onPress={handleLanguage} />
-          <Divider />
-          <SettingRow   icon="💰" label={t('currency')}         value={CURRENCY_DISPLAY[currency]}         onPress={handleCurrency} />
-          <Divider />
-          <ToggleRow    icon="🔔" label={t('notifications')}    value={notifications}    onToggle={handleToggleNotifications} />
-          <Divider />
-          <ToggleRow    icon="📍" label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
-          <Divider />
-          <ToggleRow    icon="🌙" label={t('darkMode')}        value={darkMode}         onToggle={handleToggleDarkMode} />
-        </View>
+            {/* ── Account Actions ── */}
+            <SectionHeader title={t('accountActions')} />
+            <View style={styles.section}>
+              <SettingRow icon="🚪" label={t('logout')}        onPress={handleLogout}        showArrow={false} danger />
+              <Divider />
+              <SettingRow icon="⚠️" label={t('deleteAccount')} onPress={handleDeleteAccount} showArrow={false} danger />
+            </View>
 
-        {/* ── App ── */}
-        <SectionHeader title={t('appSection')} />
-        <View style={styles.section}>
-          <SettingRow icon="🗑️" label={t('clearCache')}    onPress={handleClearCache} showArrow={false} />
-          <Divider />
-          <SettingRow icon="ℹ️" label="About TourMate" value="v1.0.0" onPress={() => Alert.alert('TourMate v1.0.0', 'Your ultimate guide to exploring Egypt.\nMade with ❤️ in Egypt')} />
-          <Divider />
-          <SettingRow icon="📋" label="Privacy Policy"  onPress={() => Alert.alert('Privacy Policy', 'We respect your privacy. Your data is never sold to third parties.')} />
-          <Divider />
-          <SettingRow icon="📄" label="Terms of Service" onPress={() => Alert.alert('Terms of Service', 'By using TourMate you agree to use the app responsibly.')} />
-        </View>
+            <View style={styles.footer}>
+              <Text style={styles.footerLogo}>🧳 TourMate</Text>
+              <Text style={styles.footerVersion}>Version 1.0.0</Text>
+              <Text style={styles.footerMade}>Made with ❤️ in Egypt</Text>
+            </View>
 
-        {/* ── Support ── */}
-        <SectionHeader title={t('support')} />
-        <View style={styles.section}>
-          <SettingRow icon="⭐" label="Rate TourMate" onPress={() => Alert.alert('Rate TourMate', 'Thank you! ⭐⭐⭐⭐⭐')} />
-          <Divider />
-          <SettingRow icon="📧" label="Contact Us"    value="support@tourmate.com" onPress={() => Alert.alert('Contact Us', 'Email: support@tourmate.com\nWe reply within 24 hours!')} />
-          <Divider />
-          <SettingRow icon="🐛" label="Report a Bug"  onPress={() => Alert.alert('Report Bug', 'Email: bugs@tourmate.com\nThank you for helping us improve!')} />
-        </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
 
-        {/* ── Account Actions ── */}
-        <SectionHeader title={t('accountActions')} />
-        <View style={styles.section}>
-          <SettingRow icon="🚪" label={t('logout')}         onPress={handleLogout}        showArrow={false} danger />
-          <Divider />
-          <SettingRow icon="⚠️" label={t('deleteAccount')} onPress={handleDeleteAccount} showArrow={false} danger />
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerLogo}>🧳 TourMate</Text>
-          <Text style={styles.footerVersion}>Version 1.0.0</Text>
-          <Text style={styles.footerMade}>Made with ❤️ in Egypt</Text>
-        </View>
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
-
+      {/* ── Modals (outside KeyboardAvoidingView so they aren't offset) ── */}
       <EditProfileModal
         visible={showEditProfile}
         onClose={() => setShowEditProfile(false)}
         currentName={userName}
         currentEmail={userEmail}
+        userId={userId}
         onSaved={(name, email) => { setUserName(name); setUserEmail(email); }}
       />
       <ChangePasswordModal
         visible={showChangePassword}
         onClose={() => setShowChangePassword(false)}
+        userId={userId}
       />
+
     </SafeAreaView>
   );
 }

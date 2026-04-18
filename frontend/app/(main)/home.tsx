@@ -7,6 +7,7 @@ import {
   PanResponder, Linking, Platform,
   TouchableWithoutFeedback,Pressable,
   Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
@@ -864,11 +865,14 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      {/* ✅ Backdrop as a simple Pressable — no nesting issues */}
-      <Pressable style={styles.modalOverlay} onPress={Keyboard.dismiss}>
 
-        {/* ✅ Stop press from bubbling to backdrop */}
-        <Pressable style={styles.currencySheet} onPress={Keyboard.dismiss}>
+        <TouchableWithoutFeedback onPress={onClose} accessible={false}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={styles.currencySheet}
+            >
 
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>💱 Currency Exchange</Text>
@@ -926,8 +930,10 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
           </View>
           {rate && <Text style={styles.rateInfo}>1 {selectedCurrency.code} = {rate.toFixed(4)} EGP</Text>}
 
-        </Pressable>
-      </Pressable>
+          </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
+    </View>
+  </TouchableWithoutFeedback>
     </Modal>
   );
 };
