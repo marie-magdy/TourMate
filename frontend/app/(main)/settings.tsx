@@ -161,6 +161,13 @@ const EditProfileModal: React.FC<{
       });
       const data = await res.json();
       if (data.success) {
+        // Update AsyncStorage with new user data
+        await AsyncStorage.setItem('user', JSON.stringify({
+          id: userId,
+          username: name.trim(),
+          email: email.trim(),
+          role: data.data?.role ?? 'user',
+        }));
         onSaved(name.trim(), email.trim());
         Alert.alert('Saved ✓', 'Profile updated!');
         onClose();
@@ -258,6 +265,7 @@ export default function SettingsScreen() {
       ]);
 
       const userData   = await userRes.json();
+      console.log('userData:', JSON.stringify(userData)); 
       const pointsData = await pointsRes.json();
 
       if (userData.success) {

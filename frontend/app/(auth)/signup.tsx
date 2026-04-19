@@ -6,6 +6,7 @@ import { COLORS } from '../../constants/colors';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignUp() {
   const [username, setUsername] = useState('');
@@ -62,15 +63,25 @@ export default function SignUp() {
     setErrors(newErrors);
     if (hasError) return; // ✅ stops here instantly, no server call
 
+    // inside handleSignUp, replace the try block with:
     try {
       const res = await api.post('/auth/register', { username, email, password });
+      
+      // ← save user to AsyncStorage just like login does
+      await AsyncStorage.setItem('token', res.data.token);
+      await AsyncStorage.setItem('user', JSON.stringify({
+        id: res.data.id,
+        username: res.data.username,
+        email: res.data.email,
+        role: res.data.role,
+      }));
+
       (router as any).push({
         pathname: '/(auth)/confirmation',
         params: { username, email, userId: res.data.id, token: res.data.token },
       });
     } catch (error: any) {
       const message = error?.response?.data?.error || 'Sign up failed';
-      // show server error under email (most likely duplicate email)
       setErrors(prev => ({ ...prev, email: message }));
     }
   };

@@ -34,7 +34,21 @@ router.post('/register', async (req, res) => {
       'INSERT INTO users (username, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role',
       [username, email, hashedPassword, 'user']
     );
-    res.status(201).json(newUser.rows[0]);
+    
+    const user = newUser.rows[0];
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      token,
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    });
 
   } catch (err) {
     if (err.code === '23505') {

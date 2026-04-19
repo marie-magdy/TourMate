@@ -16,6 +16,8 @@ import { useApp } from '../../constants/AppContext';
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 const WALKABLE_DISTANCE_KM = 1.0; // 1km threshold
+const ARRIVAL_RADIUS_M = 100;  // metres — considered "arrived" at destination
+const MAX_WALK_SPEED_MS = 3.0;  // m/s (~11 km/h) — above this = vehicle detected, no points
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Place {
@@ -160,27 +162,55 @@ const WalkableBannerModal: React.FC<{
 };
 
 // ── Points Toast ──────────────────────────────────────────────────────
-const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, points }) => {
-  const slideAnim = useRef(new Animated.Value(-100)).current;
+  const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, points }) => {
+    const fadeAnim  = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(0.7)).current;
+    const [rendered, setRendered] = useState(false);
 
-  useEffect(() => {
-    if (visible) {
-      Animated.sequence([
-        Animated.spring(slideAnim, { toValue: 0, damping: 12, stiffness: 150, useNativeDriver: true }),
-        Animated.delay(2500),
-        Animated.timing(slideAnim, { toValue: -100, duration: 300, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [visible]);
+    useEffect(() => {
+      if (visible) {
+        setRendered(true);
+        // Reset
+        fadeAnim.setValue(0);
+        scaleAnim.setValue(0.7);
 
-  return (
-    <Animated.View style={[styles.pointsToast, { transform: [{ translateY: slideAnim }] }]}>
-      <MaterialCommunityIcons name="party-popper" size={22} color="#FFF" />
-      <Text style={styles.pointsToastText}>+{points} points earned!</Text>
-      <Text style={styles.pointsToastSubtext}>Keep walking to earn more!</Text>
-    </Animated.View>
-  );
-};
+        Animated.sequence([
+          // Pop in
+          Animated.parallel([
+            Animated.spring(scaleAnim, {
+              toValue: 1, damping: 10, stiffness: 200, useNativeDriver: true
+            }),
+            Animated.timing(fadeAnim, {
+              toValue: 1, duration: 250, useNativeDriver: true
+            }),
+          ]),
+          Animated.delay(2500),
+          // Fade out
+          Animated.parallel([
+            Animated.timing(scaleAnim, {
+              toValue: 0.7, duration: 250, useNativeDriver: true
+            }),
+            Animated.timing(fadeAnim, {
+              toValue: 0, duration: 250, useNativeDriver: true
+            }),
+          ]),
+        ]).start(() => setRendered(false));
+      }
+    }, [visible]);
+
+    if (!rendered) return null;
+
+    return (
+      <Animated.View style={[
+        styles.pointsToast,
+        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+      ]}>
+        <MaterialCommunityIcons name="party-popper" size={22} color="#FFF" />
+        <Text style={styles.pointsToastText}>+{points} points earned!</Text>
+        <Text style={styles.pointsToastSubtext}>Keep walking to earn more!</Text>
+      </Animated.View>
+    );
+  };
 
 // ── MAP SCREEN ────────────────────────────────────────────────────────
 export default function MapScreen() {
@@ -214,6 +244,12 @@ export default function MapScreen() {
   const [showPointsToast, setShowPointsToast] = useState(false);
   const [earnedPoints, setEarnedPoints]     = useState(0);
   const [walkedPlaces, setWalkedPlaces]     = useState<Set<string>>(new Set());
+  const [walkingInProgress, setWalkingInProgress] = useState(false);
+  const [walkTarget, setWalkTarget] = useState<Place | null>(null);
+  const [walkDistanceLeft, setWalkDistanceLeft] = useState<number>(0);
+  const [vehicleDetected, setVehicleDetected] = useState(false);
+  const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
+  const walkInitialDistRef = useRef<number>(1);
 
   const DAY_COLORS = ['#E67E22', '#3498DB', '#27AE60', '#9B59B6', '#E74C3C', '#F39C12', '#1ABC9C'];
   const mapStops = plannedDays
@@ -228,39 +264,33 @@ export default function MapScreen() {
         }))
     );
 
-  // const fetchItinerary = async () => {
-  //   try {
-  //     const res = await fetch(`${API_BASE}/itineraries?user_id=${USER_ID}`);
+  const fetchItinerary = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/plans/${userId}`);
       
-  //     // Get raw response before parsing
-  //     const text = await res.text();
-  //     console.log('Raw response:', text); // <-- this will always print
+      if (!res.ok) {
+        console.log('Plans endpoint not available');
+        return;
+      }
 
-  //     // Now try parsing
-  //     const data = JSON.parse(text);
+      const data = await res.json();
 
-  //     if (data.success && data.data?.length > 0) {
-  //       const active = data.data.find((i: any) => i.status === 'active') ?? data.data[0];
-  //       const detailRes = await fetch(`${API_BASE}/itineraries/${active.id}`);
-        
-  //       const detailText = await detailRes.text();
-  //       console.log('Raw detail response:', detailText);
-  //       const detailData = JSON.parse(detailText);
-
-  //       if (detailData.success) {
-  //         setItinerary(detailData.data.items ?? []);
-  //         setShowItinerary(true);
-  //       }
-  //     }
-  //   } catch (err) {
-  //     console.error('Itinerary fetch error:', err);
-  //   }
-  // };
+      if (data.success && data.data?.length > 0) {
+        const active = data.data[0]; // most recent plan
+        if (active.itinerary) {
+          setItinerary(active.itinerary ?? []);
+          setShowItinerary(true);
+        }
+      }
+    } catch (err) {
+      console.error('Itinerary fetch error:', err);
+    }
+  };
   // Add to your main useEffect
   useEffect(() => { 
     getUserLocation();
     loadUser();
-    // fetchItinerary();  // ← add this
+    fetchItinerary(); 
   }, []);
 
   useEffect(() => {
@@ -306,7 +336,7 @@ export default function MapScreen() {
       return () => clearTimeout(timer);
     }
   }, [nearbyAttractions]); // ← only trigger when attractions load, NOT on every location update
-
+  useEffect(() => () => { locationWatcherRef.current?.remove(); }, []);
 
   const checkWalkableAttractions = () => {
     if (!userLocation || bannerShownOnce) return; // ← don't show again
@@ -382,28 +412,7 @@ export default function MapScreen() {
     setLoadingLocation(false);
   }
 };
-  // const getUserLocation = async (): Promise<void> => {
-  //   try {
-  //     const { status } = await Location.requestForegroundPermissionsAsync();
-  //     if (status !== 'granted') {
-  //       setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
-  //       setLoadingLocation(false);
-  //       fetchAttractions(31.2001, 29.9187);
-  //       return;
-  //     }
 
-  //     const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-  //     const coords   = { latitude: location.coords.latitude, longitude: location.coords.longitude };
-  //     setUserLocation(coords);
-  //     mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 1000);
-  //     fetchAttractions(coords.latitude, coords.longitude);
-  //   } catch (err) {
-  //     setUserLocation({ latitude: 31.2001, longitude: 29.9187 });
-  //     fetchAttractions(31.2001, 29.9187);
-  //   } finally {
-  //     setLoadingLocation(false);
-  //   }
-  // };
 
   // ── Fetch real attractions from backend ───────────────────────────
   const fetchAttractions = async (lat: number, lon: number) => {
@@ -436,35 +445,31 @@ export default function MapScreen() {
     }
   };
 
-  // ── Handle walk choice ────────────────────────────────────────────
-  const handleWalk = async () => {
-    if (!walkBanner.place) return;
 
-    const place = walkBanner.place;
-    setWalkBanner({ visible: false, place: null, distance_km: 0 });
-    setWalkedPlaces(prev => new Set([...prev, place.id]));
-
-    // Add walking route on map
-    if (userLocation) {
-      const walkPlace: Place = { ...place, id: `walk_${place.id}` };
-      const newPlaces = [
-        { id: 'user', name: 'Your Location', latitude: userLocation.latitude, longitude: userLocation.longitude },
-        walkPlace,
-      ];
-      setSelectedPlaces(newPlaces);
-      setRouteMode('walk');
-      fetchRoute(newPlaces, 'walk');
+  const stopLocationWatcher = () => {
+    if (locationWatcherRef.current) {
+      locationWatcherRef.current.remove();
+      locationWatcherRef.current = null;
     }
+  };
 
-    // Award points
+  const cancelWalk = () => {
+    stopLocationWatcher();
+    setWalkingInProgress(false);
+    setWalkTarget(null);
+    setWalkDistanceLeft(0);
+    setVehicleDetected(false);
+  };
+
+  const awardWalkPoints = async (place: Place) => {
     try {
-      const res  = await fetch(`${API_BASE}/points/earn`, {
+      const res = await fetch(`${API_BASE}/points/earn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id:     userId,
-          points:      50,
-          action:      'walk',
+          user_id: userId,
+          points: 50,
+          action: 'walk',
           description: `Walked to ${place.name}`,
         }),
       });
@@ -478,6 +483,114 @@ export default function MapScreen() {
       console.error('Points error:', err);
     }
   };
+
+  // ── Handle walk choice ────────────────────────────────────────────
+  // const handleWalk = async () => {
+  //   if (!walkBanner.place) return;
+
+  //   const place = walkBanner.place;
+  //   setWalkBanner({ visible: false, place: null, distance_km: 0 });
+  //   setWalkedPlaces(prev => new Set([...prev, place.id]));
+
+  //   // Add walking route on map
+  //   if (userLocation) {
+  //     const walkPlace: Place = { ...place, id: `walk_${place.id}` };
+  //     const newPlaces = [
+  //       { id: 'user', name: 'Your Location', latitude: userLocation.latitude, longitude: userLocation.longitude },
+  //       walkPlace,
+  //     ];
+  //     setSelectedPlaces(newPlaces);
+  //     setRouteMode('walk');
+  //     fetchRoute(newPlaces, 'walk');
+  //   }
+
+  //   // Award points
+  //   try {
+  //     const res  = await fetch(`${API_BASE}/points/earn`, {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({
+  //         user_id:     userId,
+  //         points:      50,
+  //         action:      'walk',
+  //         description: `Walked to ${place.name}`,
+  //       }),
+  //     });
+  //     const data = await res.json();
+  //     if (data.success) {
+  //       setEarnedPoints(50);
+  //       setShowPointsToast(true);
+  //       setTimeout(() => setShowPointsToast(false), 3500);
+  //     }
+  //   } catch (err) {
+  //     console.error('Points error:', err);
+  //   }
+  // };
+  const handleWalk = async () => {
+  if (!walkBanner.place) return;
+
+  const place = walkBanner.place;
+  setWalkBanner({ visible: false, place: null, distance_km: 0 });
+  setWalkedPlaces(prev => new Set([...prev, place.id]));
+
+  if (userLocation) {
+    const walkPlace: Place = { ...place, id: `walk_${place.id}` };
+    const newPlaces = [
+      { id: 'user', name: 'Your Location', latitude: userLocation.latitude, longitude: userLocation.longitude },
+      walkPlace,
+    ];
+    setSelectedPlaces(newPlaces);
+    setRouteMode('walk');
+    fetchRoute(newPlaces, 'walk');
+  }
+
+  const initialDistM = Math.max(1, Math.round(walkBanner.distance_km * 1000));
+  walkInitialDistRef.current = initialDistM;
+  setWalkTarget(place);
+  setWalkDistanceLeft(initialDistM);
+  setVehicleDetected(false);
+  setWalkingInProgress(true);
+
+  stopLocationWatcher();
+
+  try {
+    const subscription = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, distanceInterval: 10, timeInterval: 5000 },
+      (loc) => {
+        const speed = loc.coords.speed ?? 0;
+        if (speed > MAX_WALK_SPEED_MS) {
+          subscription.remove();
+          locationWatcherRef.current = null;
+          setWalkingInProgress(false);
+          setWalkTarget(null);
+          setWalkDistanceLeft(0);
+          setVehicleDetected(true);
+          return;
+        }
+
+        const dist = Math.round(
+          getDistanceKm(loc.coords.latitude, loc.coords.longitude, place.latitude, place.longitude) * 1000
+        );
+        setWalkDistanceLeft(dist);
+
+        if (dist <= ARRIVAL_RADIUS_M) {
+          subscription.remove();
+          locationWatcherRef.current = null;
+          setWalkingInProgress(false);
+          setWalkTarget(null);
+          setWalkDistanceLeft(0);
+          awardWalkPoints(place);
+        }
+      },
+    );
+    locationWatcherRef.current = subscription;
+  } catch (err) {
+    console.error('Location watcher error:', err);
+    setWalkingInProgress(false);
+    setWalkTarget(null);
+    awardWalkPoints(place);
+  }
+};
 
   // ── Search places ─────────────────────────────────────────────────
   const searchPlaces = async (query: string): Promise<void> => {
@@ -965,6 +1078,55 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* ── Walking In Progress Panel ── */}
+      {walkingInProgress && walkTarget && (
+        <View style={styles.walkingProgressPanel}>
+          <View style={styles.walkingProgressHeader}>
+            <Text style={styles.walkingProgressEmoji}>🚶</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walkingProgressTitle}>Walking in progress…</Text>
+              <Text style={styles.walkingProgressDest} numberOfLines={1}>{walkTarget.name}</Text>
+            </View>
+          </View>
+          <View style={styles.walkingDistRow}>
+            <Text style={styles.walkingDistLabel}>Distance remaining</Text>
+            <Text style={styles.walkingDistValue}>
+              {walkDistanceLeft >= 1000
+                ? `${(walkDistanceLeft / 1000).toFixed(2)} km`
+                : `${walkDistanceLeft} m`}
+            </Text>
+          </View>
+          <View style={styles.walkingProgressBarTrack}>
+            <View style={[styles.walkingProgressBarFill, {
+              width: `${Math.max(0, Math.min(100, 100 - (walkDistanceLeft / walkInitialDistRef.current) * 100))}%`,
+            }]} />
+          </View>
+          <Text style={styles.walkingProgressHint}>🏆 You'll earn 50 pts when you arrive!</Text>
+          <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
+            <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Vehicle Detected Panel ── */}
+      {vehicleDetected && (
+        <View style={styles.walkingProgressPanel}>
+          <View style={styles.walkingProgressHeader}>
+            <Text style={styles.walkingProgressEmoji}>🚗</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walkingProgressTitle}>Vehicle Detected!</Text>
+              <Text style={styles.walkingProgressDest}>Walk cancelled</Text>
+            </View>
+          </View>
+          <Text style={[styles.walkingProgressHint, { color: '#E74C3C', marginBottom: 20 }]}>
+            You're moving too fast! Points are only awarded for actually walking.
+          </Text>
+          <TouchableOpacity style={styles.cancelWalkBtn} onPress={() => setVehicleDetected(false)}>
+            <Text style={styles.cancelWalkBtnText}>Dismiss</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── Walkable Banner ── */}
       <WalkableBannerModal
         banner={walkBanner}
@@ -1084,4 +1246,18 @@ const styles = StyleSheet.create({
   pointsToastEmoji:{ fontSize: 20 },
   pointsToastText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
   pointsToastSubtext: { color: 'rgba(255,255,255,0.6)', fontSize: 11 },
+
+  walkingProgressPanel: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 34, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20, elevation: 15 },
+  walkingProgressHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  walkingProgressEmoji: { fontSize: 36 },
+  walkingProgressTitle: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
+  walkingProgressDest: { fontSize: 13, color: '#888', marginTop: 2 },
+  walkingDistRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  walkingDistLabel: { fontSize: 13, color: '#888', fontWeight: '600' },
+  walkingDistValue: { fontSize: 18, fontWeight: '900', color: '#27AE60' },
+  walkingProgressBarTrack: { height: 8, backgroundColor: '#E8F8F0', borderRadius: 4, overflow: 'hidden', marginBottom: 12 },
+  walkingProgressBarFill: { height: '100%', backgroundColor: '#27AE60', borderRadius: 4 },
+  walkingProgressHint: { fontSize: 13, color: '#E67E22', fontWeight: '700', textAlign: 'center', marginBottom: 14 },
+  cancelWalkBtn: { borderWidth: 2, borderColor: '#EEE', borderRadius: 30, paddingVertical: 13, alignItems: 'center' },
+  cancelWalkBtnText: { fontSize: 14, fontWeight: '700', color: '#E74C3C' },
 });
