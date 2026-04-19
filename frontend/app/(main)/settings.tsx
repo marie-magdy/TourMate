@@ -94,7 +94,7 @@ const ChangePasswordModal: React.FC<{
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>🔒 Change Password</Text>
+              <Text style={styles.modalTitle}>Change Password</Text>
               {[
                 { label: 'Current Password',     value: current, setter: setCurrent },
                 { label: 'New Password',         value: newPass, setter: setNewPass },
@@ -117,7 +117,7 @@ const ChangePasswordModal: React.FC<{
               ))}
               <TouchableOpacity onPress={() => setShowPass(p => !p)} style={{ marginBottom: 16 }}>
                 <Text style={{ color: '#E67E22', fontSize: 13, fontWeight: '600' }}>
-                  {showPass ? '🙈 Hide passwords' : '👁 Show passwords'}
+                  {showPass ? 'Hide passwords' : 'Show passwords'}
                 </Text>
               </TouchableOpacity>
               <View style={styles.modalActions}>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
@@ -271,6 +272,7 @@ export default function ItineraryScreen() {
   const [aiMessage, setAiMessage] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [userId, setUserId] = useState<number | null>(null);
 
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
@@ -319,6 +321,21 @@ export default function ItineraryScreen() {
   const [locationLabel, setLocationLabel] = useState(params.startLabel ?? 'Your Location');
   const [locationInput, setLocationInput] = useState('');
   const [locationSearching, setLocationSearching] = useState(false);
+
+  // Load userId from AsyncStorage on mount
+  useEffect(() => {
+    const loadUserId = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('user');
+        const id = raw ? JSON.parse(raw).id : 1;
+        setUserId(id);
+      } catch (err) {
+        console.error('UserId load error:', err);
+        setUserId(1);
+      }
+    };
+    loadUserId();
+  }, []);
 
   useEffect(() => {
     // If a saved itinerary was passed in, load it directly — skip the API call
@@ -488,7 +505,7 @@ export default function ItineraryScreen() {
       // Also include attractions the user saved from the home screen
       let savedFavIds: string[] = [];
       try {
-        const favRes  = await fetch(`${API_BASE}/attractions/favorites/1`);
+        const favRes  = await fetch(`${API_BASE}/attractions/favorites/${userId ?? 1}`);
         const favData = await favRes.json();
         savedFavIds   = (favData.data ?? [])
           .map((a: any) => a.attraction_id)
@@ -782,7 +799,7 @@ export default function ItineraryScreen() {
           interests,
           spot_ids: params.spotIds?.split(',').map(Number) ?? [],
           itinerary: days,
-          user_id: 1, // replace with real user id from auth later
+          user_id: userId ?? 1,
         }),
       });
       const contentType = res.headers.get('content-type') ?? '';

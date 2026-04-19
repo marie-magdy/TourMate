@@ -6,7 +6,7 @@ import {
   TouchableOpacity, Image, FlatList, ActivityIndicator,
   StatusBar, Modal, Dimensions, Animated,
   PanResponder, Linking, Platform,
-  TouchableWithoutFeedback,Pressable,
+  TouchableWithoutFeedback,
   Keyboard,
   KeyboardAvoidingView,
 } from 'react-native';
@@ -18,6 +18,7 @@ import { useApp } from '../../constants/AppContext';
 import * as Location from 'expo-location';
 import axios from 'axios';
 import AttractionSheet from '../../components/AttractionSheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -520,6 +521,7 @@ export default function HomeScreen() {
   const [loading, setLoading]             = useState(true);
   const [showCurrency, setShowCurrency]   = useState(false);
   const [coords, setCoords]               = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showLocationError, setShowLocationError] = useState(false);
 
   // Filter state
   const [activeFilters, setActiveFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -531,6 +533,7 @@ export default function HomeScreen() {
 
   // User points state
   const [userPoints, setUserPoints] = useState<number | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
 
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
@@ -558,21 +561,30 @@ export default function HomeScreen() {
         const city = res.data.address.city || res.data.address.town || res.data.address.village || '';
         const country = res.data.address.country || '';
         setLocationText(`${city}${city && country ? ', ' : ''}${country}` || 'Unknown');
+        fetchData(city);
 
       } catch {
-        setLocationText('Unknown');
+          setLocationText('Location unavailable');
+          setNearest([]); // clear nearest
+          setShowLocationError(true); // show a small banner
+          fetchData('Alexandria'); // still load something
       }
     })();
   }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  // useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (city: string ) => {
     try {
+      const raw = await AsyncStorage.getItem('user');
+      const storedUser = raw ? JSON.parse(raw) : null;
+      const loadedUserId = storedUser?.id ?? 1;
+      setUserId(loadedUserId);
+
       const [popResult, nearResult, pointsResult] = await Promise.allSettled([
         fetch(`${API_BASE}/attractions/popular`).then(r => r.json()),
-        fetch(`${API_BASE}/attractions/nearest?city=Alexandria`).then(r => r.json()),
-        fetch(`${API_BASE}/points/1`).then(r => r.json()),
+        fetch(`${API_BASE}/attractions/nearest?city=${encodeURIComponent(city)}`).then(r => r.json()),
+        fetch(`${API_BASE}/points/${loadedUserId}`).then(r => r.json()),
       ]);
 
       if (popResult.status === 'fulfilled')    setPopular(popResult.value.data ?? []);
@@ -774,6 +786,23 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
             </View>
           )}
 
+          {/* ── Location Error Banner ── */}
+          {showLocationError && (
+            <TouchableOpacity
+              style={styles.locationErrorBanner}
+              onPress={() => {
+                setShowLocationError(false);
+                Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+                  .then(loc => {
+                    setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+                  })
+                  .catch(() => setShowLocationError(true));
+              }}
+            >
+              <Text style={styles.locationErrorText}>⚠️ Showing Alexandria — tap to use your location</Text>
+            </TouchableOpacity>
+          )}
+
           {/* ── Quick Info Strip: Currency ── */}
           <TouchableOpacity style={styles.infoStrip} onPress={() => setShowCurrency(true)} activeOpacity={0.85}>
             <View style={styles.infoStripLeft}>
@@ -843,7 +872,8 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
         attraction={selectedAttraction}
         visible={showSheet}
         onClose={() => setShowSheet(false)}
-        userLocation={coords} // <- your current coords state from expo-location
+        userLocation={userLocation}
+        userId={userId}
       />
       <FilterSheet
         visible={showFilter}
@@ -1079,6 +1109,23 @@ const styles = StyleSheet.create({
   nearestFooter:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   nearestPrice:   { fontSize: 12, color: '#C4873A', fontWeight: '700' },
   nearestChevron: { fontSize: 24, color: '#DDD0BC', paddingRight: 16, fontWeight: '300' },
+
+  locationErrorBanner: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#F0E2C8',
+  },
+  locationErrorText: {
+    fontSize: 12,
+    color: '#C4873A',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 
   // ── Bottom Tab — floating pill ─────────────────────────────────────
   bottomTabWrap: {

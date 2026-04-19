@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Attraction } from '../constants/types';
 import { useApp } from '../constants/AppContext';
 
@@ -59,9 +60,11 @@ interface AttractionSheetProps {
   visible: boolean;
   onClose: () => void;
   userLocation: { latitude: number; longitude: number } | null;
+  userId?: number | null;
+  onRemove?: (id: number) => void;
 }
 
-const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation }) => {
+const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation, userId: propUserId, onRemove }) => {
   const { t, convertPrice } = useApp();
   const slideAnim   = useRef(new Animated.Value(height)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -78,6 +81,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
 
   const [rideInfo, setRideInfo]       = useState<{ distance: string; duration: string; fare: string } | null>(null);
   const [rideLoading, setRideLoading] = useState(false);
+  const [userId, setUserId]           = useState<number | null>(null);
 
   useEffect(() => {
     if (visible && attraction) {
@@ -101,11 +105,27 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
 
   const checkFavoriteStatus = async (attractionId: number) => {
     try {
-      const res  = await fetch(`${API_BASE}/attractions/favorites/1`);
+      let currentUserId = propUserId;
+      if (!currentUserId) {
+        const raw = await AsyncStorage.getItem('user');
+        if (raw) {
+          const storedUser = JSON.parse(raw);
+          currentUserId = storedUser.id;
+          setUserId(currentUserId);
+        }
+      }
+      
+      if (!currentUserId) {
+        setIsFavorited(false);
+        return;
+      }
+      
+      const res  = await fetch(`${API_BASE}/attractions/favorites/${currentUserId}`);
       const data = await res.json();
       const ids: number[] = (data.data ?? []).map((a: any) => Number(a.id));
       setIsFavorited(ids.includes(Number(attractionId)));
-    } catch {
+    } catch (err) {
+      console.error('Favorite status check error:', err);
       setIsFavorited(false);
     }
   };
@@ -253,16 +273,38 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   };
 
   const toggleFavorite = async () => {
+    let currentUserId = propUserId;
+    if (!currentUserId) {
+      const raw = await AsyncStorage.getItem('user');
+      if (raw) {
+        const storedUser = JSON.parse(raw);
+        currentUserId = storedUser.id;
+        setUserId(currentUserId);
+      }
+    }
+    
+    if (!currentUserId) {
+      alert('Please log in first');
+      return;
+    }
+
     const optimistic = !isFavorited;
     setIsFavorited(optimistic);
     try {
       const res  = await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ user_id: 1 }),
+        body:    JSON.stringify({ user_id: currentUserId }),
       });
       const data = await res.json();
-      if (data.success) setIsFavorited(data.favorited);
+      if (data.success) {
+        setIsFavorited(data.favorited);
+        // If unfavorited and onRemove provided, call it and close
+        if (!data.favorited && !optimistic && onRemove && attraction) {
+          onRemove(attraction.id);
+          onClose();
+        }
+      }
     } catch {
       setIsFavorited(!optimistic);
     }

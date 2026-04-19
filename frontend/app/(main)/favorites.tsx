@@ -4,16 +4,18 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
   ActivityIndicator, SafeAreaView, StatusBar, Dimensions,
-  Animated, Modal, ScrollView,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
+import AttractionSheet from '../../components/AttractionSheet';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1;
 
 const CATEGORY_COLORS: Record<string, string> = {
   historical:  '#8B4513',
@@ -25,6 +27,16 @@ const CATEGORY_COLORS: Record<string, string> = {
   culture:     '#6D3B8E',
   nightlife:   '#1A1A2E',
   adventure:   '#D62828',
+};
+
+// ── Parse categories (may come as string or array) ────────────────────
+const parseCategories = (cats: any): string[] => {
+  if (!cats) return [];
+  if (Array.isArray(cats)) return cats.map((c: string) => c.toLowerCase());
+  if (typeof cats === 'string') {
+    return cats.replace(/[{}]/g, '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+  }
+  return [];
 };
 
 // ── Star Rating ───────────────────────────────────────────────────────
@@ -39,187 +51,19 @@ const StarRating: React.FC<{ rating: number; size?: number; color?: string }> = 
   </View>
 );
 
-// ── Attraction Bottom Sheet ───────────────────────────────────────────
-interface AttractionSheetProps {
-  attraction: Attraction | null;
-  visible: boolean;
-  onClose: () => void;
-  onRemove: (id: number) => void;
-}
-
-const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, onRemove }) => {
-  const { t, convertPrice } = useApp();
-  const slideAnim   = useRef(new Animated.Value(height)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const [isFavorited, setIsFavorited] = useState(true);
-  const [images, setImages]           = useState<string[]>([]);
-  const [activeImage, setActiveImage] = useState(0);
-
-  useEffect(() => {
-    if (visible && attraction) {
-      setIsFavorited(true);
-      fetchImages(attraction.id);
-      Animated.parallel([
-        Animated.spring(slideAnim,  { toValue: 0,      damping: 18, stiffness: 120, useNativeDriver: true }),
-        Animated.timing(opacityAnim,{ toValue: 1,      duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim,  { toValue: height, duration: 280, useNativeDriver: true }),
-        Animated.timing(opacityAnim,{ toValue: 0,      duration: 200, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [visible, attraction]);
-
-  const fetchImages = async (id: number) => {
-    try {
-      const res  = await fetch(`${API_BASE}/attractions/${id}/images`);
-      const data = await res.json();
-      if (data.success && data.data.length > 0) {
-        setImages(data.data.map((img: any) => img.image_url));
-      } else {
-        setImages(attraction?.image_url ? [attraction.image_url] : []);
-      }
-      setActiveImage(0);
-    } catch {
-      setImages(attraction?.image_url ? [attraction.image_url] : []);
-    }
-  };
-
-  const toggleFavorite = async () => {
-    const newVal = !isFavorited;
-    setIsFavorited(newVal);
-    try {
-      await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: USER_ID }),
-      });
-      if (!newVal && attraction) {
-        onRemove(attraction.id);
-        onClose();
-      }
-    } catch {
-      setIsFavorited(!newVal);
-    }
-  };
-
-  if (!attraction) return null;
-  const categoryColor = CATEGORY_COLORS[attraction.category ?? ''] ?? '#E67E22';
-
-  return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[styles.sheetBackdrop, { opacity: opacityAnim }]}>
-        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
-      </Animated.View>
-
-      <Animated.View style={[styles.sheetContainer, { transform: [{ translateY: slideAnim }] }]}>
-        <View style={styles.sheetHandle} />
-
-        {/* Image Gallery */}
-        <View style={styles.galleryContainer}>
-          <ScrollView
-            horizontal pagingEnabled showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={e => setActiveImage(Math.round(e.nativeEvent.contentOffset.x / width))}
-          >
-            {(images.length > 0 ? images : [attraction.image_url]).map((img, i) => (
-              <Image key={i} source={{ uri: img }} style={styles.galleryImage} resizeMode="cover" />
-            ))}
-          </ScrollView>
-
-          {images.length > 1 && (
-            <View style={styles.imageDots}>
-              {images.map((_, i) => (
-                <View key={i} style={[styles.imageDot, i === activeImage && styles.imageDotActive]} />
-              ))}
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.sheetCloseBtn} onPress={onClose}>
-            <Text style={styles.sheetCloseBtnText}>✕</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.sheetFavBtn} onPress={toggleFavorite}>
-            <MaterialCommunityIcons
-              name={isFavorited ? 'heart' : 'heart-outline'}
-              size={20}
-              color={isFavorited ? '#E74C3C' : '#FFF'}
-            />
-          </TouchableOpacity>
-
-          <View style={[styles.categoryBadge, { backgroundColor: categoryColor }]}>
-            <Text style={styles.categoryBadgeText}>{attraction.category}</Text>
-          </View>
-        </View>
-
-        {/* Content */}
-        <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.sheetName}>{attraction.name}</Text>
-          <View style={styles.sheetLocationRow}>
-            <MaterialCommunityIcons name="map-marker" size={14} color="#E67E22" style={{ marginRight: 4 }} />
-            <Text style={styles.sheetLocationText}>{attraction.city}, Egypt</Text>
-          </View>
-          <View style={styles.sheetRatingRow}>
-            <StarRating rating={Number(attraction.rating)} size={14} />
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoPillsRow}>
-            <View style={styles.infoPill}>
-              <MaterialCommunityIcons name="cash-multiple" size={18} color="#E67E22" />
-              <View>
-                <Text style={styles.infoPillLabel}>{t('priceFrom')}</Text>
-                <Text style={styles.infoPillValue}>{convertPrice(attraction.price_from)}</Text>
-              </View>
-            </View>
-            <View style={styles.infoPill}>
-              <MaterialCommunityIcons name="clock-outline" size={18} color="#E67E22" />
-              <View>
-                <Text style={styles.infoPillLabel}>{t('hours')}</Text>
-                <Text style={styles.infoPillValue} numberOfLines={1}>{attraction.opening_hours ?? t('seeWebsite')}</Text>
-              </View>
-            </View>
-            <View style={styles.infoPill}>
-              <MaterialCommunityIcons name="tag-outline" size={18} color="#E67E22" />
-              <View>
-                <Text style={styles.infoPillLabel}>{t('category')}</Text>
-                <Text style={styles.infoPillValue}>{attraction.category}</Text>
-              </View>
-            </View>
-          </ScrollView>
-
-          <Text style={styles.sheetAboutTitle}>{t('about')}</Text>
-          <Text style={styles.sheetAboutText}>{attraction.description}</Text>
-          <View style={{ height: 20 }} />
-        </ScrollView>
-
-        {/* Action Buttons */}
-        <View style={styles.sheetActions}>
-          <TouchableOpacity style={styles.sheetFavoritesBtn} onPress={toggleFavorite} activeOpacity={0.85}>
-            <Text style={styles.sheetFavoritesBtnText}>
-              {isFavorited ? t('saved') : t('save')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.sheetPlanBtn} activeOpacity={0.85}>
-            <Text style={styles.sheetPlanBtnText}>{t('addToPlan')}</Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-    </Modal>
-  );
-};
-
 // ── Favorite Card ─────────────────────────────────────────────────────
 const FavoriteCard: React.FC<{
   item: Attraction;
   onPress: (item: Attraction) => void;
 }> = ({ item, onPress }) => {
-  const categoryColor = CATEGORY_COLORS[item.category ?? ''] ?? '#E67E22';
+  const firstCategory = parseCategories(item.categories)[0] ?? '';
+  const categoryColor = CATEGORY_COLORS[firstCategory] ?? '#E67E22';
   const { convertPrice } = useApp();
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.92}>
       <Image source={{ uri: item.primary_image || item.image_url }} style={styles.cardImage} resizeMode="cover" />
       <View style={[styles.categoryBadgeCard, { backgroundColor: categoryColor }]}>
-        <Text style={styles.categoryBadgeText}>{item.category}</Text>
+        <Text style={styles.categoryBadgeText}>{firstCategory}</Text>
       </View>
       <View style={styles.cardContent}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -301,23 +145,51 @@ export default function FavoritesScreen() {
   const [loading, setLoading]                   = useState(true);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
   const [showSheet, setShowSheet]               = useState(false);
+  const [userId, setUserId]                     = useState<number>(1);
+  const [userLocation, setUserLocation]         = useState<{ latitude: number; longitude: number } | null>(null);
 
+  // Load userId once on mount
+  useEffect(() => {
+    const loadUserId = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('user');
+        const id = raw ? JSON.parse(raw).id : 1;
+        setUserId(id);
+      } catch (err) {
+        console.error('UserId load error:', err);
+      }
+    };
+    loadUserId();
+    
+    Location.requestForegroundPermissionsAsync().then(({ status }) => {
+      if (status === 'granted') {
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(loc => {
+          setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Refetch favorites on page focus (use the loaded userId)
   useFocusEffect(
-    useCallback(() => { fetchFavorites(); }, [])
+    useCallback(() => { 
+      const fetchFavs = async () => {
+        if (!userId || userId === 1) return; // Wait for userId to load, or skip if default
+        try {
+          setLoading(true);
+          const res = await fetch(`${API_BASE}/attractions/favorites/${userId}`);
+          const data = await res.json();
+          setFavorites(data.data ?? []);
+        } catch (err) {
+          console.error('Favorites fetch error on focus:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchFavs();
+    }, [userId])
   );
-
-  const fetchFavorites = async () => {
-    setLoading(true);
-    try {
-      const res  = await fetch(`${API_BASE}/attractions/favorites/${USER_ID}`);
-      const data = await res.json();
-      setFavorites(data.data ?? []);
-    } catch (err) {
-      console.error('Favorites fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openAttraction = (item: Attraction) => {
     setSelectedAttraction(item);
@@ -325,6 +197,7 @@ export default function FavoritesScreen() {
   };
 
   const removeFavorite = (attractionId: number) => {
+    // Remove from local state
     setFavorites(prev => prev.filter(f => f.id !== attractionId));
   };
 
@@ -373,6 +246,8 @@ export default function FavoritesScreen() {
         attraction={selectedAttraction}
         visible={showSheet}
         onClose={() => setShowSheet(false)}
+        userLocation={userLocation}
+        userId={userId}
         onRemove={removeFavorite}
       />
     </SafeAreaView>

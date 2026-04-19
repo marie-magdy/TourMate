@@ -3,11 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
-  StatusBar, Dimensions, ActivityIndicator, SafeAreaView,
+  StatusBar, Dimensions, ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -36,12 +38,24 @@ export default function AttractionDetailsScreen() {
   const [attraction, setAttraction] = useState<Attraction | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (id) {
-      fetchDetails();
-    }
+    if (id) fetchDetails();
+    loadUser();
   }, [id]);
+
+  const loadUser = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('user');
+      if (raw) {
+        const storedUser = JSON.parse(raw);
+        setUserId(storedUser.id);
+      }
+    } catch (err) {
+      console.error('Error loading user:', err);
+    }
+  };
 
   const fetchDetails = async (): Promise<void> => {
     try {
@@ -56,14 +70,37 @@ export default function AttractionDetailsScreen() {
   };
 
   const toggleFavorite = async (): Promise<void> => {
+    // Get userId if not already loaded
+    let currentUserId = userId;
+    if (!currentUserId) {
+      try {
+        const raw = await AsyncStorage.getItem('user');
+        if (raw) {
+          const storedUser = JSON.parse(raw);
+          currentUserId = storedUser.id;
+          setUserId(currentUserId);
+        }
+      } catch (err) {
+        console.error('Error getting user for favorite:', err);
+        return;
+      }
+    }
+
+    if (!currentUserId) return;
+    
     setIsFavorited(prev => !prev);
     try {
-      await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
+      const res = await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: 1 }), // replace with real user id from your auth
+        body: JSON.stringify({ user_id: currentUserId }),
       });
+      const data = await res.json();
+      if (!data.success) {
+        setIsFavorited(prev => !prev);
+      }
     } catch (err) {
+      console.error('Favorite error:', err);
       setIsFavorited(prev => !prev);
     }
   };
@@ -125,7 +162,7 @@ export default function AttractionDetailsScreen() {
           <View style={styles.locationRow}>
             <MaterialCommunityIcons name="map-marker" size={16} color="#E67E22" style={{ marginRight: 6 }} />
             <Text style={styles.locationText}>
-              {attraction.location ?? `${attraction.city}, ${attraction.country}`}
+              {/* {attraction.location ?? `${attraction.city}, ${attraction.country}`} */}
             </Text>
           </View>
 

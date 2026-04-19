@@ -6,9 +6,9 @@ import {
   SafeAreaView, ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1; // replace with real auth later
 
 type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -218,13 +218,30 @@ const cardStyles = StyleSheet.create({
 // ── SAVED PLANS SCREEN ────────────────────────────────────────────────
 export default function SavedPlansScreen() {
   const router = useRouter();
+  const [userId, setUserId] = useState<number | null>(null);
   const [plans, setPlans] = useState<SavedPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Load userId from AsyncStorage on mount
+  useEffect(() => {
+    const loadUserId = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('user');
+        const id = raw ? JSON.parse(raw).id : 1;
+        setUserId(id);
+      } catch (err) {
+        console.error('UserId load error:', err);
+        setUserId(1);
+      }
+    };
+    loadUserId();
+  }, []);
+
   const fetchPlans = useCallback(async () => {
+    if (!userId) return;
     try {
-      const res = await fetch(`${API_BASE}/plans/${USER_ID}`);
+      const res = await fetch(`${API_BASE}/plans/${userId}`);
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
         console.error('[SavedPlans] non-JSON response:', res.status);
@@ -235,7 +252,7 @@ export default function SavedPlansScreen() {
     } catch (err) {
       console.error('[SavedPlans] fetch error:', err);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     (async () => {

@@ -3,14 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, SafeAreaView, StatusBar, Dimensions,
+  ActivityIndicator, StatusBar, Dimensions,
   Animated, Modal, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1;
 
 interface UserPoints { points: number; total_earned: number; }
 interface Reward { id: number; title: string; description: string; points_required: number; category: string; icon: string; }
@@ -147,6 +148,7 @@ export default function RewardsScreen() {
   const [activeTab, setActiveTab]     = useState<'rewards' | 'history'>('rewards');
   const [celebrating, setCelebrating] = useState(false);
   const [redeemedReward, setRedeemedReward] = useState<Reward | null>(null);
+  const [userId, setUserId] = useState<number>(1);
 
   const pointsAnim = useRef(new Animated.Value(0)).current;
 
@@ -154,15 +156,20 @@ export default function RewardsScreen() {
 
   const fetchAll = async () => {
     try {
+      const raw = await AsyncStorage.getItem('user');
+      const storedUser = raw ? JSON.parse(raw) : null;
+      const userId = storedUser?.id ?? 1;
+
       const [pRes, rRes, hRes] = await Promise.all([
-        fetch(`${API_BASE}/points/${USER_ID}`),
+        fetch(`${API_BASE}/points/${userId}`),
         fetch(`${API_BASE}/points/rewards/all`),
-        fetch(`${API_BASE}/points/${USER_ID}/history`),
+        fetch(`${API_BASE}/points/${userId}/history`),
       ]);
       const [pData, rData, hData] = await Promise.all([pRes.json(), rRes.json(), hRes.json()]);
       setUserPoints(pData.data);
       setRewards(rData.data ?? []);
       setHistory(hData.data ?? []);
+      setUserId(userId);
 
       // Animate points counter
       Animated.timing(pointsAnim, {
@@ -187,7 +194,7 @@ export default function RewardsScreen() {
               const res  = await fetch(`${API_BASE}/points/redeem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: USER_ID, reward_id: reward.id }),
+                body: JSON.stringify({ user_id: userId, reward_id: reward.id }),
               });
               const data = await res.json();
               if (data.success) {
