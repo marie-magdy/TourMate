@@ -57,3 +57,5 @@
 /recommendation_service/.venv/
 /recommendation_service/__pycache__/
 /recommendation_service/.env
+
+__pycache__/
