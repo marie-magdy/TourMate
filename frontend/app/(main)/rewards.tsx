@@ -32,14 +32,39 @@ const CelebrationModal: React.FC<{ visible: boolean; reward: Reward | null; onCl
   const scaleAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (visible) {
-      Animated.spring(scaleAnim, { toValue: 1, damping: 12, stiffness: 150, useNativeDriver: true }).start();
+      // Reset animation first
+      scaleAnim.setValue(0);
+      
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        damping: 12,
+        stiffness: 150,
+        useNativeDriver: true,
+      }).start();
+
+      const timer = setTimeout(() => {
+        // Animate out before closing
+        Animated.timing(scaleAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => onClose()); // ← close AFTER animation finishes
+      }, 3000);
+
+      return () => clearTimeout(timer);
+
     } else {
       scaleAnim.setValue(0);
     }
-  }, [visible]);
+  }, [visible]); // ← remove onClose from dependencies
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal   
+    visible={visible}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+    >
       <View style={styles.celebrationOverlay}>
         <Animated.View style={[styles.celebrationCard, { transform: [{ scale: scaleAnim }] }]}>
           <MaterialCommunityIcons name="party-popper" size={48} color="#E67E22" style={{ marginBottom: 8 }} />
@@ -154,6 +179,11 @@ export default function RewardsScreen() {
 
   useEffect(() => { fetchAll(); }, []);
 
+  const handleCloseCelebration = () => {
+    setCelebrating(false);
+    // Small delay before clearing reward to avoid flicker
+    setTimeout(() => setRedeemedReward(null), 300);
+  };
   const fetchAll = async () => {
     try {
       const raw = await AsyncStorage.getItem('user');
@@ -346,7 +376,7 @@ export default function RewardsScreen() {
       <CelebrationModal
         visible={celebrating}
         reward={redeemedReward}
-        onClose={() => setCelebrating(false)}
+        onClose= {handleCloseCelebration}
       />
     </SafeAreaView>
   );
