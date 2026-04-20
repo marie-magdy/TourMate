@@ -1,18 +1,42 @@
 import React, { useEffect } from "react";
 import { View, Text, StyleSheet, Image } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useApp } from "../constants/AppContext";
 
 export default function SplashScreen() {
   const router = useRouter();
+  const { setUser } = useApp();
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      //router.replace("/onboarding");
-      router.replace("/onboarding");
+      checkSession();
     }, 3000);
-
     return () => clearTimeout(timer);
   }, []);
+
+  const checkSession = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const raw   = await AsyncStorage.getItem("user");
+
+      if (token && raw) {
+        // Restore session — skip onboarding and login
+        const user = JSON.parse(raw);
+        await setUser(user);
+        if (user.role === "admin") {
+          router.replace("/(admin)/dashboard" as any);
+        } else {
+          router.replace("/(main)/home" as any);
+        }
+      } else {
+        // No session — go through normal flow
+        router.replace("/onboarding");
+      }
+    } catch {
+      router.replace("/onboarding");
+    }
+  };
 
   return (
     <View style={styles.container}>

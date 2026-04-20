@@ -2,14 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Switch, Alert, SafeAreaView, ActivityIndicator, Modal, TextInput,
+  Switch, Alert, SafeAreaView, ActivityIndicator, Modal, TextInput, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp, CurrencyCode, Language } from '../../constants/AppContext';
+import { API_BASE } from '../../constants/api';
 
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1;
 
 interface SettingRowProps {
   icon: string; label: string; value?: string;
@@ -49,7 +49,7 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
 const Divider = () => <View style={styles.divider} />;
 
 // ── Change Password Modal ─────────────────────────────────────────────
-const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
+const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void; onUserId: number }> = ({ visible, onClose, onUserId }) => {
   const [current, setCurrent] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -64,7 +64,7 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
     if (newPass.length < 6) { Alert.alert('Error', 'Password must be at least 6 characters.'); return; }
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}/password`, {
+      const res  = await fetch(`${API_BASE}/auth/user/${onUserId}/password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: current, new_password: newPass }),
@@ -128,8 +128,9 @@ const ChangePasswordModal: React.FC<{ visible: boolean; onClose: () => void }> =
 const EditProfileModal: React.FC<{
   visible: boolean; onClose: () => void;
   currentName: string; currentEmail: string;
+  onUserId: number;
   onSaved: (name: string, email: string) => void;
-}> = ({ visible, onClose, currentName, currentEmail, onSaved }) => {
+}> = ({ visible, onClose, currentName, currentEmail, onUserId, onSaved }) => {
   const [name, setName]   = useState(currentName);
   const [email, setEmail] = useState(currentEmail);
   const [loading, setLoading] = useState(false);
@@ -141,7 +142,7 @@ const EditProfileModal: React.FC<{
     if (!email.includes('@')) { Alert.alert('Error', 'Please enter a valid email.'); return; }
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}`, {
+      const res  = await fetch(`${API_BASE}/auth/user/${onUserId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: name.trim(), email: email.trim() }),
@@ -188,7 +189,7 @@ const EditProfileModal: React.FC<{
 // ── MAIN SETTINGS SCREEN ──────────────────────────────────────────────
 export default function SettingsScreen() {
   const router = useRouter();
-  const { t, language, setLanguage, currency, setCurrency, isRTL } = useApp();
+  const { t, language, setLanguage, currency, setCurrency, isRTL, userId, setUser, user } = useApp();
 
   const [userName, setUserName]   = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -199,16 +200,15 @@ export default function SettingsScreen() {
   const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [notifications, setNotifications]       = useState(true);
-  const [darkMode, setDarkMode]                 = useState(false);
   const [locationServices, setLocationServices] = useState(true);
 
-  useEffect(() => { fetchUser(); loadPreferences(); }, []);
+  useEffect(() => { fetchUser(); loadPreferences(); }, [userId]);
 
   const fetchUser = async () => {
     try {
       const [userRes, pointsRes] = await Promise.all([
-        fetch(`${API_BASE}/auth/user/${USER_ID}`),
-        fetch(`${API_BASE}/points/${USER_ID}`),
+        fetch(`${API_BASE}/auth/user/${userId}`),
+        fetch(`${API_BASE}/points/${userId}`),
       ]);
       const userData   = await userRes.json();
       const pointsData = await pointsRes.json();
@@ -224,7 +224,6 @@ export default function SettingsScreen() {
       if (raw) {
         const p = JSON.parse(raw);
         if (p.notifications    !== undefined) setNotifications(p.notifications);
-        if (p.darkMode         !== undefined) setDarkMode(p.darkMode);
         if (p.locationServices !== undefined) setLocationServices(p.locationServices);
       }
     } catch {}
@@ -241,11 +240,6 @@ export default function SettingsScreen() {
   const handleToggleNotifications = (val: boolean) => {
     setNotifications(val); savePref({ notifications: val });
     Alert.alert(val ? '🔔 Notifications On' : '🔕 Notifications Off', val ? 'You will receive travel tips and updates.' : 'You will no longer receive notifications.');
-  };
-
-  const handleToggleDarkMode = (val: boolean) => {
-    setDarkMode(val); savePref({ darkMode: val });
-    Alert.alert(val ? '🌙 Dark Mode Enabled' : '☀️ Light Mode Enabled', 'Restart the app to apply the theme change.');
   };
 
   const handleToggleLocation = (val: boolean) => {
@@ -299,6 +293,51 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const ANDROID_PACKAGE = 'com.misho123.TourMate';
+
+  const handleOpenAbout = () => router.push('/(main)/about' as any);
+  const handleOpenPrivacy = () => router.push('/(main)/privacy' as any);
+  const handleOpenTerms = () => router.push('/(main)/terms' as any);
+
+  const openEmail = async (to: string, subject: string, body: string) => {
+    const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    try {
+      const can = await Linking.canOpenURL(url);
+      if (!can) {
+        Alert.alert('Email not available', `Please email us at ${to}.`);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(
+        'Email not available',
+        `This device cannot open the email app right now.\n\nPlease email us at ${to}.`,
+      );
+    }
+  };
+
+  const handleRateApp = async () => {
+    if (Platform.OS === 'android') {
+      const marketUrl = `market://details?id=${ANDROID_PACKAGE}`;
+      const webUrl = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+      const canMarket = await Linking.canOpenURL(marketUrl);
+      await Linking.openURL(canMarket ? marketUrl : webUrl);
+      return;
+    }
+    // Optional: configure your App Store ID via env (e.g. EXPO_PUBLIC_APPSTORE_ID=1234567890)
+    const appStoreId = process.env.EXPO_PUBLIC_APPSTORE_ID;
+    if (appStoreId) {
+      const url = `itms-apps://apps.apple.com/app/id${appStoreId}?action=write-review`;
+      try {
+        const can = await Linking.canOpenURL(url);
+        if (!can) throw new Error('cannot-open');
+        await Linking.openURL(url);
+        return;
+      } catch {}
+    }
+    Alert.alert('Rate TourMate', 'iOS rating is not configured yet. Add EXPO_PUBLIC_APPSTORE_ID to enable it.');
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert('⚠️ Delete Account', 'This permanently deletes your account, favorites, and all points. Cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
@@ -306,7 +345,7 @@ export default function SettingsScreen() {
         text: 'Delete Forever', style: 'destructive',
         onPress: async () => {
           try {
-            const res  = await fetch(`${API_BASE}/auth/user/${USER_ID}`, { method: 'DELETE' });
+            const res  = await fetch(`${API_BASE}/auth/user/${userId}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
               await AsyncStorage.clear();
@@ -397,8 +436,6 @@ export default function SettingsScreen() {
           <ToggleRow    icon="🔔" label={t('notifications')}    value={notifications}    onToggle={handleToggleNotifications} />
           <Divider />
           <ToggleRow    icon="📍" label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
-          <Divider />
-          <ToggleRow    icon="🌙" label={t('darkMode')}        value={darkMode}         onToggle={handleToggleDarkMode} />
         </View>
 
         {/* ── App ── */}
@@ -406,21 +443,31 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <SettingRow icon="🗑️" label={t('clearCache')}    onPress={handleClearCache} showArrow={false} />
           <Divider />
-          <SettingRow icon="ℹ️" label="About TourMate" value="v1.0.0" onPress={() => Alert.alert('TourMate v1.0.0', 'Your ultimate guide to exploring Egypt.\nMade with ❤️ in Egypt')} />
+          <SettingRow icon="ℹ️" label="About TourMate" value="v1.0.0" onPress={handleOpenAbout} />
           <Divider />
-          <SettingRow icon="📋" label="Privacy Policy"  onPress={() => Alert.alert('Privacy Policy', 'We respect your privacy. Your data is never sold to third parties.')} />
+          <SettingRow icon="📋" label="Privacy Policy"  onPress={handleOpenPrivacy} />
           <Divider />
-          <SettingRow icon="📄" label="Terms of Service" onPress={() => Alert.alert('Terms of Service', 'By using TourMate you agree to use the app responsibly.')} />
+          <SettingRow icon="📄" label="Terms of Service" onPress={handleOpenTerms} />
         </View>
 
         {/* ── Support ── */}
         <SectionHeader title={t('support')} />
         <View style={styles.section}>
-          <SettingRow icon="⭐" label="Rate TourMate" onPress={() => Alert.alert('Rate TourMate', 'Thank you! ⭐⭐⭐⭐⭐')} />
+          <SettingRow icon="⭐" label="Rate TourMate" onPress={handleRateApp} />
           <Divider />
-          <SettingRow icon="📧" label="Contact Us"    value="support@tourmate.com" onPress={() => Alert.alert('Contact Us', 'Email: support@tourmate.com\nWe reply within 24 hours!')} />
+          <SettingRow
+            icon="📧"
+            label="Contact Us"
+            value="support@tourmate.com"
+            onPress={() => openEmail('support@tourmate.com', 'TourMate Support', `Hi TourMate team,\n\n(Describe your request here)\n\nUser ID: ${userId || 'N/A'}\n`)}
+          />
           <Divider />
-          <SettingRow icon="🐛" label="Report a Bug"  onPress={() => Alert.alert('Report Bug', 'Email: bugs@tourmate.com\nThank you for helping us improve!')} />
+          <SettingRow
+            icon="🐛"
+            label="Report a Bug"
+            value="bugs@tourmate.com"
+            onPress={() => openEmail('bugs@tourmate.com', 'TourMate Bug Report', `Bug description:\n\nSteps to reproduce:\n1.\n2.\n3.\n\nExpected result:\n\nActual result:\n\nUser ID: ${userId || 'N/A'}\nApp: TourMate v1.0.0\nPlatform: ${Platform.OS}\n`)}
+          />
         </View>
 
         {/* ── Account Actions ── */}
@@ -445,11 +492,19 @@ export default function SettingsScreen() {
         onClose={() => setShowEditProfile(false)}
         currentName={userName}
         currentEmail={userEmail}
-        onSaved={(name, email) => { setUserName(name); setUserEmail(email); }}
+        onUserId={userId}
+        onSaved={async (name, email) => {
+          setUserName(name);
+          setUserEmail(email);
+          // Update AsyncStorage and AppContext so home.tsx picks up the new name
+          const updated = { ...user, username: name, email };
+          await setUser(updated as any);
+        }}
       />
       <ChangePasswordModal
         visible={showChangePassword}
         onClose={() => setShowChangePassword(false)}
+        onUserId={userId}
       />
     </SafeAreaView>
   );

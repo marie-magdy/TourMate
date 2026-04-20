@@ -9,10 +9,20 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
+import { API_BASE } from '../../constants/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
-const USER_ID  = 1;
+
+
+const parseCategories = (cats: any): string[] => {
+  if (!cats) return [];
+  if (Array.isArray(cats)) return cats.map((c: string) => c.toLowerCase());
+  if (typeof cats === 'string') {
+    return cats.replace(/[{}]/g, '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+  }
+  return [];
+};
 
 const CATEGORY_COLORS: Record<string, string> = {
   historical:  '#8B4513',
@@ -47,7 +57,7 @@ interface AttractionSheetProps {
 }
 
 const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, onRemove }) => {
-  const { t, convertPrice } = useApp();
+  const { t, convertPrice, userId } = useApp();
   const slideAnim   = useRef(new Animated.Value(height)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const [isFavorited, setIsFavorited] = useState(true);
@@ -92,7 +102,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
       await fetch(`${API_BASE}/attractions/${attraction?.id}/favorite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: USER_ID }),
+        body: JSON.stringify({ user_id: userId }),
       });
       if (!newVal && attraction) {
         onRemove(attraction.id);
@@ -104,7 +114,8 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   };
 
   if (!attraction) return null;
-  const categoryColor = CATEGORY_COLORS[attraction.category] ?? '#E67E22';
+  const firstCategory = parseCategories(attraction.categories)[0] ?? attraction.category ?? '';
+  const categoryColor = CATEGORY_COLORS[firstCategory] ?? '#E67E22';
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -145,7 +156,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
           </TouchableOpacity>
 
           <View style={[styles.categoryBadge, { backgroundColor: categoryColor }]}>
-            <Text style={styles.categoryBadgeText}>{attraction.category}</Text>
+            <Text style={styles.categoryBadgeText}>{firstCategory}</Text>
           </View>
         </View>
 
@@ -179,7 +190,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
               <Text style={styles.infoPillIcon}>🏷️</Text>
               <View>
                 <Text style={styles.infoPillLabel}>{t('category')}</Text>
-                <Text style={styles.infoPillValue}>{attraction.category}</Text>
+                <Text style={styles.infoPillValue}>{parseCategories(attraction.categories).join(', ') || attraction.category}</Text>
               </View>
             </View>
           </ScrollView>
@@ -210,13 +221,14 @@ const FavoriteCard: React.FC<{
   item: Attraction;
   onPress: (item: Attraction) => void;
 }> = ({ item, onPress }) => {
-  const categoryColor = CATEGORY_COLORS[item.category] ?? '#E67E22';
+  const firstCat = parseCategories(item.categories)[0] ?? item.category ?? '';
+  const categoryColor = CATEGORY_COLORS[firstCat] ?? '#E67E22';
   const { convertPrice } = useApp();
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.92}>
       <Image source={{ uri: item.image_url }} style={styles.cardImage} resizeMode="cover" />
       <View style={[styles.categoryBadgeCard, { backgroundColor: categoryColor }]}>
-        <Text style={styles.categoryBadgeText}>{item.category}</Text>
+        <Text style={styles.categoryBadgeText}>{firstCat}</Text>
       </View>
       <View style={styles.cardContent}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -275,20 +287,21 @@ const BottomTab: React.FC<{ active: string }> = ({ active }) => {
 // ── FAVORITES SCREEN ──────────────────────────────────────────────────
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { t } = useApp();
+  const { t, userId } = useApp();
   const [favorites, setFavorites]               = useState<Attraction[]>([]);
   const [loading, setLoading]                   = useState(true);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
   const [showSheet, setShowSheet]               = useState(false);
 
   useFocusEffect(
-    useCallback(() => { fetchFavorites(); }, [])
+    useCallback(() => { fetchFavorites(); }, [userId])
   );
 
   const fetchFavorites = async () => {
+    if (!userId) return;
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/attractions/favorites/${USER_ID}`);
+      const res  = await fetch(`${API_BASE}/attractions/favorites/${userId}`);
       const data = await res.json();
       setFavorites(data.data ?? []);
     } catch (err) {

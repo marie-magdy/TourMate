@@ -15,4 +15,5 @@ export interface Attraction {
   is_popular?: boolean;
   latitude?: number;
   longitude?: number;
+  virtual_tour_url?: string | null;
 }

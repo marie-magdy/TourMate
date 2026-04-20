@@ -23,6 +23,9 @@ export default function RootLayout() {
         <Stack.Screen name="(main)/tourmate-ai" />
         <Stack.Screen name="(main)/favorites" />
         <Stack.Screen name="(main)/rewards" />
+        <Stack.Screen name="(main)/privacy" options={{ headerShown: false }} />
+        <Stack.Screen name="(main)/terms" options={{ headerShown: false }} />
+        <Stack.Screen name="(main)/about" options={{ headerShown: false }} />
       </Stack>
     </AppProvider>
   );

@@ -8,7 +8,6 @@
     "scheme": "tourmate",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "platforms": ["ios", "android"],
     "ios": {
       "supportsTablet": true
     },
@@ -26,6 +25,10 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.misho123.TourMate"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
