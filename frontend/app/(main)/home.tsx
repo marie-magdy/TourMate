@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { Audio } from 'expo-av';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
@@ -21,7 +22,6 @@ import AttractionSheet from '../../components/AttractionSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 
 
@@ -62,14 +62,14 @@ const CURRENCIES = [
 
 const CATEGORY_COLORS: Record<string, string> = {
   historical: '#8B4513',
-  beaches:    '#0077B6',
-  restaurants:'#E63946',
-  shopping:   '#9B2335',
-  nature:     '#2D6A4F',
-  diving:     '#023E8A',
-  culture:    '#6D3B8E',
-  nightlife:  '#1A1A2E',
-  adventure:  '#D62828',
+  beaches: '#0077B6',
+  restaurants: '#E63946',
+  shopping: '#9B2335',
+  nature: '#2D6A4F',
+  diving: '#023E8A',
+  culture: '#6D3B8E',
+  nightlife: '#1A1A2E',
+  adventure: '#D62828',
 };
 
 const ALL_CATEGORIES = ['Historical', 'Beaches', 'Restaurants', 'Shopping', 'Nature', 'Diving', 'Culture', 'Nightlife', 'Adventure'];
@@ -421,14 +421,14 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
   const fetchRate = async (code: string) => {
     setLoading(true); setRate(null);
     try {
-      const res  = await fetch(`https://v6.exchangerate-api.com/v6/${EXCHANGE_KEY}/pair/${code}/EGP`);
+      const res = await fetch(`https://v6.exchangerate-api.com/v6/${EXCHANGE_KEY}/pair/${code}/EGP`);
       const data = await res.json();
       if (data.result === 'success') {
         setRate(data.conversion_rate);
         const d = new Date(data.time_last_update_utc);
         setLastUpdated(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
       }
-    } catch {}
+    } catch { }
     finally { setLoading(false); }
   };
 
@@ -513,10 +513,23 @@ const CurrencyModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ vi
 export default function HomeScreen() {
   const [locationText, setLocationText] = useState('Detecting...');
   const router = useRouter();
-  const { t, convertPrice } = useApp();
-  const [popular, setPopular]             = useState<Attraction[]>([]);
-  const [nearest, setNearest]             = useState<Attraction[]>([]);
-  const [searchQuery, setSearchQuery]     = useState('');
+  const { t, convertPrice, userId, user, userReady } = useApp();
+  const [localUsername, setLocalUsername] = useState<string>('');
+
+  // Load username directly from AsyncStorage as fast fallback
+  useEffect(() => {
+    AsyncStorage.getItem('user').then(raw => {
+      if (raw) {
+        const u = JSON.parse(raw);
+        setLocalUsername(u.username ?? '');
+      }
+    }).catch(() => { });
+  }, []);
+
+  const displayName = user?.username || localUsername || 'Traveler';
+  const [popular, setPopular] = useState<Attraction[]>([]);
+  const [nearest, setNearest] = useState<Attraction[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Attraction[]>([]);
   const [loading, setLoading]             = useState(true);
   const [showCurrency, setShowCurrency]   = useState(false);
@@ -525,11 +538,11 @@ export default function HomeScreen() {
 
   // Filter state
   const [activeFilters, setActiveFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [showFilter, setShowFilter]       = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
 
   // Bottom sheet state
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
-  const [showSheet, setShowSheet]                   = useState(false);
+  const [showSheet, setShowSheet] = useState(false);
 
   // User points state
   const [userPoints, setUserPoints] = useState<number | null>(null);
@@ -599,10 +612,10 @@ export default function HomeScreen() {
     setSearchQuery(text);
     if (text.length < 2) { setSearchResults([]); return; }
     try {
-      const res  = await fetch(`${API_BASE}/attractions/search?q=${encodeURIComponent(text)}`);
+      const res = await fetch(`${API_BASE}/attractions/search?q=${encodeURIComponent(text)}`);
       const data = await res.json();
       setSearchResults(data.data ?? []);
-    } catch {}
+    } catch { }
   };
 
   const openAttraction = (item: Attraction) => {
@@ -626,7 +639,7 @@ export default function HomeScreen() {
 
   const filteredPopular = applyFilters(popular);
   const filteredNearest = applyFilters(nearest);
-  const filteredSearch  = applyFilters(searchResults);
+  const filteredSearch = applyFilters(searchResults);
 
   const activeFilterCount =
     activeFilters.categories.length +

@@ -140,7 +140,7 @@ const BottomTab: React.FC<{ active: string }> = ({ active }) => {
 // ── FAVORITES SCREEN ──────────────────────────────────────────────────
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { t } = useApp();
+  const { t, userId } = useApp();
   const [favorites, setFavorites]               = useState<Attraction[]>([]);
   const [loading, setLoading]                   = useState(true);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);

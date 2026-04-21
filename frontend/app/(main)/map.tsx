@@ -12,6 +12,7 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -64,13 +65,13 @@ interface PlannedDay {
 
 // ── Distance calculator (Haversine formula) ───────────────────────────
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R    = 6371;
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a    = Math.sin(dLat/2) * Math.sin(dLat/2) +
-               Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
-               Math.sin(dLon/2) * Math.sin(dLon/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
 // ── Walking tips ──────────────────────────────────────────────────────
@@ -221,22 +222,23 @@ export default function MapScreen() {
   const [plannedDays, setPlannedDays]       = useState<PlannedDay[]>([]);
   const [userId, setUserId]                 = useState<number>(1); // Default to 1, will fetch from storage
   const router = useRouter();
-  const { t } = useApp();
+  const { t, userId } = useApp();
   const mapRef = useRef<MapView>(null);
 
-  const [userLocation, setUserLocation]     = useState<RoutePoint | null>(null);
-  const [searchQuery, setSearchQuery]       = useState('');
-  const [searchResults, setSearchResults]   = useState<SearchResult[]>([]);
+  const [userLocation, setUserLocation] = useState<RoutePoint | null>(null);
+  const [locationEnabled, setLocationEnabled] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [selectedPlaces, setSelectedPlaces] = useState<Place[]>([]);
-  const [routeCoords, setRouteCoords]       = useState<RoutePoint[]>([]);
+  const [routeCoords, setRouteCoords] = useState<RoutePoint[]>([]);
   const [nearbyAttractions, setNearbyAttractions] = useState<Place[]>([]);
   const [loadingLocation, setLoadingLocation] = useState(true);
-  const [loadingRoute, setLoadingRoute]     = useState(false);
-  const [loadingSearch, setLoadingSearch]   = useState(false);
-  const [routeMode, setRouteMode]           = useState<'fastest' | 'walk'>('fastest');
+  const [loadingRoute, setLoadingRoute] = useState(false);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [routeMode, setRouteMode] = useState<'fastest' | 'walk'>('fastest');
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [routeDistance, setRouteDistance]   = useState<string | null>(null);
-  const [routeDuration, setRouteDuration]   = useState<string | null>(null);
+  const [routeDistance, setRouteDistance] = useState<string | null>(null);
+  const [routeDuration, setRouteDuration] = useState<string | null>(null);
   const [bannerShownOnce, setBannerShownOnce] = useState(false);
 
   // Walkable banner state
@@ -425,17 +427,17 @@ export default function MapScreen() {
       const geoData = await geoRes.json();
       const city = geoData.address?.city || geoData.address?.town || 'Alexandria';
 
-      const res  = await fetch(`${API_BASE}/attractions?city=${encodeURIComponent(city)}`);
+      const res = await fetch(`${API_BASE}/attractions?city=${encodeURIComponent(city)}`);
       const data = await res.json();
       if (data.success) {
         const places: Place[] = data.data
           .filter((a: any) => a.latitude && a.longitude)
           .map((a: any) => ({
-            id:          String(a.id),
-            name:        a.name,
-            latitude:    parseFloat(a.latitude),
-            longitude:   parseFloat(a.longitude),
-            type:        a.category,
+            id: String(a.id),
+            name: a.name,
+            latitude: parseFloat(a.latitude),
+            longitude: parseFloat(a.longitude),
+            type: a.category,
             distance_km: getDistanceKm(lat, lon, parseFloat(a.latitude), parseFloat(a.longitude)),
           }));
         setNearbyAttractions(places);
@@ -533,64 +535,80 @@ export default function MapScreen() {
   setWalkBanner({ visible: false, place: null, distance_km: 0 });
   setWalkedPlaces(prev => new Set([...prev, place.id]));
 
-  if (userLocation) {
-    const walkPlace: Place = { ...place, id: `walk_${place.id}` };
-    const newPlaces = [
-      { id: 'user', name: 'Your Location', latitude: userLocation.latitude, longitude: userLocation.longitude },
-      walkPlace,
-    ];
-    setSelectedPlaces(newPlaces);
-    setRouteMode('walk');
-    fetchRoute(newPlaces, 'walk');
-  }
+    // Draw walking route on map
+    if (userLocation) {
+      const walkPlace: Place = { ...place, id: `walk_${place.id}` };
+      const newPlaces = [
+        { id: 'user', name: 'Your Location', latitude: userLocation.latitude, longitude: userLocation.longitude },
+        walkPlace,
+      ];
+      setSelectedPlaces(newPlaces);
+      setRouteMode('walk');
+      fetchRoute(newPlaces, 'walk');
+    }
 
-  const initialDistM = Math.max(1, Math.round(walkBanner.distance_km * 1000));
-  walkInitialDistRef.current = initialDistM;
-  setWalkTarget(place);
-  setWalkDistanceLeft(initialDistM);
-  setVehicleDetected(false);
-  setWalkingInProgress(true);
+    // ── Start GPS tracking to verify the walk ────────────────────────
+    // Points are awarded ONLY when the user arrives within ARRIVAL_RADIUS_M.
+    const initialDistM = Math.max(1, Math.round(walkBanner.distance_km * 1000));
+    walkInitialDistRef.current = initialDistM;
+    setWalkTarget(place);
+    setWalkDistanceLeft(initialDistM);
+    setVehicleDetected(false); // reset any previous detection
+    setWalkingInProgress(true);
 
-  stopLocationWatcher();
+    stopLocationWatcher(); // clear any previous watcher
 
-  try {
-    const subscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 10, timeInterval: 5000 },
-      (loc) => {
-        const speed = loc.coords.speed ?? 0;
-        if (speed > MAX_WALK_SPEED_MS) {
-          subscription.remove();
-          locationWatcherRef.current = null;
-          setWalkingInProgress(false);
-          setWalkTarget(null);
-          setWalkDistanceLeft(0);
-          setVehicleDetected(true);
-          return;
-        }
+    try {
+      const subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          distanceInterval: 10, // update every 10 m of movement
+          timeInterval: 5000,
+        },
+        (loc) => {
+          // ── Vehicle detection ─────────────────────────────────────
+          const speed = loc.coords.speed ?? 0; // m/s (null on some devices → treat as 0)
+          if (speed > MAX_WALK_SPEED_MS) {
+            // User is clearly in a vehicle — cancel walk, no points
+            subscription.remove();
+            locationWatcherRef.current = null;
+            setWalkingInProgress(false);
+            setWalkTarget(null);
+            setWalkDistanceLeft(0);
+            setVehicleDetected(true);
+            return;
+          }
 
-        const dist = Math.round(
-          getDistanceKm(loc.coords.latitude, loc.coords.longitude, place.latitude, place.longitude) * 1000
-        );
-        setWalkDistanceLeft(dist);
+          const dist = Math.round(
+            getDistanceKm(
+              loc.coords.latitude,
+              loc.coords.longitude,
+              place.latitude,
+              place.longitude,
+            ) * 1000,
+          );
+          setWalkDistanceLeft(dist);
 
-        if (dist <= ARRIVAL_RADIUS_M) {
-          subscription.remove();
-          locationWatcherRef.current = null;
-          setWalkingInProgress(false);
-          setWalkTarget(null);
-          setWalkDistanceLeft(0);
-          awardWalkPoints(place);
-        }
-      },
-    );
-    locationWatcherRef.current = subscription;
-  } catch (err) {
-    console.error('Location watcher error:', err);
-    setWalkingInProgress(false);
-    setWalkTarget(null);
-    awardWalkPoints(place);
-  }
-};
+          if (dist <= ARRIVAL_RADIUS_M) {
+            // User has arrived on foot — award points
+            subscription.remove();
+            locationWatcherRef.current = null;
+            setWalkingInProgress(false);
+            setWalkTarget(null);
+            setWalkDistanceLeft(0);
+            awardWalkPoints(place);
+          }
+        },
+      );
+      locationWatcherRef.current = subscription;
+    } catch (err) {
+      console.error('Location watcher error:', err);
+      // If we cannot start the watcher, fall back to immediate award
+      setWalkingInProgress(false);
+      setWalkTarget(null);
+      awardWalkPoints(place);
+    }
+  };
 
   // ── Search places ─────────────────────────────────────────────────
   const searchPlaces = async (query: string): Promise<void> => {
@@ -609,16 +627,16 @@ export default function MapScreen() {
       // Check if any result is walkable
       if (userLocation && data.length > 0) {
         const first = data[0];
-        const dist  = getDistanceKm(
+        const dist = getDistanceKm(
           userLocation.latitude, userLocation.longitude,
           parseFloat(first.lat), parseFloat(first.lon)
         );
         if (dist <= WALKABLE_DISTANCE_KM) {
           const place: Place = {
-            id:          first.place_id,
-            name:        first.display_name.split(',')[0],
-            latitude:    parseFloat(first.lat),
-            longitude:   parseFloat(first.lon),
+            id: first.place_id,
+            name: first.display_name.split(',')[0],
+            latitude: parseFloat(first.lat),
+            longitude: parseFloat(first.lon),
             distance_km: dist,
           };
           setTimeout(() => setWalkBanner({ visible: true, place, distance_km: dist }), 500);
@@ -630,11 +648,11 @@ export default function MapScreen() {
 
   const selectPlace = (result: SearchResult): void => {
     const place: Place = {
-      id:        result.place_id,
-      name:      result.display_name.split(',')[0],
-      latitude:  parseFloat(result.lat),
+      id: result.place_id,
+      name: result.display_name.split(',')[0],
+      latitude: parseFloat(result.lat),
       longitude: parseFloat(result.lon),
-      address:   result.display_name,
+      address: result.display_name,
     };
 
     if (selectedPlaces.length >= 5) { Alert.alert('Maximum places', 'You can add up to 5 places.'); return; }
@@ -667,19 +685,30 @@ export default function MapScreen() {
     setLoadingRoute(true);
     setRouteCoords([]);
     try {
-      const coords  = places.map(p => `${p.longitude},${p.latitude}`).join(';');
+      const coords = places.map(p => `${p.longitude},${p.latitude}`).join(';');
+      // IMPORTANT:
+      // `router.project-osrm.org` is a demo server and does not reliably support non-car profiles.
+      // Use FOSSGIS public instances which serve separate backends for car/foot:
+      // - car:  https://routing.openstreetmap.de/routed-car/route/v1/driving/...
+      // - foot: https://routing.openstreetmap.de/routed-foot/route/v1/foot/...
+      const base = mode === 'walk'
+        ? 'https://routing.openstreetmap.de/routed-foot'
+        : 'https://routing.openstreetmap.de/routed-car';
       const profile = mode === 'walk' ? 'foot' : 'driving';
-      const url     = `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson`;
+      const url = `${base}/route/v1/${profile}/${coords}?overview=full&geometries=geojson`;
       const response = await fetch(url);
-      const data     = await response.json();
+      const data = await response.json();
 
       if (data.code === 'Ok' && data.routes.length > 0) {
-        const route      = data.routes[0];
+        const route = data.routes[0];
         const routePoints: RoutePoint[] = route.geometry.coordinates.map((c: number[]) => ({ latitude: c[1], longitude: c[0] }));
         setRouteCoords(routePoints);
         setRouteDistance(`${(route.distance / 1000).toFixed(1)} km`);
         setRouteDuration(`${Math.round(route.duration / 60)} min`);
         mapRef.current?.fitToCoordinates(routePoints, { edgePadding: { top: 100, right: 50, bottom: 260, left: 50 }, animated: true });
+      } else {
+        const message = data?.message ? `\n${data.message}` : '';
+        Alert.alert('Route Error', `Could not fetch ${mode === 'walk' ? 'walking' : 'driving'} route.${message}`);
       }
     } catch (err) { Alert.alert('Route Error', 'Could not fetch route.'); }
     finally { setLoadingRoute(false); }
@@ -716,16 +745,16 @@ export default function MapScreen() {
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         initialRegion={{
-          latitude:      userLocation?.latitude  ?? 31.2001,
-          longitude:     userLocation?.longitude ?? 29.9187,
-          latitudeDelta:  0.05,
+          latitude: userLocation?.latitude ?? 31.2001,
+          longitude: userLocation?.longitude ?? 29.9187,
+          latitudeDelta: 0.05,
           longitudeDelta: 0.05,
         }}
-        showsUserLocation
+        showsUserLocation={locationEnabled}
         showsMyLocationButton={false}
         showsCompass
       >
-        {userLocation && <Marker coordinate={userLocation} title="You are here" pinColor="#E67E22" />}
+        {locationEnabled && userLocation && <Marker coordinate={userLocation} title="You are here" pinColor="#E67E22" />}
 
         {nearbyAttractions.map(attraction => {
           const isWalkable = (attraction.distance_km ?? 99) <= WALKABLE_DISTANCE_KM;
@@ -857,7 +886,7 @@ export default function MapScreen() {
             <MaterialCommunityIcons name="magnify" size={16} color="#AAA" style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
-                {...{placeholder: t('search')}}
+                              {...{ placeholder: t('search') }}
               placeholderTextColor="#AAA"
               value={searchQuery}
               onChangeText={searchPlaces}
@@ -871,6 +900,14 @@ export default function MapScreen() {
             <MaterialCommunityIcons name="crosshairs-gps" size={20} color="#E67E22" />
           </TouchableOpacity>
         </View>
+
+        {!locationEnabled && (
+          <View style={styles.locationDisabledBanner}>
+            <Text style={styles.locationDisabledText}>
+              📍 Location Services are turned off in Settings. Enable it to use GPS and walkability.
+            </Text>
+          </View>
+        )}
 
         {showSearchResults && searchResults.length > 0 && (
           <View style={styles.searchDropdown}>
@@ -907,9 +944,65 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* ── Walking In Progress Panel ─────────────────────────────── */}
+      {walkingInProgress && walkTarget && (
+        <View style={styles.walkingProgressPanel}>
+          <View style={styles.walkingProgressHeader}>
+            <Text style={styles.walkingProgressEmoji}>🚶</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walkingProgressTitle}>Walking in progress…</Text>
+              <Text style={styles.walkingProgressDest} numberOfLines={1}>{walkTarget.name}</Text>
+            </View>
+          </View>
+          <View style={styles.walkingDistRow}>
+            <Text style={styles.walkingDistLabel}>Distance remaining</Text>
+            <Text style={styles.walkingDistValue}>
+              {walkDistanceLeft >= 1000
+                ? `${(walkDistanceLeft / 1000).toFixed(2)} km`
+                : `${walkDistanceLeft} m`}
+            </Text>
+          </View>
+          <View style={styles.walkingProgressBarTrack}>
+            <View
+              style={[
+                styles.walkingProgressBarFill,
+                {
+                  width: `${Math.max(0, Math.min(100, 100 - (walkDistanceLeft / walkInitialDistRef.current) * 100))}%`,
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.walkingProgressHint}>🏆 You'll earn 50 pts when you arrive!</Text>
+          <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
+            <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Vehicle Detected Panel ── */}
+      {vehicleDetected && (
+        <View style={styles.walkingProgressPanel}>
+          <View style={styles.walkingProgressHeader}>
+            <Text style={styles.walkingProgressEmoji}>🚗</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walkingProgressTitle}>Vehicle Detected!</Text>
+              <Text style={styles.walkingProgressDest}>Walk cancelled</Text>
+            </View>
+          </View>
+          <Text style={[styles.walkingProgressHint, { color: '#E74C3C', marginBottom: 20 }]}>
+            You're moving too fast! Points are only awarded for actually walking.
+          </Text>
+          <TouchableOpacity style={styles.cancelWalkBtn} onPress={() => setVehicleDetected(false)}>
+            <Text style={styles.cancelWalkBtnText}>Dismiss</Text>
+          </TouchableOpacity>
+        </View>
+      )
+      }
+
       {/* ── Bottom Panel ── */}
-      {!walkBanner.visible && (
-        <View style={styles.bottomPanel}>
+      {
+        !walkBanner.visible && !walkingInProgress && !vehicleDetected && (
+          <View style={styles.bottomPanel}>
           {plannedDays.length > 0 && (
             <View style={styles.planSection}>
               <View style={styles.planSectionHeader}>
@@ -992,67 +1085,67 @@ export default function MapScreen() {
               </ScrollView>
             </View>
           )}
-          <View style={styles.routeModeRow}>
-            <TouchableOpacity
-              style={[styles.routeModeBtn, routeMode === 'fastest' && styles.routeModeBtnActive]}
-              onPress={() => switchRouteMode('fastest')}
-            >
-              <MaterialCommunityIcons name="lightning-bolt" size={16} color={routeMode === 'fastest' ? '#E67E22' : '#999'} />
-              <Text style={[styles.routeModeText, routeMode === 'fastest' && styles.routeModeTextActive]}>Fastest</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.routeModeBtn, routeMode === 'walk' && styles.routeModeBtnActiveEco]}
-              onPress={() => switchRouteMode('walk')}
-            >
-              <MaterialCommunityIcons name="walk" size={16} color={routeMode === 'walk' ? '#27AE60' : '#999'} />
-              <Text style={[styles.routeModeText, routeMode === 'walk' && styles.routeModeTextActiveEco]}>Walk +50pts</Text>
-            </TouchableOpacity>
-          </View>
-
-          {routeDistance && routeDuration && (
-            <View style={styles.routeInfo}>
-              <View style={styles.routeInfoItem}>
-                <MaterialCommunityIcons name="road-variant" size={16} color="#555" />
-                <Text style={styles.routeInfoValue}>{routeDistance}</Text>
-              </View>
-              <View style={styles.routeInfoDivider} />
-              <View style={styles.routeInfoItem}>
-                <MaterialCommunityIcons name="clock-outline" size={16} color="#555" />
-                <Text style={styles.routeInfoValue}>{routeDuration}</Text>
-              </View>
-              {routeMode === 'walk' && (
-                <>
-                  <View style={styles.routeInfoDivider} />
-                  <View style={styles.routeInfoItem}>
-                    <MaterialCommunityIcons name="star-outline" size={16} color="#E67E22" />
-                    <Text style={[styles.routeInfoValue, { color: '#E67E22' }]}>+50 pts</Text>
-                  </View>
-                </>
-              )}
+            <View style={styles.routeModeRow}>
+              <TouchableOpacity
+                style={[styles.routeModeBtn, routeMode === 'fastest' && styles.routeModeBtnActive]}
+                onPress={() => switchRouteMode('fastest')}
+              >
+                <MaterialCommunityIcons name="lightning-bolt" size={16} color={routeMode === 'fastest' ? '#E67E22' : '#999'} />
+                <Text style={[styles.routeModeText, routeMode === 'fastest' && styles.routeModeTextActive]}>Fastest</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.routeModeBtn, routeMode === 'walk' && styles.routeModeBtnActiveEco]}
+                onPress={() => switchRouteMode('walk')}
+              >
+                <MaterialCommunityIcons name="walk" size={16} color={routeMode === 'walk' ? '#27AE60' : '#999'} />
+                <Text style={[styles.routeModeText, routeMode === 'walk' && styles.routeModeTextActiveEco]}>Walk +50pts</Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          {selectedPlaces.length > 0 && (
-            <View style={styles.selectedPlacesContainer}>
-              <View style={styles.selectedPlacesHeader}>
-                <Text style={styles.selectedPlacesTitle}>Your Route ({selectedPlaces.length} stops)</Text>
-                <TouchableOpacity onPress={clearRoute}>
-                  <Text style={styles.clearBtn}>Clear all</Text>
-                </TouchableOpacity>
+            {routeDistance && routeDuration && (
+              <View style={styles.routeInfo}>
+                <View style={styles.routeInfoItem}>
+                  <MaterialCommunityIcons name="road-variant" size={16} color="#555" />
+                  <Text style={styles.routeInfoValue}>{routeDistance}</Text>
+                </View>
+                <View style={styles.routeInfoDivider} />
+                <View style={styles.routeInfoItem}>
+                  <MaterialCommunityIcons name="clock-outline" size={16} color="#555" />
+                  <Text style={styles.routeInfoValue}>{routeDuration}</Text>
+                </View>
+                {routeMode === 'walk' && (
+                  <>
+                    <View style={styles.routeInfoDivider} />
+                    <View style={styles.routeInfoItem}>
+                      <MaterialCommunityIcons name="star-outline" size={16} color="#E67E22" />
+                      <Text style={[styles.routeInfoValue, { color: '#E67E22' }]}>+50 pts</Text>
+                    </View>
+                  </>
+                )}
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {selectedPlaces.map((place, index) => (
-                  <View key={place.id} style={styles.placeChip}>
-                    <Text style={styles.placeChipNumber}>{index + 1}</Text>
-                    <Text style={styles.placeChipName} numberOfLines={1}>{place.name}</Text>
-                    <TouchableOpacity onPress={() => removePlace(place.id)}>
-                      <Text style={styles.placeChipRemove}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+            )}
+
+            {selectedPlaces.length > 0 && (
+              <View style={styles.selectedPlacesContainer}>
+                <View style={styles.selectedPlacesHeader}>
+                  <Text style={styles.selectedPlacesTitle}>Your Route ({selectedPlaces.length} stops)</Text>
+                  <TouchableOpacity onPress={clearRoute}>
+                    <Text style={styles.clearBtn}>Clear all</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {selectedPlaces.map((place, index) => (
+                    <View key={place.id} style={styles.placeChip}>
+                      <Text style={styles.placeChipNumber}>{index + 1}</Text>
+                      <Text style={styles.placeChipName} numberOfLines={1}>{place.name}</Text>
+                      <TouchableOpacity onPress={() => removePlace(place.id)}>
+                        <Text style={styles.placeChipRemove}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
           {selectedPlaces.length === 0 && (
             <View style={styles.emptyState}>
@@ -1063,20 +1156,21 @@ export default function MapScreen() {
             </View>
           )}
 
-          {selectedPlaces.length >= 2 && routeCoords.length === 0 && !loadingRoute && (
-            <TouchableOpacity style={styles.getRouteBtn} onPress={() => fetchRoute(selectedPlaces, routeMode)}>
-              <Text style={styles.getRouteBtnText}>Get Route</Text>
-            </TouchableOpacity>
-          )}
+            {selectedPlaces.length >= 2 && routeCoords.length === 0 && !loadingRoute && (
+              <TouchableOpacity style={styles.getRouteBtn} onPress={() => fetchRoute(selectedPlaces, routeMode)}>
+                <Text style={styles.getRouteBtnText}>Get Route</Text>
+              </TouchableOpacity>
+            )}
 
-          {loadingRoute && (
-            <View style={styles.loadingRoute}>
-              <ActivityIndicator size="small" color="#E67E22" />
-              <Text style={styles.loadingRouteText}>Calculating route...</Text>
-            </View>
-          )}
-        </View>
-      )}
+            {loadingRoute && (
+              <View style={styles.loadingRoute}>
+                <ActivityIndicator size="small" color="#E67E22" />
+                <Text style={styles.loadingRouteText}>Calculating route...</Text>
+              </View>
+            )}
+          </View>
+        )
+      }
 
       {/* ── Walking In Progress Panel ── */}
       {walkingInProgress && walkTarget && (
@@ -1133,39 +1227,41 @@ export default function MapScreen() {
         onWalk={handleWalk}
         onDismiss={() => setWalkBanner({ visible: false, place: null, distance_km: 0 })}
       />
-    </View>
+    </View >
   );
 }
 
 // ── STYLES ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container:        { flex: 1 },
-  map:              { width, height },
+  container: { flex: 1 },
+  map: { width, height },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9F5F0' },
-  loadingText:      { marginTop: 12, fontSize: 14, color: '#666' },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#666' },
 
-  topOverlay:   { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 8 },
-  searchRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  backBtn:      { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
-  backIcon:     { fontSize: 20, fontWeight: '700', color: '#333' },
-  searchBar:    { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 30, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
-  searchIcon:   { fontSize: 14, marginRight: 8 },
-  searchInput:  { flex: 1, fontSize: 14, color: '#333' },
-  locationBtn:  { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
+  topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 8 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
+  backIcon: { fontSize: 20, fontWeight: '700', color: '#333' },
+  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 30, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
+  searchIcon: { fontSize: 14, marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 14, color: '#333' },
+  locationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 },
   locationBtnIcon: { fontSize: 18 },
+  locationDisabledBanner: { marginTop: 10, backgroundColor: '#FFF3E0', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  locationDisabledText: { fontSize: 12, color: '#8A5A00', fontWeight: '700', textAlign: 'center', lineHeight: 16 },
 
-  searchDropdown:    { backgroundColor: '#FFF', borderRadius: 16, marginTop: 8, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 5, overflow: 'hidden' },
-  searchResultItem:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
-  searchResultIcon:  { fontSize: 16, marginRight: 10 },
-  searchResultText:  { flex: 1 },
-  searchResultName:  { fontSize: 14, fontWeight: '600', color: '#333' },
+  searchDropdown: { backgroundColor: '#FFF', borderRadius: 16, marginTop: 8, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 5, overflow: 'hidden' },
+  searchResultItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
+  searchResultIcon: { fontSize: 16, marginRight: 10 },
+  searchResultText: { flex: 1 },
+  searchResultName: { fontSize: 14, fontWeight: '600', color: '#333' },
   searchResultAddress: { fontSize: 11, color: '#999', marginTop: 2 },
 
   // Legend
-  legendRow:   { position: 'absolute', top: 100, right: 16, backgroundColor: '#FFF', borderRadius: 12, padding: 10, gap: 6, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6, elevation: 4 },
-  legendItem:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot:   { width: 10, height: 10, borderRadius: 5 },
-  legendText:  { fontSize: 11, color: '#555', fontWeight: '600' },
+  legendRow: { position: 'absolute', top: 100, right: 16, backgroundColor: '#FFF', borderRadius: 12, padding: 10, gap: 6, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6, elevation: 4 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { fontSize: 11, color: '#555', fontWeight: '600' },
 
   // Bottom panel
   bottomPanel: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 30, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, elevation: 10 },
@@ -1192,58 +1288,58 @@ const styles = StyleSheet.create({
   planStopArrow: { fontSize: 20, color: '#CCC', fontWeight: '300', paddingHorizontal: 4 },
   routeModeRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   routeModeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F5F5', borderRadius: 30, paddingVertical: 10, gap: 6 },
-  routeModeBtnActive:    { backgroundColor: '#FFF3E0' },
+  routeModeBtnActive: { backgroundColor: '#FFF3E0' },
   routeModeBtnActiveEco: { backgroundColor: '#E8F8F0' },
   routeModeIcon: { fontSize: 16 },
   routeModeText: { fontSize: 14, fontWeight: '600', color: '#999' },
-  routeModeTextActive:    { color: '#E67E22' },
+  routeModeTextActive: { color: '#E67E22' },
   routeModeTextActiveEco: { color: '#27AE60' },
-  routeInfo:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9F5F0', borderRadius: 16, paddingVertical: 10, marginBottom: 12 },
+  routeInfo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9F5F0', borderRadius: 16, paddingVertical: 10, marginBottom: 12 },
   routeInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20 },
   routeInfoIcon: { fontSize: 16 },
-  routeInfoValue:   { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  routeInfoValue: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
   routeInfoDivider: { width: 1, height: 20, backgroundColor: '#DDD' },
   selectedPlacesContainer: { marginBottom: 12 },
-  selectedPlacesHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  selectedPlacesTitle:     { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-  clearBtn:     { fontSize: 13, color: '#E74C3C', fontWeight: '600' },
-  placeChip:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, gap: 6 },
+  selectedPlacesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  selectedPlacesTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
+  clearBtn: { fontSize: 13, color: '#E74C3C', fontWeight: '600' },
+  placeChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, gap: 6 },
   placeChipNumber: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#E67E22', color: '#FFF', fontSize: 11, fontWeight: '700', textAlign: 'center', lineHeight: 20 },
-  placeChipName:   { fontSize: 13, fontWeight: '600', color: '#333', maxWidth: 100 },
+  placeChipName: { fontSize: 13, fontWeight: '600', color: '#333', maxWidth: 100 },
   placeChipRemove: { fontSize: 12, color: '#E74C3C', fontWeight: '700' },
-  emptyState:    { paddingVertical: 12, alignItems: 'center' },
-  emptyStateText:{ fontSize: 13, color: '#999', textAlign: 'center', lineHeight: 22 },
-  getRouteBtn:   { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  emptyState: { paddingVertical: 12, alignItems: 'center' },
+  emptyStateText: { fontSize: 13, color: '#999', textAlign: 'center', lineHeight: 22 },
+  getRouteBtn: { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
   getRouteBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  loadingRoute:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
+  loadingRoute: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
   loadingRouteText: { fontSize: 13, color: '#666' },
 
   // Walkable banner
-  walkBanner:       { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 34, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20, elevation: 15 },
+  walkBanner: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 34, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20, elevation: 15 },
   walkBannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  walkBannerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  walkBannerEmoji:  { fontSize: 36 },
-  walkBannerTitle:  { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
+  walkBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  walkBannerEmoji: { fontSize: 36 },
+  walkBannerTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
   walkBannerSubtitle: { fontSize: 13, color: '#888', marginTop: 2 },
-  walkBannerClose:  { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
+  walkBannerClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
   walkBannerCloseText: { fontSize: 14, color: '#999', fontWeight: '700' },
-  walkStats:        { flexDirection: 'row', backgroundColor: '#F9F5F0', borderRadius: 16, padding: 14, marginBottom: 14, justifyContent: 'space-around' },
-  walkStat:         { alignItems: 'center', gap: 4 },
-  walkStatIcon:     { fontSize: 20 },
-  walkStatValue:    { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  walkStatLabel:    { fontSize: 11, color: '#999' },
-  walkStatDivider:  { width: 1, backgroundColor: '#EEE' },
-  walkTip:          { backgroundColor: '#E8F8F0', borderRadius: 14, padding: 12, marginBottom: 16 },
-  walkTipText:      { fontSize: 13, color: '#2D6A4F', fontWeight: '600', textAlign: 'center', lineHeight: 19 },
-  walkActions:      { flexDirection: 'row', gap: 10 },
-  walkSkipBtn:      { flex: 1, borderWidth: 2, borderColor: '#EEE', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  walkSkipText:     { fontSize: 14, fontWeight: '700', color: '#999' },
-  walkGoBtn:        { flex: 2, backgroundColor: '#27AE60', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  walkGoBtnText:    { fontSize: 14, fontWeight: '800', color: '#FFF' },
+  walkStats: { flexDirection: 'row', backgroundColor: '#F9F5F0', borderRadius: 16, padding: 14, marginBottom: 14, justifyContent: 'space-around' },
+  walkStat: { alignItems: 'center', gap: 4 },
+  walkStatIcon: { fontSize: 20 },
+  walkStatValue: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
+  walkStatLabel: { fontSize: 11, color: '#999' },
+  walkStatDivider: { width: 1, backgroundColor: '#EEE' },
+  walkTip: { backgroundColor: '#E8F8F0', borderRadius: 14, padding: 12, marginBottom: 16 },
+  walkTipText: { fontSize: 13, color: '#2D6A4F', fontWeight: '600', textAlign: 'center', lineHeight: 19 },
+  walkActions: { flexDirection: 'row', gap: 10 },
+  walkSkipBtn: { flex: 1, borderWidth: 2, borderColor: '#EEE', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
+  walkSkipText: { fontSize: 14, fontWeight: '700', color: '#999' },
+  walkGoBtn: { flex: 2, backgroundColor: '#27AE60', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
+  walkGoBtnText: { fontSize: 14, fontWeight: '800', color: '#FFF' },
 
   // Points toast
-  pointsToast:     { position: 'absolute', top: 100, alignSelf: 'center', backgroundColor: '#1A1A1A', borderRadius: 30, paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
-  pointsToastEmoji:{ fontSize: 20 },
+  pointsToast: { position: 'absolute', top: 100, alignSelf: 'center', backgroundColor: '#1A1A1A', borderRadius: 30, paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
+  pointsToastEmoji: { fontSize: 20 },
   pointsToastText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
   pointsToastSubtext: { color: 'rgba(255,255,255,0.6)', fontSize: 11 },
 

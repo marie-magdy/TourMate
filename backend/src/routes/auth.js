@@ -65,6 +65,53 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// POST /api/auth/google — Google OAuth login/register
+router.post('/google', async (req, res) => {
+  try {
+    const { google_id, email, username, avatar_url } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email required' });
+
+    // Check if user exists
+    let result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+
+    let user;
+    if (result.rows.length === 0) {
+      // New user — create account (no password needed for Google users)
+      const newUser = await pool.query(
+        `INSERT INTO users (username, email, password, role, avatar_url)
+         VALUES ($1, $2, $3, 'user', $4)
+         RETURNING id, username, email, role`,
+        [username, email, 'GOOGLE_AUTH_' + google_id, avatar_url ?? null]
+      );
+      user = newUser.rows[0];
+
+      // Give welcome points
+      await pool.query(
+        `INSERT INTO user_points (user_id, points, total_earned) VALUES ($1, 50, 50)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user.id]
+      );
+    } else {
+      user = result.rows[0];
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: { id: user.id, email: user.email, username: user.username, role: user.role },
+    });
+  } catch (err) {
+    console.error('Google auth error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
@@ -274,11 +321,11 @@ router.get('/admin/stats', async (req, res) => {
     res.json({
       success: true,
       data: {
-        total_users: parseInt(users.rows[0].count),
+        total_users:       parseInt(users.rows[0].count),
         total_attractions: parseInt(attractions.rows[0].count),
-        total_favorites: parseInt(favorites.rows[0].count),
-        total_points: parseInt(points.rows[0].total),
-        top_attractions: topAttractions.rows,
+        total_favorites:   parseInt(favorites.rows[0].count),
+        total_points:      parseInt(points.rows[0].total),
+        top_attractions:   topAttractions.rows,
       },
     });
   } catch (err) {
