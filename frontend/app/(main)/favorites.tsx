@@ -145,31 +145,31 @@ export default function FavoritesScreen() {
   const [loading, setLoading]                   = useState(true);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
   const [showSheet, setShowSheet]               = useState(false);
-  const [userId, setUserId]                     = useState<number>(1);
+  // const [userId, setUserId]                     = useState<number>(1);
   const [userLocation, setUserLocation]         = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // Load userId once on mount
-  useEffect(() => {
-    const loadUserId = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('user');
-        const id = raw ? JSON.parse(raw).id : 1;
-        setUserId(id);
-      } catch (err) {
-        console.error('UserId load error:', err);
-      }
-    };
-    loadUserId();
+  // // Load userId once on mount
+  // useEffect(() => {
+  //   const loadUserId = async () => {
+  //     try {
+  //       const raw = await AsyncStorage.getItem('user');
+  //       const id = raw ? JSON.parse(raw).id : 1;
+  //       setUserId(id);
+  //     } catch (err) {
+  //       console.error('UserId load error:', err);
+  //     }
+  //   };
+  //   loadUserId();
     
-    Location.requestForegroundPermissionsAsync().then(({ status }) => {
-      if (status === 'granted') {
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(loc => {
-          setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-  }, []);
-
+  useEffect(() => {
+      Location.requestForegroundPermissionsAsync().then(({ status }) => {
+        if (status === 'granted') {
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(loc => {
+            setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }, []); 
   // Refetch favorites on page focus (use the loaded userId)
   useFocusEffect(
     useCallback(() => { 

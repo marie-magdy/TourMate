@@ -87,7 +87,6 @@ router.get('/nearest', async (req, res) => {
     const result = await pool.query(
       `${BASE_SELECT}
        WHERE LOWER(ci.name) = LOWER($1)
-       WHERE LOWER(ci.name) = LOWER($1)
        ${GROUP_BY}
        ORDER BY a.rating DESC
        LIMIT 20`,
@@ -157,7 +156,6 @@ router.get('/', async (req, res) => {
     let where = 'WHERE 1=1';
 
     if (city) {
-      where += ` AND LOWER(ci.name) = LOWER($${paramIndex++})`;
       where += ` AND LOWER(ci.name) = LOWER($${paramIndex++})`;
       params.push(city);
     }
@@ -449,8 +447,28 @@ router.post('/:id/favorite', async (req, res) => {
 //  POST /api/attractions/upload-image
 // ─────────────────────────────────────────────────────────────────────
 router.post('/upload-image', async (req, res) => {
-  // Railway has no persistent disk — client should use direct image URLs instead
-  res.status(400).json({ success: false, message: 'Direct upload not supported on cloud. Use a public image URL instead.' });
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ success: false, message: 'No image provided' });
+
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const fs = await import('fs');
+    const path = await import('path');
+    const uploadsDir = path.default.join(process.cwd(), 'uploads');
+    if (!fs.default.existsSync(uploadsDir)) fs.default.mkdirSync(uploadsDir, { recursive: true });
+
+    const filename = `attraction_${Date.now()}.jpg`;
+    const filepath = path.default.join(uploadsDir, filename);
+    fs.default.writeFileSync(filepath, buffer);
+
+    const url = `http://${process.env.BACKEND_IP || 'localhost'}:3000/uploads/${filename}`;
+    res.json({ success: true, url });
+  } catch (err) {
+    console.error('Upload image error:', err);
+    res.status(500).json({ success: false, message: 'Upload failed' });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -460,8 +478,58 @@ router.post('/download-images', async (req, res) => {
   try {
     const { urls } = req.body;
     if (!urls || urls.length === 0) return res.status(400).json({ success: false, message: 'No URLs provided' });
-    // On Railway there is no persistent disk — just return the original URLs directly
-    res.json({ success: true, urls: urls.slice(0, 5) });
+
+    const fs    = await import('fs');
+    const path  = await import('path');
+    const https = await import('https');
+    const http  = await import('http');
+
+    const uploadsDir = path.default.join(process.cwd(), 'uploads');
+    if (!fs.default.existsSync(uploadsDir)) fs.default.mkdirSync(uploadsDir, { recursive: true });
+
+    const downloadFile = (url) => new Promise((resolve, reject) => {
+      const filename = `attraction_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+      const filepath = path.default.join(uploadsDir, filename);
+      const file     = fs.default.createWriteStream(filepath);
+      const client   = url.startsWith('https') ? https.default : http.default;
+
+      const request = client.get(url, (response) => {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          fs.default.unlinkSync(filepath);
+          return downloadFile(response.headers.location).then(resolve).catch(reject);
+        }
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.default.unlinkSync(filepath);
+          return reject(new Error(`HTTP ${response.statusCode}`));
+        }
+        response.pipe(file);
+        file.on('finish', () => {
+          file.close();
+          resolve(`http://${process.env.BACKEND_IP || 'localhost'}:3000/uploads/${filename}`);
+        });
+      });
+      request.on('error', (err) => {
+        file.close();
+        if (fs.default.existsSync(filepath)) fs.default.unlinkSync(filepath);
+        reject(err);
+      });
+      request.setTimeout(15000, () => { request.destroy(); reject(new Error('Timeout')); });
+    });
+
+    const savedUrls = [];
+    for (const url of urls.slice(0, 5)) {
+      try {
+        const localUrl = await downloadFile(url);
+        savedUrls.push(localUrl);
+      } catch (err) {
+        console.error('Failed to download image:', url, err.message);
+        savedUrls.push(url);
+      }
+    }
+
+    res.json({ success: true, urls: savedUrls });
   } catch (err) {
     console.error('Download images error:', err);
     res.status(500).json({ success: false, message: 'Download failed' });

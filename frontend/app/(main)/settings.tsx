@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Switch, Alert, ActivityIndicator, Modal, TextInput, Platform,
+  Switch, Alert, ActivityIndicator, Modal, TextInput,
   TouchableWithoutFeedback, KeyboardAvoidingView, Keyboard, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -231,7 +231,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage, currency, setCurrency, isRTL, userId, setUser, user } = useApp();
 
-  const [userId, setUserId]         = useState<number | null>(null);
+  // const [userId, setUserId]         = useState<number | null>(null);
   const [userName, setUserName]     = useState('');
   const [userEmail, setUserEmail]   = useState('');
   const [userPoints, setUserPoints] = useState(0);
@@ -257,7 +257,6 @@ export default function SettingsScreen() {
 
       const storedUser = JSON.parse(raw);
       const userId = storedUser.id;
-      setUserId(userId);
 
       const [userRes, pointsRes] = await Promise.all([
         fetch(`${API_BASE}/auth/user/${userId}`),
@@ -414,7 +413,6 @@ export default function SettingsScreen() {
         onPress: async () => {
           try {
             const res  = await fetch(`${API_BASE}/auth/user/${userId}`, { method: 'DELETE' });
-            const res  = await fetch(`${API_BASE}/auth/user/${userId}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
               await AsyncStorage.clear();
@@ -530,7 +528,7 @@ export default function SettingsScreen() {
           <Divider />
           <ToggleRow    icon={<MaterialCommunityIcons name="map-marker-outline"   size={20} color="#555" />} label={t('locationServices')} value={locationServices} onToggle={handleToggleLocation} />
           <Divider />
-          <ToggleRow    icon={<MaterialCommunityIcons name="weather-night"        size={20} color="#555" />} label={t('darkMode')}         value={darkMode}         onToggle={handleToggleDarkMode} />
+          {/* <ToggleRow    icon={<MaterialCommunityIcons name="weather-night"        size={20} color="#555" />} label={t('darkMode')}         value={darkMode}         onToggle={handleToggleDarkMode} /> */}
         </View>
 
         {/* ── App ── */}
@@ -557,11 +555,7 @@ export default function SettingsScreen() {
             onPress={() => openEmail('support@tourmate.com', 'TourMate Support', `Hi TourMate team,\n\n(Describe your request here)\n\nUser ID: ${userId || 'N/A'}\n`)}
           />
           <Divider />
-          <SettingRow
-            icon="🐛"
-            label="Report a Bug"
-            value="bugs@tourmate.com"
-            onPress={() => openEmail('bugs@tourmate.com', 'TourMate Bug Report', `Bug description:\n\nSteps to reproduce:\n1.\n2.\n3.\n\nExpected result:\n\nActual result:\n\nUser ID: ${userId || 'N/A'}\nApp: TourMate v1.0.0\nPlatform: ${Platform.OS}\n`)}
+            <SettingRow icon={<MaterialCommunityIcons name="bug-outline"    size={20} color="#555" />} label="Report a Bug" onPress={() => openEmail('bugs@tourmate.com', 'TourMate Bug Report', `Bug description:\n\nSteps to reproduce:\n1.\n2.\n3.\n\nExpected result:\n\nActual result:\n\nUser ID: ${userId || 'N/A'}\nApp: TourMate v1.0.0\nPlatform: ${Platform.OS}\n`)}
           />
         </View>
 
@@ -594,7 +588,6 @@ export default function SettingsScreen() {
         onClose={() => setShowEditProfile(false)}
         currentName={userName}
         currentEmail={userEmail}
-        onUserId={userId}
         userId={userId}
         onSaved={async (name, email) => {
           setUserName(name);

@@ -12,7 +12,6 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -220,7 +219,7 @@ export default function MapScreen() {
   const [showItinerary, setShowItinerary]   = useState(false);
   const [selectedDay, setSelectedDay]       = useState<number | null>(null);
   const [plannedDays, setPlannedDays]       = useState<PlannedDay[]>([]);
-  const [userId, setUserId]                 = useState<number>(1); // Default to 1, will fetch from storage
+  // const [userId, setUserId]                 = useState<number>(1); // Default to 1, will fetch from storage
   const router = useRouter();
   const { t, userId } = useApp();
   const mapRef = useRef<MapView>(null);
@@ -291,7 +290,6 @@ export default function MapScreen() {
   // Add to your main useEffect
   useEffect(() => { 
     getUserLocation();
-    loadUser();
     fetchItinerary(); 
   }, []);
 
@@ -352,20 +350,6 @@ export default function MapScreen() {
         setBannerShownOnce(true); // ← mark as shown
         break;
       }
-    }
-  };
-
-  // ── Load user from storage ────────────────────────────────────────
-  const loadUser = async (): Promise<void> => {
-    try {
-      const raw = await AsyncStorage.getItem('user');
-      if (raw) {
-        const storedUser = JSON.parse(raw);
-        setUserId(storedUser.id);
-      }
-    } catch (err) {
-      console.error('Error loading user:', err);
-      // Default to 1 is already set in state
     }
   };
 
