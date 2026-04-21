@@ -28,7 +28,7 @@ export default function SignUp() {
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const handleSignUp = async () => {
+  const handleSignUp = async (retries = 2) => {
     // reset all errors first
     const newErrors = { username: '', email: '', password: '', repeatPassword: '' };
     let hasError = false;
@@ -61,9 +61,8 @@ export default function SignUp() {
     }
 
     setErrors(newErrors);
-    if (hasError) return; // ✅ stops here instantly, no server call
+    if (hasError) return; //stops here instantly, no server call
 
-    // inside handleSignUp, replace the try block with:
     try {
       const res = await api.post('/auth/register', { username, email, password });
       
@@ -81,9 +80,14 @@ export default function SignUp() {
         params: { username, email, userId: res.data.id, token: res.data.token },
       });
     } catch (error: any) {
+      const isNetworkError = !error?.response;
+      if (isNetworkError && retries > 0) {
+        console.log(`Retrying... (${retries} left)`);
+        return handleSignUp(retries - 1); 
+      }
       const message = error?.response?.data?.error || 'Sign up failed';
       setErrors(prev => ({ ...prev, email: message }));
-    }
+   }
   };
 
   return (
@@ -177,7 +181,7 @@ export default function SignUp() {
           </TouchableOpacity>
         </View>
         {errors.repeatPassword ? <Text style={styles.errorText}>{errors.repeatPassword}</Text> : null}
-        <TouchableOpacity onPress={handleSignUp} style={styles.signupButton}>
+        <TouchableOpacity onPress={() => handleSignUp()} style={styles.signupButton}>
           <Text style={styles.signupButtonText}>Continue</Text>
         </TouchableOpacity>
 

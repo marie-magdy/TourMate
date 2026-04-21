@@ -10,9 +10,10 @@ import aiRouter from './routes/ai.js';
 import attractionsRouter from './routes/attractions.js';
 import pointsRouter from './routes/points.js';
 import ttsRouter from './routes/tts.js';
-import recognitionRouter from './routes/recognition.js';  // ← ADD THIS
+import recognitionRouter from './routes/recognition.js'; 
 import recommendationsRouter from './routes/recommendations.js';
 import plansRouter from './routes/plans.js';
+import pool from './db.js'; 
 
 dotenv.config();
 
@@ -43,6 +44,19 @@ app.get('/', (req, res) => {
   res.json({ message: 'TourMate API is running' });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+// 👇 replace your app.listen at the bottom with this
+async function start() {
+  try {
+    await pool.query('SELECT 1'); // warms up DB connection
+    console.log('✅ DB connected');
+
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  } catch (err) {
+    console.error('❌ DB connection failed:', err);
+    process.exit(1);
+  }
+}
+
+start();

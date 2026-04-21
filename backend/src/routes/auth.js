@@ -76,14 +76,14 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // ✅ format check — reject obviously bad emails before hitting the DB
+    // format check — reject obviously bad emails before hitting the DB
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
 
-    // ✅ same message for "not found" and "wrong password" — prevents email enumeration
+    // same message for "not found" and "wrong password" — prevents email enumeration
     // (attacker can't tell if the email exists or not)
     if (result.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid email or password' });
@@ -134,7 +134,7 @@ router.put('/user/:id', async (req, res) => {
     const { username, email } = req.body;
     if (!username || !email) return res.status(400).json({ success: false, message: 'Username and email required' });
     const result = await pool.query(
-      'UPDATE users SET username = $1, email = $2 WHERE id = $3 RETURNING id, username AS name, email, role',
+      'UPDATE users SET username = $1, email = $2, updated_at = NOW() WHERE id = $3 RETURNING id, username AS name, email',
       [username, email, id]
     );
     res.json({ success: true, data: result.rows[0] });
