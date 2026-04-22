@@ -597,7 +597,7 @@ export default function HomeScreen() {
 
   const handleSearch = async (text: string) => {
     setSearchQuery(text);
-    if (text.length < 2) { setSearchResults([]); return; }
+    if (!text.trim() || text.length < 2) { setSearchResults([]); return; }
     try {
       const res  = await fetch(`${API_BASE}/attractions/search?q=${encodeURIComponent(text)}`);
       const data = await res.json();
