@@ -31,6 +31,10 @@
       ],
       "package": "com.misho123.TourMate"
     },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
     "plugins": [
       "expo-router",
       [
@@ -52,7 +56,8 @@
         }
       ],
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

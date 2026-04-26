@@ -6,6 +6,7 @@ import { COLORS } from '../../constants/colors';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignUp() {
   const [username, setUsername] = useState('');
@@ -27,7 +28,7 @@ export default function SignUp() {
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const handleSignUp = async () => {
+  const handleSignUp = async (retries = 2) => {
     // reset all errors first
     const newErrors = { username: '', email: '', password: '', repeatPassword: '' };
     let hasError = false;
@@ -60,19 +61,33 @@ export default function SignUp() {
     }
 
     setErrors(newErrors);
-    if (hasError) return; // ✅ stops here instantly, no server call
+    if (hasError) return; //stops here instantly, no server call
 
     try {
       const res = await api.post('/auth/register', { username, email, password });
+      
+      // ← save user to AsyncStorage just like login does
+      await AsyncStorage.setItem('token', res.data.token);
+      await AsyncStorage.setItem('user', JSON.stringify({
+        id: res.data.id,
+        username: res.data.username,
+        email: res.data.email,
+        role: res.data.role,
+      }));
+
       (router as any).push({
         pathname: '/(auth)/confirmation',
         params: { username, email, userId: res.data.id, token: res.data.token },
       });
     } catch (error: any) {
+      const isNetworkError = !error?.response;
+      if (isNetworkError && retries > 0) {
+        console.log(`Retrying... (${retries} left)`);
+        return handleSignUp(retries - 1); 
+      }
       const message = error?.response?.data?.error || 'Sign up failed';
-      // show server error under email (most likely duplicate email)
       setErrors(prev => ({ ...prev, email: message }));
-    }
+   }
   };
 
   return (
@@ -166,7 +181,7 @@ export default function SignUp() {
           </TouchableOpacity>
         </View>
         {errors.repeatPassword ? <Text style={styles.errorText}>{errors.repeatPassword}</Text> : null}
-        <TouchableOpacity onPress={handleSignUp} style={styles.signupButton}>
+        <TouchableOpacity onPress={() => handleSignUp()} style={styles.signupButton}>
           <Text style={styles.signupButtonText}>Continue</Text>
         </TouchableOpacity>
 

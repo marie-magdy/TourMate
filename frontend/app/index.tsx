@@ -3,16 +3,17 @@ import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useApp } from '../constants/AppContext'; 
 
 export default function SplashScreen() {
   const router = useRouter();
+  // const { setUser } = useApp();
 
   useEffect(() => {
     const timer = setTimeout(() => {
       // router.replace("/onboarding");
       checkAndRedirect(); // ✅ smart redirect instead of always going to onboarding
     }, 3000);
-
     return () => clearTimeout(timer);
   }, []);
 
