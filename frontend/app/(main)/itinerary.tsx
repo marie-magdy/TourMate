@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
-  Alert, Dimensions, KeyboardAvoidingView, Platform,Keyboard,
+  Alert, Dimensions, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
@@ -91,7 +91,7 @@ const getCategoryIcon = (iconType: string, size = 20) => {
   return <MaterialCommunityIcons name={entry.name} size={size} color={entry.color} />;
 };
 
-// ── Travel Connector (shown between stops) ────────────────────────────
+// ── Travel Connector ──────────────────────────────────────────────────
 const TravelConnector: React.FC<{ transport: any }> = ({ transport }) => {
   const dur      = transport?.duration_min ? `${Math.round(transport.duration_min)} min` : null;
   const mode     = transport?.mode ?? '';
@@ -247,42 +247,41 @@ export default function ItineraryScreen() {
     interests: string;
     spotIds: string;
     favoritedIds: string;
-    savedItinerary: string; // JSON-encoded DayPlan[] passed from saved-plans screen
+    savedItinerary: string;
     startLat?: string;
     startLon?: string;
     startLabel?: string;
   }>();
 
-  const city = params.city ?? 'Hurghada';
-  const interests = params.interests?.split(',') ?? [];
-  const startDate = params.startDate ?? new Date().toISOString();
-  const endDate = params.endDate ?? new Date().toISOString();
-  // Parse per-day hours; fall back to 8 for any missing day
+  const city        = params.city ?? 'Hurghada';
+  const interests   = params.interests?.split(',') ?? [];
+  const startDate   = params.startDate ?? new Date().toISOString();
+  const endDate     = params.endDate   ?? new Date().toISOString();
   const dayHoursArr = (params.dayHours ?? '8').split(',').map(h => Math.max(1, Number(h) || 8));
 
   const userLocationRef = useRef<{ lat: number; lon: number } | null>(null);
 
-  const [days, setDays] = useState<DayPlan[]>([]);
-  const [activeDay, setActiveDay] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [planSaving, setPlanSaving] = useState(false);
-  const [planSaved, setPlanSaved] = useState(false);
-  const [showAIChat, setShowAIChat] = useState(false);
-  const [aiMessage, setAiMessage] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [days,        setDays]        = useState<DayPlan[]>([]);
+  const [activeDay,   setActiveDay]   = useState(0);
+  const [loading,     setLoading]     = useState(true);
 
-  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  // ── SAVE STATE (controls bookmark button only) ────────────────────
+  const [planSaving,  setPlanSaving]  = useState(false);
+  const [planSaved,   setPlanSaved]   = useState(false);   // locked to true after first save
 
-  // ── Full attraction sheet (photo gallery, audio guide, etc.) ─────────
-  const [sheetAttraction, setSheetAttraction]   = useState<Attraction | null>(null);
-  const [showAttractionSheet, setShowAttractionSheet] = useState(false);
-  const [sheetLoading, setSheetLoading]         = useState(false);
-  const [userLocation, setUserLocation]         = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showAIChat,  setShowAIChat]  = useState(false);
+  const [aiMessage,   setAiMessage]   = useState('');
+  const [aiResponse,  setAiResponse]  = useState('');
+  const [aiLoading,   setAiLoading]   = useState(false);
+  const [userId,      setUserId]      = useState<number | null>(null);
 
-  // Capture userLocation once for "Get There"
+  const [selectedActivity,      setSelectedActivity]      = useState<Activity | null>(null);
+  const [sheetAttraction,       setSheetAttraction]       = useState<Attraction | null>(null);
+  const [showAttractionSheet,   setShowAttractionSheet]   = useState(false);
+  const [sheetLoading,          setSheetLoading]          = useState(false);
+  const [userLocation,          setUserLocation]          = useState<{ latitude: number; longitude: number } | null>(null);
+
+  // Capture userLocation once
   useEffect(() => {
     if (params.startLat && params.startLon) {
       setUserLocation({ latitude: parseFloat(params.startLat), longitude: parseFloat(params.startLon) });
@@ -307,7 +306,6 @@ export default function ItineraryScreen() {
         setSheetAttraction(data.data);
         setShowAttractionSheet(true);
       } else {
-        // Fallback: show simple detail modal
         setSelectedActivity(activity);
       }
     } catch {
@@ -317,17 +315,17 @@ export default function ItineraryScreen() {
     }
   };
 
-  const [showLocationModal, setShowLocationModal] = useState(false);
-  const [locationLabel, setLocationLabel] = useState(params.startLabel ?? 'Your Location');
-  const [locationInput, setLocationInput] = useState('');
-  const [locationSearching, setLocationSearching] = useState(false);
+  const [showLocationModal,  setShowLocationModal]  = useState(false);
+  const [locationLabel,      setLocationLabel]      = useState(params.startLabel ?? 'Your Location');
+  const [locationInput,      setLocationInput]      = useState('');
+  const [locationSearching,  setLocationSearching]  = useState(false);
 
-  // Load userId from AsyncStorage on mount
+  // Load userId from AsyncStorage
   useEffect(() => {
     const loadUserId = async () => {
       try {
         const raw = await AsyncStorage.getItem('user');
-        const id = raw ? JSON.parse(raw).id : 1;
+        const id  = raw ? JSON.parse(raw).id : 1;
         setUserId(id);
       } catch (err) {
         console.error('UserId load error:', err);
@@ -337,15 +335,24 @@ export default function ItineraryScreen() {
     loadUserId();
   }, []);
 
+  // ── Persist planSaved across back/forward navigation ─────────────
+  // Key is unique per plan (city + startDate) so each plan tracks
+  // its own saved state independently across navigation.
+  const planSaveKey = `planSaved_${city}_${startDate}`;
+
   useEffect(() => {
-    // If a saved itinerary was passed in, load it directly — skip the API call
+    AsyncStorage.getItem(planSaveKey)
+      .then(val => { if (val === 'true') setPlanSaved(true); })
+      .catch(() => {});
+  }, [planSaveKey]);
+
+  useEffect(() => {
     try {
       if (params.savedItinerary) {
         const saved = JSON.parse(params.savedItinerary) as DayPlan[];
-        // Only treat as a saved plan when it's a genuine non-empty array
         if (Array.isArray(saved) && saved.length > 0) {
           setDays(saved);
-          setPlanSaved(true);
+          setPlanSaved(true);   // already saved — lock the button
           const needsSummary = saved.some(
             d => !d.summary && d.activities.some(a => a.id !== 'start' && a.id !== 'end')
           );
@@ -359,7 +366,6 @@ export default function ItineraryScreen() {
     }
 
     (async () => {
-      // If the plan form already captured the user's location, use it directly
       if (params.startLat && params.startLon) {
         userLocationRef.current = { lat: parseFloat(params.startLat), lon: parseFloat(params.startLon) };
       } else {
@@ -369,9 +375,7 @@ export default function ItineraryScreen() {
             const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
             userLocationRef.current = { lat: loc.coords.latitude, lon: loc.coords.longitude };
           }
-        } catch (_) {
-          // GPS unavailable — recommender falls back to city centre
-        }
+        } catch (_) {}
       }
       generatePlan();
     })();
@@ -382,17 +386,13 @@ export default function ItineraryScreen() {
     const activities: Activity[] = [];
     if (stops.length > 0) {
       activities.push({
-        id: 'start',
-        time: stops[0].departure_time ?? '',
-        title: 'Your Location',
-        icon: '📍',
-        category: 'start',
+        id: 'start', time: stops[0].departure_time ?? '',
+        title: 'Your Location', icon: '📍', category: 'start',
       });
     }
     const seenIds = new Set<string>();
     stops.forEach((stop, index) => {
       const rawId = stop.id ?? `rec-${index}`;
-      // Deduplicate: if the backend somehow returns the same stop twice, skip the second
       if (seenIds.has(rawId)) return;
       seenIds.add(rawId);
       activities.push({
@@ -424,7 +424,6 @@ export default function ItineraryScreen() {
       });
     });
 
-    // Compute end-of-day time: last stop's arrival + duration
     if (stops.length > 0) {
       const last = stops[stops.length - 1];
       let endTime = '';
@@ -435,11 +434,10 @@ export default function ItineraryScreen() {
       }
       activities.push({ id: 'end', time: endTime, title: 'End of Day', icon: '🌙', category: 'end' });
     }
-
     return activities;
   };
 
-  // ── Location helpers ─────────────────────────────────────────────────
+  // ── Location helpers ──────────────────────────────────────────────
   const applyGPS = async (): Promise<void> => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -488,40 +486,28 @@ export default function ItineraryScreen() {
       const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
       const totalBudget = Number(params.budget ?? 1000);
-      // Hours per day — pad with last value if dayHoursArr is shorter than dayCount
       const hoursPerDay = Array.from({ length: dayCount }, (_, i) =>
         dayHoursArr[i] ?? dayHoursArr[dayHoursArr.length - 1] ?? 8
       );
-
 
       const allDays: DayPlan[]   = [];
       const visitedIds: string[] = [];
       let cumulativeSpent = 0;
 
-      // Liked IDs are fixed for the entire trip — compute once outside the loop
       const addedIds0 = params.spotIds?.split(',').filter(Boolean) ?? [];
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
 
-      // Also include attractions the user saved from the home screen
       let savedFavIds: string[] = [];
       try {
         const favRes  = await fetch(`${API_BASE}/attractions/favorites/${userId ?? 1}`);
         const favData = await favRes.json();
-        savedFavIds   = (favData.data ?? [])
-          .map((a: any) => a.attraction_id)
-          .filter(Boolean);
-      } catch { /* favorites fetch failure is non-fatal */ }
+        savedFavIds   = (favData.data ?? []).map((a: any) => a.attraction_id).filter(Boolean);
+      } catch {}
 
       const likedIds0 = [...new Set([...addedIds0, ...favIds0, ...savedFavIds])];
-
-      // Tracks liked attractions that have actually been placed in a day's itinerary.
-      // Unscheduled liked IDs stay OUT of visited_ids so the backend can still place them.
-      // Once scheduled they go IN so they don't repeat on subsequent days.
       const scheduledLikedIds = new Set<string>();
 
-      // Area hints built after Day 1 for subsequent days
       let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
-      // Cuisine categories already eaten — passed to each day so the backend avoids repeating them
       const eatenMealCategories: string[] = [];
 
       for (let d = 0; d < dayCount; d++) {
@@ -534,8 +520,6 @@ export default function ItineraryScreen() {
         const remainingDays   = dayCount - d;
         const budgetToday     = Math.floor(remainingBudget / remainingDays);
 
-        // Liked attractions that are already scheduled go into visited_ids (no repeats).
-        // Liked attractions not yet scheduled stay out (backend can still place them).
         const dayVisited = visitedIds.filter(id =>
           !likedIds0.includes(id) || scheduledLikedIds.has(id)
         );
@@ -560,15 +544,6 @@ export default function ItineraryScreen() {
             ...(d > 0 && areaHint ? areaHint : {}),
             ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
           };
-
-          // DEBUG — confirm liked_ids reaches the API correctly
-          console.log(`[ITINERARY] Day ${d + 1} API payload:`);
-          console.log('  liked_ids (added):', addedIds0);
-          console.log('  liked_ids (favorited):', favIds0);
-          console.log('  liked_ids (merged):', likedIds0);
-          console.log('  visited_ids (dayVisited):', dayVisited);
-          console.log('  budget_egp:', budgetToday, '| available_hours:', hoursToday);
-          if (d > 0 && areaHint) console.log('  areaHint:', areaHint);
 
           const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
             method: 'POST',
@@ -595,13 +570,8 @@ export default function ItineraryScreen() {
             const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
             for (const stop of itinerary) {
               if (!stop.id) continue;
-              // Mark liked attractions as scheduled so they won't repeat on later days
-              if (likedIds0.includes(stop.id)) {
-                scheduledLikedIds.add(stop.id);
-                console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id}) — removed from pending liked pool`);
-              }
+              if (likedIds0.includes(stop.id)) scheduledLikedIds.add(stop.id);
               if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
-              // Collect cuisine categories from meal stops for cross-day diversity
               const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
               if (isMeal && stop.categories) {
                 stop.categories
@@ -611,7 +581,6 @@ export default function ItineraryScreen() {
               }
             }
 
-            // After Day 1: cluster the recommended attractions by proximity → area hint for Day 2+
             if (d === 0 && data.recommended_attractions?.length) {
               const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
               const withCoords = recs.filter(r => r.latitude && r.longitude);
@@ -619,23 +588,16 @@ export default function ItineraryScreen() {
                 const centerLat = withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length;
                 const centerLon = withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length;
                 areaHint = { preferred_area_lat: centerLat, preferred_area_lon: centerLon, preferred_area_radius_km: 5 };
-                console.log('[ITINERARY] Built area hint for Day 2+:', areaHint);
               }
             }
-
           } else {
             allDays.push({ day: d + 1, date: label, activities: [] });
           }
-
-          const pendingLiked = likedIds0.filter(id => !scheduledLikedIds.has(id));
-          console.log(`[LIKED] After Day ${d + 1} — scheduled: [${[...scheduledLikedIds].join(', ')}] | still pending: [${pendingLiked.join(', ')}]`);
-
         } catch (_) {
           allDays.push({ day: d + 1, date: label, activities: [] });
         }
       }
 
-      // Post-generation: consolidate nearby liked attractions onto the same day
       const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
         const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
           const R = 6371;
@@ -655,7 +617,6 @@ export default function ItineraryScreen() {
               if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
               if (!lateAct.latitude || !lateAct.longitude) continue;
 
-              // Find nearest liked activity on early day
               const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
               if (!earlyLiked.length) continue;
 
@@ -666,37 +627,27 @@ export default function ItineraryScreen() {
                 if (dist < nearestDist) { nearestDist = dist; nearestAct = ea; }
               }
               if (!nearestAct || nearestDist > 2) continue;
-
-              // Don't move if this attraction is already on the early day (distance = 0)
               if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
 
-              // Check budget on early day
-              const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
+              const earlySpent  = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
               const earlyBudget = result[earlyDay].budget_remaining ?? 0;
               if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
 
-              // Move lateAct to early day right after nearestAct
               lateActivities.splice(li, 1);
               const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
               result[earlyDay].activities.splice(insertIdx, 0, lateAct);
-              console.log(`[ITINERARY] Consolidated '${lateAct.title}' → Day ${earlyDay + 1} (${nearestDist.toFixed(1)} km from '${nearestAct.title}')`);
             }
           }
         }
         return result;
       };
 
-      // Remove days with no real activities (catches failed/empty API responses)
-      // and deduplicate by day number (guards against concurrent generatePlan calls).
       const realDays = consolidateLikedAttractions(allDays, likedIds0)
         .filter(d => d.activities.some(a => a.id !== 'start' && a.id !== 'end'))
         .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
 
       setDays(realDays);
-      // Clamp activeDay in case the new plan has fewer days than before
       setActiveDay(prev => Math.min(prev, Math.max(0, realDays.length - 1)));
-
-      // Generate AI day summaries non-blocking — update each day as its response arrives
       generateDaySummaries(realDays);
     } catch (err) {
       console.error('Plan generation error:', err);
@@ -727,17 +678,13 @@ export default function ItineraryScreen() {
         .map(a => a.title);
       if (!stops.length) continue;
 
-      const totalCost = day.activities
-        .filter(a => a.id !== 'start' && a.id !== 'end')
-        .reduce((sum, a) => sum + (a.cost_egp ?? 0), 0);
-
-      const prompt = 
-  `You are a local from ${city} who loves your city. ` +
-  `Tell a story of this specific journey: ${stops.join(' -> ')}. ` +
-  `make it 60 words max`+
-  `Start with "On your ${getDayOrdinal(day.day)} day...", walk through every single location, and explain why the food choices (like seafood or traditional grills) are the heart of the experience here. ` +
-  `End the day at ${stops[stops.length - 1]} with a reason why it's the perfect finish. ` +
-  `Make it sound like a person talking, not a list. No emojis.`;
+      const prompt =
+        `You are a local from ${city} who loves your city. ` +
+        `Tell a story of this specific journey: ${stops.join(' -> ')}. ` +
+        `make it 60 words max` +
+        `Start with "On your ${getDayOrdinal(day.day)} day...", walk through every single location, and explain why the food choices (like seafood or traditional grills) are the heart of the experience here. ` +
+        `End the day at ${stops[stops.length - 1]} with a reason why it's the perfect finish. ` +
+        `Make it sound like a person talking, not a list. No emojis.`;
       try {
         const res = await fetch(`${API_BASE}/ai/chat`, {
           method: 'POST',
@@ -750,9 +697,7 @@ export default function ItineraryScreen() {
             d.day === day.day ? { ...d, summary: data.message.trim() } : d
           ));
         }
-      } catch {
-        // Summary is optional — silently skip on error
-      }
+      } catch {}
     }
   };
 
@@ -770,8 +715,6 @@ export default function ItineraryScreen() {
     if (!aiMessage.trim()) return;
     setAiLoading(true);
     setAiResponse('');
-
-    // Placeholder AI response — replace with real API call later
     await new Promise(resolve => setTimeout(resolve, 1000));
     const responses = [
       `Great choice visiting ${city}! I recommend starting with the most popular spots early in the morning to avoid crowds.`,
@@ -784,7 +727,7 @@ export default function ItineraryScreen() {
     setAiMessage('');
   };
 
-  // ── Save plan to backend ──────────────────────────────────────────
+  // ── persistPlan: called ONLY by savePlan (bookmark button) ────────
   const persistPlan = async (): Promise<string | undefined> => {
     try {
       const res = await fetch(`${API_BASE}/plans`, {
@@ -793,13 +736,13 @@ export default function ItineraryScreen() {
         body: JSON.stringify({
           city,
           start_date: startDate,
-          end_date: endDate,
-          budget: params.budget,
-          day_hours: params.dayHours,
+          end_date:   endDate,
+          budget:     params.budget,
+          day_hours:  params.dayHours,
           interests,
-          spot_ids: params.spotIds?.split(',').map(Number) ?? [],
-          itinerary: days,
-          user_id: userId ?? 1,
+          spot_ids:   params.spotIds?.split(',').map(Number) ?? [],
+          itinerary:  days,
+          user_id:    userId ?? 1,
         }),
       });
       const contentType = res.headers.get('content-type') ?? '';
@@ -808,9 +751,7 @@ export default function ItineraryScreen() {
         throw new Error(`Unexpected response (${res.status}): ${text.slice(0, 120)}`);
       }
       const data = await res.json();
-      if (data.success) {
-        return data.data?.id ? String(data.data.id) : undefined;
-      }
+      if (data.success) return data.data?.id ? String(data.data.id) : undefined;
       throw new Error(data.message);
     } catch (err) {
       console.error('Save plan error:', err);
@@ -818,43 +759,39 @@ export default function ItineraryScreen() {
     }
   };
 
+  // ── savePlan: triggered ONLY by the bookmark icon ─────────────────
+  // Guards: planSaved (already saved once) and planSaving (in progress)
   const savePlan = async (): Promise<void> => {
-    if (planSaved || planSaving) return;
+    if (planSaved || planSaving) return;   // ← double-save guard
     setPlanSaving(true);
     const planId = await persistPlan();
     setPlanSaving(false);
     if (planId) {
-      setPlanSaved(true);
+      setPlanSaved(true);                        // ← update UI immediately
+      AsyncStorage.setItem(planSaveKey, 'true')  // ← persist so back/forward works
+        .catch(() => {});
     } else {
       Alert.alert('Could not save', 'Something went wrong. Please try again.');
     }
   };
 
-  const openMap = async (): Promise<void> => {
-    setSaving(true);
-    const planId = await persistPlan();
-    setSaving(false);
-
+  // ── openMap: pure navigation, ZERO save logic ─────────────────────
+  const openMap = (): void => {
     router.push({
       pathname: '/(main)/map' as any,
       params: {
         city,
-        planId,
         itineraryData: JSON.stringify(days),
       },
     });
   };
 
-  const openTravelOptions = async (): Promise<void> => {
-    setSaving(true);
-    const planId = await persistPlan();
-    setSaving(false);
-
+  // ── openTravelOptions: pure navigation, ZERO save logic ──────────
+  const openTravelOptions = (): void => {
     router.push({
       pathname: '/(main)/city-intro' as any,
       params: {
         city,
-        planId,
         startDate,
         endDate,
         budget: params.budget,
@@ -885,6 +822,8 @@ export default function ItineraryScreen() {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('plan')}</Text>
+
+        {/* Bookmark save button — the ONLY place that triggers a save */}
         <TouchableOpacity
           style={styles.saveBtn}
           onPress={savePlan}
@@ -929,7 +868,6 @@ export default function ItineraryScreen() {
       {/* ── Activities list ── */}
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Day summary generated by AI */}
         {currentDay?.summary ? (
           <View style={styles.daySummaryCard}>
             <MaterialCommunityIcons name="shimmer" size={18} color="#E67E22" />
@@ -951,9 +889,7 @@ export default function ItineraryScreen() {
           }
           return (
             <React.Fragment key={activity.id}>
-              {activity.transport && (
-                <TravelConnector transport={activity.transport} />
-              )}
+              {activity.transport && <TravelConnector transport={activity.transport} />}
               <ActivityRow
                 activity={activity}
                 onDelete={(id) => deleteActivity(activeDay, id)}
@@ -972,7 +908,7 @@ export default function ItineraryScreen() {
           );
         })}
 
-        {/* Budget summary — day spent vs total remaining */}
+        {/* Budget summary */}
         {currentDay && (() => {
           const activityCost = (d: DayPlan) =>
             d.activities
@@ -1007,11 +943,7 @@ export default function ItineraryScreen() {
         })()}
 
         {/* AI assistant bubble */}
-        <TouchableOpacity
-          style={styles.aiBubble}
-          onPress={() => setShowAIChat(true)}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.aiBubble} onPress={() => setShowAIChat(true)} activeOpacity={0.85}>
           <View style={styles.aiAvatar}>
             <MaterialCommunityIcons name="robot-outline" size={24} color="#E67E22" />
           </View>
@@ -1023,19 +955,38 @@ export default function ItineraryScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* ── Next Step buttons ── */}
+      {/* ── Bottom action bar ── */}
       <View style={styles.bottomBar}>
+
+        {/* Show on map — pure navigation, no save */}
         <TouchableOpacity
-          style={[styles.nextBtn, saving && styles.nextBtnDisabled]}
-          onPress={openMap}
-          disabled={saving}
+          style={styles.nextBtn}
+          onPress={openMap}        // ← only navigation, no persistPlan call
           activeOpacity={0.85}
         >
-          {saving
-            ? <ActivityIndicator color="#FFF" />
-            : <Text style={styles.nextBtnText}>Show on map</Text>
-          }
+          <Text style={styles.nextBtnText}>Show on map</Text>
         </TouchableOpacity>
+
+        {/* Flights & hotels — pure navigation, no save */}
+        <TouchableOpacity
+          style={styles.secondaryBtn}
+          onPress={openTravelOptions}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.secondaryBtnText}>Flights &amp; hotels</Text>
+          <Text style={styles.secondaryBtnSubtext}>Optional</Text>
+        </TouchableOpacity>
+
+        {/* Back to Home — pops all screens back to home (swipes left/back) */}
+        <TouchableOpacity
+          style={styles.homeBtn}
+          onPress={() => router.dismissAll()}
+          activeOpacity={0.85}
+        >
+          <MaterialCommunityIcons name="home-outline" size={18} color="#888" />
+          <Text style={styles.homeBtnText}>Back to Home</Text>
+        </TouchableOpacity>
+
       </View>
 
       {/* ── Change Location Modal ── */}
@@ -1048,8 +999,6 @@ export default function ItineraryScreen() {
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
-
-            {/* GPS option */}
             <TouchableOpacity style={locStyles.gpsBtn} onPress={applyGPS}>
               <MaterialCommunityIcons name="crosshairs-gps" size={26} color="#E67E22" />
               <View>
@@ -1057,9 +1006,7 @@ export default function ItineraryScreen() {
                 <Text style={locStyles.gpsBtnSub}>Tap to detect automatically</Text>
               </View>
             </TouchableOpacity>
-
             <Text style={locStyles.orText}>— or enter an address —</Text>
-
             <TextInput
               style={styles.input}
               placeholder={`e.g. Cairo Tower, ${city}`}
@@ -1069,7 +1016,6 @@ export default function ItineraryScreen() {
               onSubmitEditing={applyAddress}
               returnKeyType="search"
             />
-
             <TouchableOpacity
               style={[styles.modalBtn, (!locationInput.trim() || locationSearching) && { opacity: 0.5 }]}
               onPress={applyAddress}
@@ -1083,24 +1029,17 @@ export default function ItineraryScreen() {
         </View>
       </Modal>
 
-
       {/* ── AI Chat Modal ── */}
       <Modal visible={showAIChat} animationType="slide" transparent onRequestClose={() => setShowAIChat(false)}>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* Outer wrapper: Catches background taps, closes keyboard and modal */}
-          <TouchableOpacity 
-            style={StyleSheet.absoluteFill} 
-            activeOpacity={1} 
-            onPress={() => {
-              Keyboard.dismiss();
-              setShowAIChat(false);
-            }} 
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => { Keyboard.dismiss(); setShowAIChat(false); }}
           />
-          
-          {/* Inner wrapper: Catches taps inside the card to dismiss keyboard without closing modal */}
           <TouchableOpacity activeOpacity={1} style={styles.modalSheet} onPress={Keyboard.dismiss}>
             <View style={styles.modalHeader}>
               <View style={styles.aiModalTitle}>
@@ -1111,7 +1050,6 @@ export default function ItineraryScreen() {
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
-
             {aiResponse ? (
               <View style={styles.aiResponseBox}>
                 <Text style={styles.aiResponseText}>{aiResponse}</Text>
@@ -1121,7 +1059,6 @@ export default function ItineraryScreen() {
                 Ask me anything about your {city} trip! I can suggest activities, restaurants, or help optimize your schedule.
               </Text>
             )}
-
             <View style={styles.aiInputRow}>
               <TextInput
                 style={styles.aiInput}
@@ -1146,7 +1083,7 @@ export default function ItineraryScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Full Attraction Sheet (photo gallery, audio guide, etc.) ── */}
+      {/* ── Full Attraction Sheet ── */}
       <AttractionSheet
         attraction={sheetAttraction}
         visible={showAttractionSheet}
@@ -1154,7 +1091,6 @@ export default function ItineraryScreen() {
         userLocation={userLocation}
       />
 
-      {/* Sheet loading overlay */}
       {sheetLoading && (
         <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'center', alignItems: 'center' }}>
           <ActivityIndicator size="large" color="#E67E22" />
@@ -1168,13 +1104,8 @@ export default function ItineraryScreen() {
         transparent
         onRequestClose={() => setSelectedActivity(null)}
       >
-        {/* Outer Wrapper: Closes modal when background is tapped */}
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedActivity(null)}>
-          
-          {/* Inner Wrapper: Holds the UI and stops the tap from closing the modal */}
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={detailStyles.sheet}>
-            
-            {/* Header row: icon + name + rating + close */}
             <View style={detailStyles.header}>
               <View style={detailStyles.iconBox}>
                 {getCategoryIcon(selectedActivity?.icon ?? 'default', 26)}
@@ -1193,7 +1124,6 @@ export default function ItineraryScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Cost / duration chips */}
             <View style={detailStyles.chipsRow}>
               {selectedActivity?.duration_hrs != null && (
                 <View style={[styles.activityMetaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
@@ -1220,7 +1150,6 @@ export default function ItineraryScreen() {
               )}
             </View>
 
-            {/* Category tags */}
             {selectedActivity?.categories && selectedActivity.categories.length > 0 && (
               <View style={detailStyles.tagsRow}>
                 {selectedActivity.categories.map((cat, i) => (
@@ -1231,16 +1160,13 @@ export default function ItineraryScreen() {
               </View>
             )}
 
-            {/* Description */}
             <ScrollView style={detailStyles.descScroll} showsVerticalScrollIndicator={false}>
-              {selectedActivity?.description ? (
-                <Text style={detailStyles.description}>{selectedActivity.description}</Text>
-              ) : (
-                <Text style={detailStyles.descriptionEmpty}>No description available.</Text>
-              )}
+              {selectedActivity?.description
+                ? <Text style={detailStyles.description}>{selectedActivity.description}</Text>
+                : <Text style={detailStyles.descriptionEmpty}>No description available.</Text>
+              }
             </ScrollView>
 
-            {/* Address */}
             {!!selectedActivity?.address && (
               <View style={detailStyles.addressRow}>
                 <MaterialCommunityIcons name="map-marker" size={16} color="#888" />
@@ -1249,7 +1175,6 @@ export default function ItineraryScreen() {
                 </Text>
               </View>
             )}
-
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1262,20 +1187,19 @@ export default function ItineraryScreen() {
 const detailStyles = StyleSheet.create({
   sheet: {
     backgroundColor: '#FFF',
-    borderTopLeftRadius: 28, 
+    borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderBottomLeftRadius: 0, // Enforce sharp bottom corners
-    borderBottomRightRadius: 0, // Enforce sharp bottom corners
-    paddingHorizontal: 20, 
-    paddingTop: 20, 
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20, // Avoid home indicator
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     maxHeight: '85%',
-    width: '100%', // Kills the weird horizontal gaps
-    marginBottom: 0, // Forces it to the absolute bottom
+    width: '100%',
+    marginBottom: 0,
   },
   header:    { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
   iconBox:   { width: 52, height: 52, borderRadius: 14, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  iconEmoji: {},  // kept for layout; content replaced by vector icon
   headerMid: { flex: 1 },
   name:      { fontSize: 17, fontWeight: '700', color: '#1A1A1A', lineHeight: 22 },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
@@ -1290,112 +1214,74 @@ const detailStyles = StyleSheet.create({
   description:     { fontSize: 14, color: '#444', lineHeight: 22 },
   descriptionEmpty:{ fontSize: 14, color: '#BBB', fontStyle: 'italic' },
   addressRow:{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  addressPin:{ fontSize: 14, marginTop: 1 },
   addressText:{ flex: 1, fontSize: 13, color: '#666', lineHeight: 18 },
 });
 
 const locStyles = StyleSheet.create({
   gpsBtn:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF3E0', borderRadius: 12, padding: 14, marginBottom: 16 },
-  gpsBtnIcon:  { fontSize: 24 },
   gpsBtnTitle: { fontSize: 14, fontWeight: '700', color: '#E67E22' },
   gpsBtnSub:   { fontSize: 12, color: '#999', marginTop: 2 },
   orText:      { textAlign: 'center', color: '#BBB', fontSize: 12, marginBottom: 14 },
 });
 
-// ── Styles ────────────────────────────────────────────────────────────
+// ── Main styles ───────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F5F5F5' },
 
-  // Loading
-  loadingContainer: {
-    flex: 1, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#F9F5F0', paddingHorizontal: 40,
-  },
-  loadingTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginTop: 16, textAlign: 'center' },
-  loadingSubtitle: { fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9F5F0', paddingHorizontal: 40 },
+  loadingTitle:     { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginTop: 16, textAlign: 'center' },
+  loadingSubtitle:  { fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center', lineHeight: 20 },
 
-  // Header
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
     backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
-  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  saveBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { fontSize: 22, fontWeight: '700', color: '#333' },
+  backBtn:     { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  saveBtn:     { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  backIcon:    { fontSize: 22, fontWeight: '700', color: '#333' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
 
-  // Day tabs
   dayTabsScroll: { backgroundColor: '#FFF', maxHeight: 70 },
-  dayTabs: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  dayTab: {
-    paddingHorizontal: 20, paddingVertical: 8,
-    borderRadius: 12, alignItems: 'center', position: 'relative',
-  },
-  dayTabActive: { backgroundColor: '#FFF8F0' },
-  dayTabLabel: { fontSize: 14, fontWeight: '600', color: '#999' },
+  dayTabs:       { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  dayTab:        { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 12, alignItems: 'center', position: 'relative' },
+  dayTabActive:  { backgroundColor: '#FFF8F0' },
+  dayTabLabel:       { fontSize: 14, fontWeight: '600', color: '#999' },
   dayTabLabelActive: { color: '#E67E22' },
-  dayTabDate: { fontSize: 11, color: '#BBB', marginTop: 2 },
-  dayTabDateActive: { color: '#E67E22' },
-  dayTabUnderline: {
-    position: 'absolute', bottom: 0, left: 10, right: 10,
-    height: 2, backgroundColor: '#E67E22', borderRadius: 1,
-  },
+  dayTabDate:        { fontSize: 11, color: '#BBB', marginTop: 2 },
+  dayTabDateActive:  { color: '#E67E22' },
+  dayTabUnderline:   { position: 'absolute', bottom: 0, left: 10, right: 10, height: 2, backgroundColor: '#E67E22', borderRadius: 1 },
 
-  // Day summary card
   daySummaryCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#FFF8F0', borderRadius: 12, padding: 12,
     marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#E67E22',
   },
-  daySummaryIcon: { fontSize: 16 },
   daySummaryText: { flex: 1, fontSize: 13, color: '#5A3A1A', lineHeight: 18, fontStyle: 'italic' },
 
-  // Activities
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  activityRow: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    marginBottom: 4, minHeight: 52,
-  },
-  activityTimeCol: { width: 48, paddingTop: 4 },
-  activityTime: { fontSize: 12, color: '#999', fontWeight: '500' },
-  activityLine: { width: 24, alignItems: 'center', paddingTop: 6 },
-  activityDot: {
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: '#E67E22', borderWidth: 2, borderColor: '#FFF3E0',
-  },
-  activityConnector: { width: 2, flex: 1, backgroundColor: '#F0E0D0', marginTop: 2 },
-  activityContent: {
-    flex: 1, backgroundColor: '#FFF', borderRadius: 12,
-    padding: 12, marginLeft: 8, marginBottom: 8,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
-  },
-  activityTitle: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', marginBottom: 4 },
-  activityMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  activityMetaChip: {
-    backgroundColor: '#F0F0F0', borderRadius: 8,
-    paddingHorizontal: 7, paddingVertical: 2,
-  },
+
+  activityRow:      { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, minHeight: 52 },
+  activityTimeCol:  { width: 48, paddingTop: 4 },
+  activityTime:     { fontSize: 12, color: '#999', fontWeight: '500' },
+  activityLine:     { width: 24, alignItems: 'center', paddingTop: 6 },
+  activityDot:      { width: 10, height: 10, borderRadius: 5, backgroundColor: '#E67E22', borderWidth: 2, borderColor: '#FFF3E0' },
+  activityConnector:{ width: 2, flex: 1, backgroundColor: '#F0E0D0', marginTop: 2 },
+  activityContent:  { flex: 1, backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginLeft: 8, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  activityTitle:    { fontSize: 14, fontWeight: '600', color: '#1A1A1A', marginBottom: 4 },
+  activityMeta:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  activityMetaChip: { backgroundColor: '#F0F0F0', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   activityMetaChipCost: { backgroundColor: '#FFF3E0' },
   activityMetaChipFree: { backgroundColor: '#E8F5E9' },
-  activityMetaText: { fontSize: 11, fontWeight: '600', color: '#777' },
+  activityMetaText:     { fontSize: 11, fontWeight: '600', color: '#777' },
   activityMetaTextCost: { color: '#E67E22' },
   activityMetaTextFree: { color: '#27AE60' },
-  activityIconBox: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center',
-    marginLeft: 8, marginTop: 4,
-  },
-  activityIcon: {},  // kept for layout; content replaced by vector icon
-  activityTapHint: { fontSize: 11, color: '#E67E22', fontWeight: '500', marginTop: 5 },
-  deleteBtn: { padding: 8, marginTop: 4 },
-  deleteIcon: { fontSize: 12, color: '#CCC' },
+  activityIconBox:  { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginTop: 4 },
+  activityTapHint:  { fontSize: 11, color: '#E67E22', fontWeight: '500', marginTop: 5 },
+  deleteBtn:        { padding: 8, marginTop: 4 },
+  deleteIcon:       { fontSize: 12, color: '#CCC' },
 
-  // Budget card
-  budgetCard: {
-    backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
-  },
+  budgetCard:      { backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   budgetRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   budgetLabel:     { fontSize: 13, color: '#888', fontWeight: '500' },
   budgetSpent:     { fontSize: 14, fontWeight: '700', color: '#333' },
@@ -1405,94 +1291,51 @@ const styles = StyleSheet.create({
   budgetBar:       { height: 6, backgroundColor: '#F0F0F0', borderRadius: 3, marginTop: 12, overflow: 'hidden' },
   budgetBarFill:   { height: 6, backgroundColor: '#E67E22', borderRadius: 3 },
 
-  // AI bubble
-  aiBubble: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#FFF', borderRadius: 16, padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
-    marginBottom: 8, gap: 12,
-  },
-  aiAvatar: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center',
-  },
-  aiAvatarIcon: { fontSize: 22 },
-  aiTextBubble: { flex: 1 },
-  aiText: { fontSize: 14, color: '#555', lineHeight: 20 },
+  aiBubble:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, padding: 14, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 3, marginBottom: 8, gap: 12 },
+  aiAvatar:    { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center' },
+  aiTextBubble:{ flex: 1 },
+  aiText:      { fontSize: 14, color: '#555', lineHeight: 20 },
 
-  // Bottom bar
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: '#FFF', paddingHorizontal: 20,
-    paddingVertical: 16, paddingBottom: 30,
-    gap: 10,
+    paddingVertical: 16, paddingBottom: 34, gap: 8,
     shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 8,
   },
-  nextBtn: {
-    backgroundColor: '#E67E22', borderRadius: 30,
-    paddingVertical: 16, alignItems: 'center',
-  },
-  nextBtnDisabled: { backgroundColor: '#DDD' },
-  nextBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  secondaryBtn: {
-    backgroundColor: '#FFF3E0',
-    borderRadius: 22,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#E67E22',
-  },
-  secondaryBtnText: { color: '#E67E22', fontSize: 15, fontWeight: '700' },
+  nextBtn:         { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 16, alignItems: 'center' },
+  nextBtnText:     { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  secondaryBtn:    { backgroundColor: '#FFF3E0', borderRadius: 22, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5, borderColor: '#E67E22' },
+  secondaryBtnText:{ color: '#E67E22', fontSize: 15, fontWeight: '700' },
   secondaryBtnSubtext: { color: '#A6662B', fontSize: 12, marginTop: 2 },
+  homeBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  homeBtnText:     { color: '#888', fontSize: 14, fontWeight: '600' },
 
-  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalSheet: {
-    backgroundColor: '#FFF', 
-    borderTopLeftRadius: 28, 
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderBottomLeftRadius: 0, // Enforce sharp bottom corners
-    borderBottomRightRadius: 0, // Enforce sharp bottom corners
-    paddingHorizontal: 20, 
-    paddingTop: 20, 
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20, // Avoid home indicator
-    width: '100%', // Kills the weird horizontal gaps
-    marginBottom: 0, // Forces it to the absolute bottom
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    width: '100%',
+    marginBottom: 0,
   },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 20,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  modalClose: { fontSize: 18, color: '#999' },
-  inputLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6 },
-  input: {
-    borderWidth: 1, borderColor: '#EEE', borderRadius: 12,
-    padding: 14, fontSize: 15, color: '#333', marginBottom: 14,
-  },
-  modalBtn: {
-    backgroundColor: '#E67E22', borderRadius: 30,
-    paddingVertical: 14, alignItems: 'center', marginTop: 6,
-  },
+  modalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle:   { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
+  modalClose:   { fontSize: 18, color: '#999' },
+  input:        { borderWidth: 1, borderColor: '#EEE', borderRadius: 12, padding: 14, fontSize: 15, color: '#333', marginBottom: 14 },
+  modalBtn:     { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginTop: 6 },
   modalBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 
-  // AI modal
-  aiModalTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  aiModalIcon: { fontSize: 22 },
-  aiPlaceholder: { fontSize: 14, color: '#999', lineHeight: 22, marginBottom: 20 },
-  aiResponseBox: {
-    backgroundColor: '#FFF3E0', borderRadius: 16, padding: 14, marginBottom: 16,
-  },
+  aiModalTitle:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aiPlaceholder:  { fontSize: 14, color: '#999', lineHeight: 22, marginBottom: 20 },
+  aiResponseBox:  { backgroundColor: '#FFF3E0', borderRadius: 16, padding: 14, marginBottom: 16 },
   aiResponseText: { fontSize: 14, color: '#333', lineHeight: 22 },
-  aiInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
-  aiInput: {
-    flex: 1, borderWidth: 1, borderColor: '#EEE', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: '#333',
-    maxHeight: 100,
-  },
-  aiSendBtn: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center',
-  },
-  aiSendIcon: { color: '#FFF', fontSize: 18, fontWeight: '700' },
+  aiInputRow:     { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  aiInput:        { flex: 1, borderWidth: 1, borderColor: '#EEE', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: '#333', maxHeight: 100 },
+  aiSendBtn:      { width: 44, height: 44, borderRadius: 22, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center' },
+  aiSendIcon:     { color: '#FFF', fontSize: 18, fontWeight: '700' },
 });
