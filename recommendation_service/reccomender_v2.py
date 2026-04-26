@@ -733,6 +733,15 @@ def build_user_from_payload(payload: dict) -> UserProfile:
     lat, lon = get_city_coords(city)
     interests = payload.get("interests", []) or []
     preferred_categories = expand_interest_labels(interests) or ["historical", "cultural", "outdoor"]
+    s_hr = payload.get("start_hour")
+    e_hr = payload.get("end_hour")
+
+    if s_hr is not None and e_hr is not None:
+        avail_hrs = float(e_hr) - float(s_hr)
+        start_hour = float(s_hr)
+    else:
+        avail_hrs = float(payload.get("available_hours", 8))
+        start_hour = 9.0
 
     return UserProfile(
         user_id=str(payload.get("user_id", "guest")),
@@ -740,7 +749,7 @@ def build_user_from_payload(payload: dict) -> UserProfile:
         city=city,
         preferred_categories=preferred_categories,
         budget_egp=float(payload.get("budget_egp", 1000) or 1000),
-        available_hours=float(payload.get("available_hours", 8) or 8),
+        available_hours=avail_hrs,
         current_lat=float(payload.get("current_lat", lat) or lat),
         current_lon=float(payload.get("current_lon", lon) or lon),
         liked_ids=[str(x) for x in (payload.get("liked_ids", []) or [])],
@@ -774,23 +783,48 @@ def make_serializable(obj):
 def generate_itinerary_from_payload(payload: dict,
                                     df: pd.DataFrame | None = None,
                                     att_matrix: np.ndarray | None = None) -> dict:
-    local_df     = df         if df         is not None else load_attractions()
+
+    local_df     = df if df is not None else load_attractions()
     local_matrix = att_matrix if att_matrix is not None else build_attraction_matrix(local_df)
-    user       = build_user_from_payload(payload)
-    start_hour = float(payload.get("start_hour", 9) or 9)
-    top_n      = int(payload.get("top_n", 10) or 10)
-    browse_n   = int(payload.get("browse_n", 20) or 20)
-    result     = build_itinerary(local_df, local_matrix, user, start_hour=start_hour, top_n=top_n, browse_n=browse_n)
+
+    user = build_user_from_payload(payload)
+
+    top_n    = int(payload.get("top_n", 10) or 10)
+    browse_n = int(payload.get("browse_n", 20) or 20)
+
+    start_val = payload.get("start_hour")
+    end_val   = payload.get("end_hour")
+
+    if start_val is not None and end_val is not None:
+        start_hour = float(start_val)
+        available_hours = float(end_val) - float(start_val)
+    else:
+        start_hour = 9.0
+        available_hours = float(payload.get("available_hours", 8))
+
+    # IMPORTANT: override user value
+    user.available_hours = available_hours
+
+    result = build_itinerary(
+        local_df,
+        local_matrix,
+        user,
+        start_hour=start_hour,
+        top_n=top_n,
+        browse_n=browse_n
+    )
+
     result["request"] = {
-        "city":                 user.city,
-        "interests":            payload.get("interests", []),
+        "city": user.city,
+        "interests": payload.get("interests", []),
         "preferred_categories": user.preferred_categories,
-        "budget_egp":           user.budget_egp,
-        "available_hours":      user.available_hours,
+        "budget_egp": user.budget_egp,
+        "available_hours": available_hours,
+        "start_hour": start_hour,
+        "end_hour": payload.get("end_hour")
     }
+
     return make_serializable(result)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. ITINERARY BUILDER
 # ─────────────────────────────────────────────────────────────────────────────

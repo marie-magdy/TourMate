@@ -1036,15 +1036,6 @@ export default function ItineraryScreen() {
             : <Text style={styles.nextBtnText}>Show on map</Text>
           }
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.secondaryBtn, saving && styles.nextBtnDisabled]}
-          onPress={openTravelOptions}
-          disabled={saving}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.secondaryBtnText}>Flights & hotels</Text>
-          <Text style={styles.secondaryBtnSubtext}>Optional</Text>
-        </TouchableOpacity>
       </View>
 
       {/* ── Change Location Modal ── */}

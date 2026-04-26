@@ -6,7 +6,7 @@ import {
   TextInput, SafeAreaView, Modal, FlatList, Image,
   ActivityIndicator, Dimensions, Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter , useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 import * as Location from 'expo-location';
 
@@ -72,6 +72,13 @@ interface DayForecast {
 
 // ── PLAN SCREEN ───────────────────────────────────────────────────────
 export default function PlanScreen() {
+  
+
+  const params = useLocalSearchParams<{
+  autoFillLocation?: string;
+  autoFillCity?: string;
+}>();
+
   const router = useRouter();
   const { t } = useApp();
 
@@ -87,7 +94,7 @@ export default function PlanScreen() {
 
   // Budget & interests
   const [budget, setBudget] = useState('');
-  const [dayHours, setDayHours] = useState<string[]>([]);
+ const [daySchedules, setDaySchedules] = useState<{start: string, end: string}[]>([]);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
 
   // Starting location
@@ -105,14 +112,39 @@ export default function PlanScreen() {
   }, [selectedCity]);
 
   // Reset per-day hours whenever the date range changes
-  useEffect(() => {
-    if (startDate && endDate && endDate >= startDate) {
-      const count = endDate - startDate + 1;
-      setDayHours(prev => Array.from({ length: count }, (_, i) => prev[i] ?? '8'));
-    } else {
-      setDayHours([]);
+    useEffect(() => {
+        if (startDate && endDate && endDate >= startDate) {
+          const count = endDate - startDate + 1;
+          setDaySchedules(prev => Array.from({ length: count }, (_, i) => 
+            prev[i] ?? { start: '9', end: '21' } // Default: 9 AM to 9 PM
+          ));
+        } else {
+          setDaySchedules([]);
+        }
+      }, [startDate, endDate]);
+
+    useEffect(() => {
+    if (params.autoFillLocation) {
+      setLocationLabel(params.autoFillLocation);
+      // Geocode the hotel name to get coordinates
+      (async () => {
+        try {
+          const query = `${params.autoFillLocation}, ${params.autoFillCity ?? selectedCity.name}, Egypt`;
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+          const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+          const data = await res.json();
+          if (data.length > 0) {
+            setLocationCoords({
+              lat: parseFloat(data[0].lat),
+              lon: parseFloat(data[0].lon),
+            });
+          }
+        } catch {
+          // coords not found, label still fills
+        }
+      })();
     }
-  }, [startDate, endDate]);
+  }, [params.autoFillLocation]);
 
   // ── Fetch 5-day forecast ──────────────────────────────────────────
   const fetchForecast = async (city: typeof EGYPTIAN_CITIES[0]): Promise<void> => {
@@ -218,30 +250,34 @@ export default function PlanScreen() {
     }
   };
 
-  const handleNext = () => {
-    if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
-    if (!budget) { alert('Please enter your budget.'); return; }
-    if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
-    if (dayHours.length === 0 || dayHours.some(h => !h || Number(h) <= 0)) {
-      alert('Please set valid hours for each day.'); return;
-    }
-    router.push({
-      pathname: '/(main)/pick-spots' as any,
-      params: {
-        city: selectedCity.name,
-        startDate: `${currentYear}-${currentMonth + 1}-${startDate}`,
-        endDate: `${currentYear}-${currentMonth + 1}-${endDate}`,
-        budget,
-        dayHours: dayHours.join(','),
-        interests: selectedInterests.join(','),
-        ...(locationCoords && {
-          startLat: String(locationCoords.lat),
-          startLon: String(locationCoords.lon),
-          startLabel: locationLabel,
-        }),
-      },
-    });
-  };
+    const handleNext = () => {
+        if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
+        if (!budget) { alert('Please enter your budget.'); return; }
+        if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
+        
+        // Validation for ranges
+        const isValid = daySchedules.every(s => s.start && s.end && Number(s.start) < Number(s.end));
+        if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
+
+        router.push({
+          pathname: '/(main)/pick-spots' as any,
+          params: {
+            city: selectedCity.name,
+            startDate: `${currentYear}-${currentMonth + 1}-${startDate}`,
+            endDate: `${currentYear}-${currentMonth + 1}-${endDate}`,
+            budget,
+            // Pass both start and end as comma-separated lists
+            startHours: daySchedules.map(s => s.start).join(','),
+            endHours: daySchedules.map(s => s.end).join(','),
+            interests: selectedInterests.join(','),
+            ...(locationCoords && {
+              startLat: String(locationCoords.lat),
+              startLon: String(locationCoords.lon),
+              startLabel: locationLabel,
+            }),
+          },
+        });
+      };
 
   const calendarCells: (number | null)[] = [
     ...Array(firstDay).fill(null),
@@ -372,6 +408,35 @@ export default function PlanScreen() {
             <MaterialCommunityIcons name="map-marker-radius-outline" size={18} color="#1A1A1A" />
             <Text style={styles.cardTitleText}>Starting Location</Text>
           </View>
+          <Text style={styles.helperText}>Where will you start your trip from?</Text>
+
+          {/* Book Button */}
+          <TouchableOpacity
+            style={styles.bookingBtn}
+            onPress={() => router.push({
+              pathname: '/(main)/city-intro' as any,
+              params: {
+                city: selectedCity.name,
+                startDate: startDate ? `${currentYear}-${currentMonth + 1}-${startDate}` : '',
+                endDate: endDate ? `${currentYear}-${currentMonth + 1}-${endDate}` : '',
+                budget,
+              },
+            })}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons name="airplane" size={16} color="#E67E22" />
+            <Text style={styles.bookingBtnText}>Book Flight & Hotel</Text>
+            <MaterialCommunityIcons name="chevron-right" size={16} color="#E67E22" />
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View style={styles.orDivider}>
+            <View style={styles.orLine} />
+            <Text style={styles.orText}>or enter manually</Text>
+            <View style={styles.orLine} />
+          </View>
+
+          {/* Confirmed location */}
           {locationLabel ? (
             <View style={styles.locationConfirmed}>
               <MaterialCommunityIcons name="check-circle" size={16} color="#27AE60" />
@@ -381,10 +446,12 @@ export default function PlanScreen() {
               </TouchableOpacity>
             </View>
           ) : null}
+
+          {/* Manual address input */}
           <View style={styles.locationInputRow}>
             <TextInput
               style={styles.locationInput}
-              placeholder="Enter your address or hotel"
+              placeholder="Enter your hotel address or location"
               placeholderTextColor="#AAA"
               value={locationInput}
               onChangeText={setLocationInput}
@@ -401,10 +468,13 @@ export default function PlanScreen() {
                 : <MaterialCommunityIcons name="magnify" size={18} color="#FFF" />}
             </TouchableOpacity>
           </View>
+
+          {/* GPS button */}
           <TouchableOpacity style={styles.gpsBtn} onPress={applyGPS} disabled={locationSearching}>
             <MaterialCommunityIcons name="crosshairs-gps" size={16} color="#E67E22" />
             <Text style={styles.gpsBtnText}>Use my current GPS location</Text>
           </TouchableOpacity>
+
         </View>
 
         {/* ── Budget ── */}
@@ -426,41 +496,57 @@ export default function PlanScreen() {
           </View>
         </View>
 
-        {startDate && endDate && dayHours.length > 0 && (
-          <View style={styles.card}>
-            <View style={styles.cardTitleRow}>
-              <MaterialCommunityIcons name="clock-time-four-outline" size={18} color="#1A1A1A" />
-              <Text style={styles.cardTitleText}>Hours Per Day</Text>
+{startDate && endDate && daySchedules.length > 0 && (
+  <View style={styles.card}>
+    <View style={styles.cardTitleRow}>
+      <MaterialCommunityIcons name="clock-time-four-outline" size={18} color="#1A1A1A" />
+      <Text style={styles.cardTitleText}>Daily Schedule</Text>
+    </View>
+    <Text style={styles.helperText}>Set the start and end hour for your exploration.</Text>
+    {daySchedules.map((sched, i) => {
+      const d = new Date(currentYear, currentMonth, startDate + i);
+      const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+      return (
+        <View key={i} style={styles.dayHourRow}>
+          {/* This label now shows the Day and Date clearly */}
+          <Text style={styles.dayHourLabel}>Day {i + 1} ({label})</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* Start Hour Input */}
+            <View style={styles.dayHourInputBox}>
+              <Text style={styles.dayHourUnit}>From</Text>
+              <TextInput
+                style={styles.dayHourText}
+                keyboardType="numeric"
+                value={sched.start}
+                onChangeText={val => setDaySchedules(prev => {
+                  const next = [...prev];
+                  next[i] = { ...next[i], start: val };
+                  return next;
+                })}
+                maxLength={2}
+              />
             </View>
-            <Text style={styles.helperText}>Set how many hours you want to explore each day.</Text>
-            {dayHours.map((hrs, i) => {
-              const d = new Date(currentYear, currentMonth, startDate + i);
-              const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
-              return (
-                <View key={i} style={styles.dayHourRow}>
-                  <Text style={styles.dayHourLabel}>Day {i + 1} — {label}</Text>
-                  <View style={styles.dayHourInputBox}>
-                    <TextInput
-                      style={styles.dayHourText}
-                      keyboardType="numeric"
-                      value={hrs}
-                      onChangeText={val => setDayHours(prev => {
-                        const next = [...prev];
-                        next[i] = val;
-                        return next;
-                      })}
-                      maxLength={2}
-                      selectTextOnFocus
-                    />
-                    <Text style={styles.dayHourUnit}>hrs</Text>
-                  </View>
-                </View>
-              );
-            })}
+            {/* End Hour Input */}
+            <View style={styles.dayHourInputBox}>
+              <Text style={styles.dayHourUnit}>To</Text>
+              <TextInput
+                style={styles.dayHourText}
+                keyboardType="numeric"
+                value={sched.end}
+                onChangeText={val => setDaySchedules(prev => {
+                  const next = [...prev];
+                  next[i] = { ...next[i], end: val };
+                  return next;
+                })}
+                maxLength={2}
+              />
+            </View>
           </View>
-        )}
-
-
+        </View>
+      );
+    })}
+  </View>
+)}
 
         {/* ── Interests ── */}
         <View style={styles.card}>
@@ -539,6 +625,25 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
   container: { flex: 1 },
 
+  // Booking chips
+ bookingBtn: {
+  flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+  gap: 8, backgroundColor: '#FFF3E0',
+  borderRadius: 14, paddingVertical: 13,
+  borderWidth: 1.5, borderColor: '#FDDCB5',
+  marginBottom: 16,
+},
+bookingBtnText: {
+  fontSize: 14, fontWeight: '700', color: '#E67E22',
+  flex: 1, textAlign: 'center',
+},
+orDivider: {
+  flexDirection: 'row', alignItems: 'center',
+  gap: 8, marginBottom: 14,
+},
+orLine:  { flex: 1, height: 1, backgroundColor: '#F0F0F0' },
+orText:  { fontSize: 11, color: '#BBB', fontWeight: '500' },
+
   // City card
   cityCard: { margin: 16, borderRadius: 20, overflow: 'hidden', height: 160 },
   cityImage: { width: '100%', height: '100%' },
@@ -598,7 +703,18 @@ const styles = StyleSheet.create({
   helperText: { fontSize: 13, color: '#888', marginTop: -6, marginBottom: 12, lineHeight: 18 },
   dayHourRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
   dayHourLabel: { fontSize: 14, color: '#333', fontWeight: '500' },
-  dayHourInputBox: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#E0E0E0', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, gap: 4, backgroundColor: '#FAFAFA' },
+  dayHourInputBox: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    borderWidth: 1.5, 
+    borderColor: '#E0E0E0', 
+    borderRadius: 10, 
+    paddingHorizontal: 8, 
+    paddingVertical: 6, 
+    gap: 4, 
+    backgroundColor: '#FAFAFA',
+    minWidth: 70 
+  },
   dayHourText: { fontSize: 16, color: '#333', fontWeight: '700', textAlign: 'center', minWidth: 28 },
   dayHourUnit: { fontSize: 13, color: '#888', fontWeight: '500' },
 

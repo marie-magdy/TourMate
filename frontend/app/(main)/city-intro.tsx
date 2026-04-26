@@ -197,9 +197,38 @@ export default function CityIntroScreen() {
   const total = hotelTotal + flightTotal;
 
   const handleDetermineplan = () => {
-    if (!selectedFlight) { alert('Please select a flight.'); return; }
-    if (!selectedHotel) { alert('Please select a hotel.'); return; }
-    alert(`Your plan is confirmed!\n\nFlight: ${selectedFlight.airline} ${selectedFlight.flightNumber}\nHotel: ${selectedHotel.name}\nTotal: ${convertPrice(total)}`);
+    // Both selected
+    if (selectedFlight && selectedHotel) {
+      router.push({
+        pathname: '/(main)/plan' as any,
+        params: {
+          autoFillLocation: selectedHotel.name,
+          autoFillCity: selectedHotel.city,
+        },
+      });
+      return;
+    }
+
+    // Only hotel
+    if (!selectedFlight && selectedHotel) {
+      router.push({
+        pathname: '/(main)/plan' as any,
+        params: {
+          autoFillLocation: selectedHotel.name,
+          autoFillCity: selectedHotel.city,
+        },
+      });
+      return;
+    }
+
+    // Only flight
+    if (selectedFlight && !selectedHotel) {
+      router.back(); // just go back, no location to fill
+      return;
+    }
+
+    // Nothing selected — just go back
+    router.back();
   };
 
   const changeDeparture = (dep: typeof DEPARTURE_CITIES[0]) => {
@@ -262,7 +291,7 @@ export default function CityIntroScreen() {
               <TouchableOpacity
                 key={index}
                 style={[styles.flightCard, selectedFlight === flight && styles.flightCardSelected]}
-                onPress={() => setSelectedFlight(flight)}
+                onPress={() => setSelectedFlight(prev => prev === flight ? null : flight)}
                 activeOpacity={0.85}
               >
                 <View style={styles.flightTop}>
@@ -334,7 +363,7 @@ export default function CityIntroScreen() {
               <TouchableOpacity
                 key={hotel.id}
                 style={[styles.hotelCard, selectedHotel?.id === hotel.id && styles.hotelCardSelected]}
-                onPress={() => setSelectedHotel(hotel)}
+                onPress={() => setSelectedHotel(prev => prev?.id === hotel.id ? null : hotel)}
                 activeOpacity={0.85}
               >
                 <Image source={{ uri: hotel.image_url }} style={styles.hotelImage} />
@@ -397,13 +426,21 @@ export default function CityIntroScreen() {
       {/* ── Determine Plan Button ── */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
-          style={[styles.determineBtn, (!selectedFlight || !selectedHotel) && styles.determineBtnDisabled]}
+          style={styles.determineBtn}
           onPress={handleDetermineplan}
           activeOpacity={0.85}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <MaterialCommunityIcons name="check-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.determineBtnText}>{t('plan')}</Text>
+            <Text style={styles.determineBtnText}>
+              {selectedFlight && selectedHotel
+                ? 'Confirm Flight + Hotel →'
+                : selectedHotel
+                ? 'Continue with Hotel →'
+                : selectedFlight
+                ? 'Continue with Flight →'
+                : 'Skip — Add location manually'}
+            </Text>
           </View>
         </TouchableOpacity>
       </View>
