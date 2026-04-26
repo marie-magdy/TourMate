@@ -1036,14 +1036,15 @@ export default function ItineraryScreen() {
             : <Text style={styles.nextBtnText}>Show on map</Text>
           }
         </TouchableOpacity>
+
+        {/* Back to Home — pops all screens back to home (swipes left/back) */}
         <TouchableOpacity
-          style={[styles.secondaryBtn, saving && styles.nextBtnDisabled]}
-          onPress={openTravelOptions}
-          disabled={saving}
+          style={styles.homeBtn}
+          onPress={() => router.dismissAll()}
           activeOpacity={0.85}
         >
-          <Text style={styles.secondaryBtnText}>Flights & hotels</Text>
-          <Text style={styles.secondaryBtnSubtext}>Optional</Text>
+          <MaterialCommunityIcons name="home-outline" size={18} color="#888" />
+          <Text style={styles.homeBtnText}>Back to Home</Text>
         </TouchableOpacity>
       </View>
 
@@ -1453,6 +1454,8 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: '#E67E22', fontSize: 15, fontWeight: '700' },
   secondaryBtnSubtext: { color: '#A6662B', fontSize: 12, marginTop: 2 },
+  homeBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  homeBtnText:     { color: '#888', fontSize: 14, fontWeight: '600' },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
