@@ -6,4 +6,4 @@ pandas
 scikit-learn
 openpyxl
 python-dotenv
-psycopg2 
+psycopg2
