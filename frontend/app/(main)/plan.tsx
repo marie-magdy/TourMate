@@ -10,6 +10,8 @@ import { useRouter , useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 import * as Location from 'expo-location';
 
+import DateTimePicker from '@react-native-community/datetimepicker';
+
 const { width } = Dimensions.get('window');
 
 // ── Egyptian Cities ───────────────────────────────────────────────────
@@ -92,9 +94,13 @@ export default function PlanScreen() {
   const [startDate, setStartDate] = useState<number | null>(null);
   const [endDate, setEndDate] = useState<number | null>(null);
 
+  //Time
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [pickerType, setPickerType] = useState<'start' | 'end' | null>(null);
+
   // Budget & interests
   const [budget, setBudget] = useState('');
- const [daySchedules, setDaySchedules] = useState<{start: string, end: string}[]>([]);
+ const [daySchedules, setDaySchedules] = useState<{ start: Date; end: Date }[]>([]);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
 
   // Starting location
@@ -112,16 +118,22 @@ export default function PlanScreen() {
   }, [selectedCity]);
 
   // Reset per-day hours whenever the date range changes
-    useEffect(() => {
-        if (startDate && endDate && endDate >= startDate) {
-          const count = endDate - startDate + 1;
-          setDaySchedules(prev => Array.from({ length: count }, (_, i) => 
-            prev[i] ?? { start: '9', end: '21' } // Default: 9 AM to 9 PM
-          ));
-        } else {
-          setDaySchedules([]);
-        }
-      }, [startDate, endDate]);
+  useEffect(() => {
+    if (startDate && endDate && endDate >= startDate) {
+      const count = endDate - startDate + 1;
+
+      setDaySchedules(prev =>
+        Array.from({ length: count }, (_, i) =>
+          prev[i] ?? {
+            start: new Date(new Date().setHours(9, 0, 0, 0)),   // 9:00 AM
+            end: new Date(new Date().setHours(21, 0, 0, 0)),    // 9:00 PM
+          }
+        )
+      );
+    } else {
+      setDaySchedules([]);
+    }
+  }, [startDate, endDate]);
 
     useEffect(() => {
     if (params.autoFillLocation) {
@@ -250,34 +262,44 @@ export default function PlanScreen() {
     }
   };
 
-    const handleNext = () => {
-        if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
-        if (!budget) { alert('Please enter your budget.'); return; }
-        if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
-        
-        // Validation for ranges
-        const isValid = daySchedules.every(s => s.start && s.end && Number(s.start) < Number(s.end));
-        if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
+  const handleNext = () => {
+    if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
+    if (!budget) { alert('Please enter your budget.'); return; }
+    if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
 
-        router.push({
-          pathname: '/(main)/pick-spots' as any,
-          params: {
-            city: selectedCity.name,
-            startDate: `${currentYear}-${currentMonth + 1}-${startDate}`,
-            endDate: `${currentYear}-${currentMonth + 1}-${endDate}`,
-            budget,
-            // Pass both start and end as comma-separated lists
-            startHours: daySchedules.map(s => s.start).join(','),
-            endHours: daySchedules.map(s => s.end).join(','),
-            interests: selectedInterests.join(','),
-            ...(locationCoords && {
-              startLat: String(locationCoords.lat),
-              startLon: String(locationCoords.lon),
-              startLabel: locationLabel,
-            }),
-          },
-        });
-      };
+    const isValid = daySchedules.every(s => {
+      const start = s.start?.getHours();
+      const end = s.end?.getHours();
+      return s.start && s.end && start !== end;
+    });
+
+    if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
+
+    const formattedSchedules = daySchedules.map(d => ({
+      start_hour: d.start.getHours(),
+      end_hour: d.end.getHours(),
+    }));
+
+    router.push({
+      pathname: '/(main)/pick-spots' as any,
+      params: {
+        city: selectedCity.name,
+        startDate: `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(startDate).padStart(2,'0')}`,
+        endDate:   `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(endDate).padStart(2,'0')}`,
+        budget,
+
+        daySchedules: JSON.stringify(formattedSchedules),
+
+        interests: selectedInterests.join(','),
+
+        ...(locationCoords && {
+          startLat: String(locationCoords.lat),
+          startLon: String(locationCoords.lon),
+          startLabel: locationLabel,
+        }),
+      },
+    });
+  };
 
   const calendarCells: (number | null)[] = [
     ...Array(firstDay).fill(null),
@@ -375,9 +397,9 @@ export default function PlanScreen() {
                 style={[
                   styles.dayCell,
                   { width: CELL_SIZE, height: CELL_SIZE },
-                  day && isDaySelected(day) && styles.dayCellSelected,
-                  day && isDayInRange(day) && styles.dayCellInRange,
-                  day && isDayToday(day) && !isDaySelected(day) && styles.dayCellToday,
+                  (day && isDaySelected(day)) ? styles.dayCellSelected : null,
+                  (day && isDayInRange(day)) ? styles.dayCellInRange : null,
+                  (day && isDayToday(day) && !isDaySelected(day)) ? styles.dayCellToday : undefined,
                 ]}
                 onPress={() => day && handleDayPress(day)}
                 disabled={!day}
@@ -385,8 +407,8 @@ export default function PlanScreen() {
               >
                 <Text style={[
                   styles.dayCellText,
-                  day && isDaySelected(day) && styles.dayCellTextSelected,
-                  day && isDayInRange(day) && styles.dayCellTextRange,
+                  ...(day && isDaySelected(day) ? [styles.dayCellTextSelected] : []),
+                  ...(day && isDayInRange(day) ? [styles.dayCellTextRange] : []),
                 ]}>
                   {day ?? ''}
                 </Text>
@@ -496,57 +518,105 @@ export default function PlanScreen() {
           </View>
         </View>
 
-{startDate && endDate && daySchedules.length > 0 && (
-  <View style={styles.card}>
-    <View style={styles.cardTitleRow}>
-      <MaterialCommunityIcons name="clock-time-four-outline" size={18} color="#1A1A1A" />
-      <Text style={styles.cardTitleText}>Daily Schedule</Text>
-    </View>
-    <Text style={styles.helperText}>Set the start and end hour for your exploration.</Text>
-    {daySchedules.map((sched, i) => {
-      const d = new Date(currentYear, currentMonth, startDate + i);
-      const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
-      return (
-        <View key={i} style={styles.dayHourRow}>
-          {/* This label now shows the Day and Date clearly */}
-          <Text style={styles.dayHourLabel}>Day {i + 1} ({label})</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {/* Start Hour Input */}
-            <View style={styles.dayHourInputBox}>
-              <Text style={styles.dayHourUnit}>From</Text>
-              <TextInput
-                style={styles.dayHourText}
-                keyboardType="numeric"
-                value={sched.start}
-                onChangeText={val => setDaySchedules(prev => {
-                  const next = [...prev];
-                  next[i] = { ...next[i], start: val };
-                  return next;
-                })}
-                maxLength={2}
-              />
+        {startDate && endDate && daySchedules.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.cardTitleRow}>
+              <MaterialCommunityIcons name="clock-time-four-outline" size={18} color="#1A1A1A" />
+              <Text style={styles.cardTitleText}>Daily Schedule</Text>
             </View>
-            {/* End Hour Input */}
-            <View style={styles.dayHourInputBox}>
-              <Text style={styles.dayHourUnit}>To</Text>
-              <TextInput
-                style={styles.dayHourText}
-                keyboardType="numeric"
-                value={sched.end}
-                onChangeText={val => setDaySchedules(prev => {
-                  const next = [...prev];
-                  next[i] = { ...next[i], end: val };
-                  return next;
-                })}
-                maxLength={2}
+
+            <Text style={styles.helperText}>
+              Set the start and end time for your exploration.
+            </Text>
+
+            {daySchedules.map((sched, i) => {
+              const d = new Date(currentYear, currentMonth, startDate + i);
+              const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+
+              return (
+                <View key={i} style={styles.dayHourRow}>
+                  
+                  {/* Day Label */}
+                  <Text style={styles.dayHourLabel}>
+                    Day {i + 1} ({label})
+                  </Text>
+
+                  {/* Time Pickers */}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+
+                    {/* Start Time */}
+                    <TouchableOpacity
+                      style={styles.dayHourInputBox}
+                      onPress={() => {
+                        setActiveIndex(i);
+                        setPickerType('start');
+                      }}
+                    >
+                      <Text style={styles.dayHourUnit}>From</Text>
+                      <Text style={styles.dayHourText}>
+                        {sched.start.toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* End Time */}
+                    <TouchableOpacity
+                      style={styles.dayHourInputBox}
+                      onPress={() => {
+                        setActiveIndex(i);
+                        setPickerType('end');
+                      }}
+                    >
+                      <Text style={styles.dayHourUnit}>To</Text>
+                      <Text style={styles.dayHourText}>
+                        {sched.end.toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    </TouchableOpacity>
+
+                  </View>
+                </View>
+              );
+            })}
+
+            {/* 🔥 SINGLE shared picker */}
+            {activeIndex !== null && pickerType && (
+              <DateTimePicker
+                value={
+                  pickerType === 'start'
+                    ? daySchedules[activeIndex].start
+                    : daySchedules[activeIndex].end
+                }
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={(event, selectedDate) => {
+                  if (!selectedDate) {
+                    setActiveIndex(null);
+                    setPickerType(null);
+                    return;
+                  }
+
+                  setDaySchedules(prev => {
+                    const next = [...prev];
+                    next[activeIndex] = {
+                      ...next[activeIndex],
+                      [pickerType]: selectedDate,
+                    };
+                    return next;
+                  });
+
+                  setActiveIndex(null);
+                  setPickerType(null);
+                }}
               />
-            </View>
+            )}
           </View>
-        </View>
-      );
-    })}
-  </View>
-)}
+        )}
 
         {/* ── Interests ── */}
         <View style={styles.card}>
@@ -703,20 +773,26 @@ orText:  { fontSize: 11, color: '#BBB', fontWeight: '500' },
   helperText: { fontSize: 13, color: '#888', marginTop: -6, marginBottom: 12, lineHeight: 18 },
   dayHourRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
   dayHourLabel: { fontSize: 14, color: '#333', fontWeight: '500' },
-  dayHourInputBox: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    borderWidth: 1.5, 
-    borderColor: '#E0E0E0', 
-    borderRadius: 10, 
-    paddingHorizontal: 8, 
-    paddingVertical: 6, 
-    gap: 4, 
-    backgroundColor: '#FAFAFA',
-    minWidth: 70 
+  dayHourInputBox: {
+    flex: 0,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    minHeight: 20,   // 👈 smaller height
+    },
+    dayHourText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A1A1A',
   },
-  dayHourText: { fontSize: 16, color: '#333', fontWeight: '700', textAlign: 'center', minWidth: 28 },
-  dayHourUnit: { fontSize: 13, color: '#888', fontWeight: '500' },
+    dayHourUnit: {
+    fontSize: 10,
+    color: '#888',
+    marginBottom: 2,
+  },
 
   // Location
   locationConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F0FBF4', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 },
