@@ -1,6 +1,15 @@
+
 """
-TourMate Recommendation Engine  v2
-No .env or API keys needed 
+TourMate Recommendation Engine  v3
+Graduation Project Edition
+
+Updates from v2:
+  1. Bayesian rating score (replaces raw avg_rating)
+  2. Popularity normalization
+  3. 2-opt TSP route optimization (replaces nearest-neighbor only)
+  4. Multi-day itinerary with geo-clustering (TTDP / TOPTW approach)
+  5. Transport cost included in budget feasibility check
+  6. Liked places force-included across geo zones
 """
 
 import os
@@ -13,8 +22,8 @@ import psycopg2
 import psycopg2.extras
 from dataclasses import dataclass, field
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
 
-# Load .env if present
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -38,37 +47,43 @@ N_DIMS    = len(ALL_CATEGORIES)
 
 INTEREST_CATEGORY_MAP = {
     "adventure": ["outdoor", "nature", "experience", "viewpoint"],
-    "diving": ["beach", "coastal", "nature", "outdoor", "waterfront"],
-    "food": ["food", "restaurant", "cafe", "bakery", "dessert", "local", "seafood"],
-    "party": ["modern", "restaurant", "cafe", "viewpoint", "waterfront"],
-    "history": ["historical", "ancient", "museum", "landmark", "cultural", "religious"],
-    "shopping": ["shopping", "mall", "modern"],
-    "nature": ["nature", "outdoor", "park", "waterfront", "coastal", "beach"],
+    "diving":    ["beach", "coastal", "nature", "outdoor", "waterfront"],
+    "food":      ["food", "restaurant", "cafe", "bakery", "dessert", "local", "seafood"],
+    "party":     ["modern", "restaurant", "cafe", "viewpoint", "waterfront"],
+    "history":   ["historical", "ancient", "museum", "landmark", "cultural", "religious"],
+    "shopping":  ["shopping", "mall", "modern"],
+    "nature":    ["nature", "outdoor", "park", "waterfront", "coastal", "beach"],
     "nightlife": ["modern", "restaurant", "cafe", "viewpoint", "waterfront"],
-    "family": ["family", "park", "museum", "outdoor", "cultural"],
-    "culture": ["cultural", "museum", "historical", "local", "religious"],
+    "family":    ["family", "park", "museum", "outdoor", "cultural"],
+    "culture":   ["cultural", "museum", "historical", "local", "religious"],
 }
 
 CITY_COORDS = {
-    "hurghada": (27.2579, 33.8116),
-    "cairo": (30.0444, 31.2357),
-    "alexandria": (31.2001, 29.9187),
-    "luxor": (25.6872, 32.6396),
-    "aswan": (24.0889, 32.8998),
-    "sharm el sheikh": (27.9158, 34.3300),
-    "dahab": (28.5096, 34.5179),
-    "marsa matrouh": (31.3543, 27.2373),
-    "siwa": (29.2031, 25.5195),
-    "el gouna": (27.3949, 33.6773),
+    "hurghada":       (27.2579, 33.8116),
+    "cairo":          (30.0444, 31.2357),
+    "alexandria":     (31.2001, 29.9187),
+    "luxor":          (25.6872, 32.6396),
+    "aswan":          (24.0889, 32.8998),
+    "sharm el sheikh":(27.9158, 34.3300),
+    "dahab":          (28.5096, 34.5179),
+    "marsa matrouh":  (31.3543, 27.2373),
+    "siwa":           (29.2031, 25.5195),
+    "el gouna":       (27.3949, 33.6773),
 }
 
-# Scoring weights
+# ── Scoring weights ────────────────────────────────────────────────────────────
 W_COSINE     = 0.60
 W_POPULARITY = 0.20
 W_RATING     = 0.10
 W_PRICE      = 0.10
 
-# Bonuses / penalties
+# ── Bayesian rating parameters ────────────────────────────────────────────────
+# MIN_REVIEWS: minimum review count needed before we trust the rating fully.
+# A place with fewer reviews gets pulled toward the global average.
+# Tune this based on your dataset size.
+BAYESIAN_MIN_REVIEWS = 30
+
+# ── Bonuses / penalties ───────────────────────────────────────────────────────
 LIKED_BONUS      = 0.15
 CROWD_PENALTY    = {"Very High": 0.12, "High": 0.05, "Moderate": 0.00, "Low": 0.00}
 HIDDEN_GEM_BONUS = 0.05
@@ -76,31 +91,27 @@ HIDDEN_GEM_BONUS = 0.05
 WALKING_KM     = 0.8
 MAYBE_KM       = 2.0
 COFFEE_GAP_HRS = 1.5
-MIN_VISIT_HRS  = 0.5   # minimum 30 minutes at any attraction
+MIN_VISIT_HRS  = 0.5
 
-# Taxi rates per city (EGP, 2024-2025)
-# (base_egp, per_km_low, per_km_high)
+# ── Taxi rates per city (EGP) — (base_egp, per_km_low, per_km_high) ──────────
 CITY_TAXI_RATES: dict = {
-    "cairo":          (15, 8,  12),   # metered + negotiated
-    "alexandria":     (15, 8,  12),   # similar to Cairo
-    "luxor":          (20, 10, 15),   # tourist city, higher
-    "aswan":          (20, 10, 15),   # tourist city, higher
-    "hurghada":       (20, 12, 18),   # resort, tourist pricing
-    "sharm el sheikh":(25, 15, 20),   # most expensive resort area
-    "dahab":          (10,  6, 10),   # small town, lower prices
-    "marsa matrouh":  (15,  8, 12),   # seasonal resort
-    "siwa":           (20, 10, 15),   # remote, limited transport
-    "el gouna":       (20, 12, 16),   # gated resort community
+    "cairo":          (15, 8,  12),
+    "alexandria":     (15, 8,  12),
+    "luxor":          (20, 10, 15),
+    "aswan":          (20, 10, 15),
+    "hurghada":       (20, 12, 18),
+    "sharm el sheikh":(25, 15, 20),
+    "dahab":          (10,  6, 10),
+    "marsa matrouh":  (15,  8, 12),
+    "siwa":           (20, 10, 15),
+    "el gouna":       (20, 12, 16),
 }
-# Default fallback for unknown cities
 TAXI_RATES_DEFAULT = (15, 8, 12)
 
-
-def get_taxi_rates(city: str) -> tuple[int, int, int]:
-    """Return (base_egp, per_km_low, per_km_high) for the given city."""
+def get_taxi_rates(city: str) -> tuple:
     return CITY_TAXI_RATES.get(str(city).strip().lower(), TAXI_RATES_DEFAULT)
 
-# ── Simple in-process cache to avoid redundant API calls ─────────────────────
+# ── In-process caches ─────────────────────────────────────────────────────────
 _osrm_cache: dict = {}
 _osm_cache:  dict = {}
 
@@ -109,7 +120,6 @@ _osm_cache:  dict = {}
 # 1. DATA LOADING
 # ─────────────────────────────────────────────────────────────────────────────
 def load_attractions(db_url: str = DB_URL) -> pd.DataFrame:
-    """Load attractions from PostgreSQL. Only rows with ATT### attraction_ids are loaded."""
     conn = psycopg2.connect(db_url)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -155,7 +165,6 @@ def load_attractions(db_url: str = DB_URL) -> pd.DataFrame:
 
     df = pd.DataFrame([dict(r) for r in rows])
 
-    # Parse comma-separated TEXT columns into lists
     df["categories"] = df["categories"].fillna("").apply(
         lambda x: [c.strip().lower() for c in str(x).split(",") if c.strip()]
     )
@@ -164,14 +173,13 @@ def load_attractions(db_url: str = DB_URL) -> pd.DataFrame:
                    if s.strip() not in ("", "n/a", "nan")]
     )
 
-    # Synthesize price_range string used by the /attractions API response
     def _price_range_str(row):
         if row["price_min"] == 0 and row["price_max"] == 0:
             return "Free"
         return f"Budget | {int(row['price_min'])}–{int(row['price_max'])} EGP"
 
     df["price_range"] = df.apply(_price_range_str, axis=1)
-    df["price_avg"] = (df["price_min"] + df["price_max"]) / 2.0
+    df["price_avg"]   = (df["price_min"] + df["price_max"]) / 2.0
     return df
 
 
@@ -197,23 +205,23 @@ def build_attraction_matrix(df: pd.DataFrame) -> np.ndarray:
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class UserProfile:
-    user_id:              str
-    name:                 str
-    city:                 str
-    preferred_categories: list
-    budget_egp:           float
-    available_hours:      float
-    current_lat:          float
-    current_lon:          float
-    liked_ids:            list = field(default_factory=list)
-    visited_ids:          list = field(default_factory=list)
-    eaten_meal_categories: list = field(default_factory=list)  # cuisine types already used on previous days
-    dislikes_crowds:      bool  = False
-    meal_budget_ratio:    float = 0.25
-    accessibility_needs:  str   = "None"
-    meal_plan:            str   = "3meals"          # "2meals" skips lunch & coffee
-    preferred_area_lat:   float = 0.0
-    preferred_area_lon:   float = 0.0
+    user_id:               str
+    name:                  str
+    city:                  str
+    preferred_categories:  list
+    budget_egp:            float
+    available_hours:       float
+    current_lat:           float
+    current_lon:           float
+    liked_ids:             list  = field(default_factory=list)
+    visited_ids:           list  = field(default_factory=list)
+    eaten_meal_categories: list  = field(default_factory=list)
+    dislikes_crowds:       bool  = False
+    meal_budget_ratio:     float = 0.25
+    accessibility_needs:   str   = "None"
+    meal_plan:             str   = "3meals"
+    preferred_area_lat:    float = 0.0
+    preferred_area_lon:    float = 0.0
     preferred_area_radius_km: float = 0.0
 
     @property
@@ -229,17 +237,64 @@ class UserProfile:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. COSINE SIMILARITY SCORING  (unchanged)
+# 4. SCORING ENGINE
+# UPDATE 1: Bayesian rating replaces raw avg_rating
+# UPDATE 2: Popularity is normalized before weighting
 # ─────────────────────────────────────────────────────────────────────────────
-def compute_cosine_scores(user: UserProfile, att_matrix: np.ndarray) -> np.ndarray:
+def compute_cosine_scores(user: UserProfile,
+                          att_matrix: np.ndarray) -> np.ndarray:
     user_vec = user.to_vector().reshape(1, -1)
     return cosine_similarity(user_vec, att_matrix).flatten()
 
 
-def score_all_attractions(user: UserProfile, df: pd.DataFrame,
+def bayesian_rating(rating: float,
+                    review_count: int,
+                    global_avg: float,
+                    min_reviews: int = BAYESIAN_MIN_REVIEWS) -> float:
+    """
+    Bayesian average rating.
+
+    Pulls low-review attractions toward the global mean so a place
+    with 3 reviews at 5.0 does not outrank one with 500 at 4.7.
+
+    Formula:
+        score = (v * R + m * C) / (v + m)
+
+    Where:
+        v = attraction's review count
+        R = attraction's average rating
+        m = minimum reviews threshold (confidence floor)
+        C = global average rating across all attractions
+    """
+    return (review_count * rating + min_reviews * global_avg) / \
+           (review_count + min_reviews)
+
+
+def score_all_attractions(user: UserProfile,
+                          df: pd.DataFrame,
                           att_matrix: np.ndarray) -> pd.DataFrame:
     scored = df.copy()
     scored["cosine_sim"] = compute_cosine_scores(user, att_matrix)
+
+    # ── UPDATE 1: Bayesian rating ─────────────────────────────────────────────
+    global_avg = scored["avg_rating"].mean()
+    scored["bayesian_rating"] = scored.apply(
+        lambda r: bayesian_rating(
+            r["avg_rating"],
+            int(r["total_reviews"]),
+            global_avg,
+            BAYESIAN_MIN_REVIEWS
+        ),
+        axis=1
+    )
+    scored["rating_norm"] = scored["bayesian_rating"] / 5.0
+
+    # ── UPDATE 2: Normalize popularity to [0, 1] ──────────────────────────────
+    pop_max = scored["popularity"].max()
+    scored["popularity_norm"] = (
+        scored["popularity"] / pop_max if pop_max > 0
+        else scored["popularity"]
+    )
 
     def price_score(row):
         p, b = row["price_avg"], user.attraction_budget
@@ -251,27 +306,30 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
         else: return 1.0 - ratio
 
     scored["price_score"] = scored.apply(price_score, axis=1)
-    scored["rating_norm"] = scored["avg_rating"] / 5.0
     scored["base_score"]  = (
         W_COSINE     * scored["cosine_sim"]
-      + W_POPULARITY * scored["popularity"]
-      + W_RATING     * scored["rating_norm"]
+      + W_POPULARITY * scored["popularity_norm"]   # normalized
+      + W_RATING     * scored["rating_norm"]        # bayesian
       + W_PRICE      * scored["price_score"]
     )
 
-    # Pre-compute area boost mask (if preferred_area was passed for Day 2+)
+    # ── Area boost (for Day 2+ preferred zone) ────────────────────────────────
     area_boost_mask = None
     if user.preferred_area_radius_km > 0 and user.preferred_area_lat != 0.0:
         def _area_dist(row):
             R = 6371.0
-            lat1, lon1 = math.radians(user.preferred_area_lat), math.radians(user.preferred_area_lon)
-            lat2, lon2 = math.radians(float(row["latitude"])), math.radians(float(row["longitude"]))
+            lat1 = math.radians(user.preferred_area_lat)
+            lon1 = math.radians(user.preferred_area_lon)
+            lat2 = math.radians(float(row["latitude"]))
+            lon2 = math.radians(float(row["longitude"]))
             dlat, dlon = lat2 - lat1, lon2 - lon1
-            a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+            a = (math.sin(dlat/2)**2 +
+                 math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2)
             return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        area_dists = scored.apply(_area_dist, axis=1)
+        area_dists      = scored.apply(_area_dist, axis=1)
         area_boost_mask = area_dists <= user.preferred_area_radius_km
-        print(f"[SCORE] Area boost: {area_boost_mask.sum()} attractions within {user.preferred_area_radius_km}km of ({user.preferred_area_lat:.4f}, {user.preferred_area_lon:.4f})")
+        print(f"[SCORE] Area boost: {area_boost_mask.sum()} attractions "
+              f"within {user.preferred_area_radius_km}km")
 
     def adjust(row):
         s = row["base_score"]
@@ -285,30 +343,32 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
 
     scored["final_score"] = scored.apply(adjust, axis=1)
 
-    # Apply area boost AFTER base scoring so it doesn't distort cosine/price weights
     if area_boost_mask is not None:
-        scored.loc[area_boost_mask, "final_score"] = (scored.loc[area_boost_mask, "final_score"] + 0.20).clip(upper=1.0)
+        scored.loc[area_boost_mask, "final_score"] = (
+            scored.loc[area_boost_mask, "final_score"] + 0.20
+        ).clip(upper=1.0)
 
-    # DEBUG — confirm IDs coming in vs IDs in the database
-    print(f"[SCORE] liked_ids from payload : {user.liked_ids}")
-    print(f"[SCORE] visited_ids from payload: {user.visited_ids}")
-    print(f"[SCORE] sample DB attraction_ids: {df['attraction_id'].astype(str).head(5).tolist()}")
+    print(f"[SCORE] liked_ids  : {user.liked_ids}")
+    print(f"[SCORE] visited_ids: {user.visited_ids}")
 
     food_tags = {"restaurant", "cafe", "food", "bakery", "dessert"}
-    is_food   = scored["categories"].apply(lambda cats: any(c in food_tags for c in cats))
+    is_food   = scored["categories"].apply(
+        lambda cats: any(c in food_tags for c in cats)
+    )
     base_mask = (
         (scored["city"] == user.city)
       & (~scored["attraction_id"].astype(str).isin(user.visited_ids))
       & (~is_food)
       & (scored["price_avg"] <= user.attraction_budget)
     )
-    # Try interest-matched attractions first; fall back to any city attraction
     filtered = scored[base_mask & (scored["cosine_sim"] > 0)].copy()
     if filtered.empty:
         filtered = scored[base_mask].copy()
-    filtered = filtered.sort_values("final_score", ascending=False).reset_index(drop=True)
+    filtered = filtered.sort_values(
+        "final_score", ascending=False
+    ).reset_index(drop=True)
 
-    # Force-include liked attractions first (prepended so they survive dedup below)
+    # Force-include liked attractions
     liked_mask = (
         scored["attraction_id"].astype(str).isin(
             [str(x) for x in user.liked_ids]
@@ -319,26 +379,26 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
     )
     liked_rows = scored[liked_mask].copy()
     if not liked_rows.empty:
-        print(f"[SCORE] Force-including liked attractions: {liked_rows['name'].tolist()}")
+        print(f"[SCORE] Force-including liked: {liked_rows['name'].tolist()}")
         filtered = pd.concat(
             [liked_rows, filtered]
         ).drop_duplicates(
             subset="attraction_id"
         ).reset_index(drop=True)
-    else:
-        print(f"[SCORE] No liked attractions matched — liked_ids={user.liked_ids}, "
-              f"DB ids sample={scored['attraction_id'].astype(str).head(10).tolist()}")
 
-    # Beach/mall dedup applied AFTER liked concat — max 1 beach and 1 mall per day.
-    # Liked attractions are at the top of the list so they are always the one kept.
+    # Beach / mall dedup
     beach_tags = {"beach", "coastal"}
-    is_beach   = filtered["categories"].apply(lambda cats: any(c in beach_tags for c in cats))
+    is_beach   = filtered["categories"].apply(
+        lambda cats: any(c in beach_tags for c in cats)
+    )
     beach_idx  = filtered[is_beach].index.tolist()
     if len(beach_idx) > 1:
         filtered = filtered.drop(beach_idx[1:]).reset_index(drop=True)
 
     mall_tags = {"mall", "shopping"}
-    is_mall   = filtered["categories"].apply(lambda cats: any(c in mall_tags for c in cats))
+    is_mall   = filtered["categories"].apply(
+        lambda cats: any(c in mall_tags for c in cats)
+    )
     mall_idx  = filtered[is_mall].index.tolist()
     if len(mall_idx) > 1:
         filtered = filtered.drop(mall_idx[1:]).reset_index(drop=True)
@@ -347,103 +407,70 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4b. OSRM  (Open Source Routing Machine — free, no key needed)
+# 4b. OSRM
 # ─────────────────────────────────────────────────────────────────────────────
 OSRM_BASE = "http://router.project-osrm.org/route/v1/driving"
-_HEADERS  = {"User-Agent": "TourMate-RecommendationSystem/2.0 (thesis project)"}
+_HEADERS  = {"User-Agent": "TourMate-RecommendationSystem/3.0 (thesis project)"}
 
-def osrm_distance(origin_lat: float, origin_lon: float,
-                  dest_lat: float, dest_lon: float) -> dict:
-    """
-    Get real road distance and duration via OSRM public API.
-    Free, no API key required.
-
-    Returns:
-        {
-            "distance_km": float,
-            "duration_min": float,
-            "source": "osrm"        # or "haversine_fallback"
-        }
-
-    Falls back to haversine × road factor if the request fails.
-    """
+def osrm_distance(origin_lat, origin_lon, dest_lat, dest_lon) -> dict:
     cache_key = f"{origin_lat},{origin_lon}|{dest_lat},{dest_lon}"
     if cache_key in _osrm_cache:
         return _osrm_cache[cache_key]
 
-    # OSRM expects lon,lat order
-    url = f"{OSRM_BASE}/{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
+    url    = f"{OSRM_BASE}/{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
     params = {"overview": "false"}
     try:
         resp = requests.get(url, params=params, headers=_HEADERS, timeout=6)
         data = resp.json()
         if data.get("code") == "Ok" and data.get("routes"):
-            route     = data["routes"][0]
-            dist_km   = route["distance"] / 1000.0
-            dur_min   = route["duration"] / 60.0
-            result    = {"distance_km": round(dist_km, 2),
-                         "duration_min": round(dur_min, 1),
-                         "source": "osrm"}
+            route  = data["routes"][0]
+            result = {
+                "distance_km":  round(route["distance"] / 1000.0, 2),
+                "duration_min": round(route["duration"] / 60.0, 1),
+                "source":       "osrm",
+            }
             _osrm_cache[cache_key] = result
             return result
     except Exception as e:
-        print(f"  [OSRM] Routing error: {e} — using fallback")
+        print(f"  [OSRM] Error: {e} — using fallback")
 
     return _haversine_fallback(origin_lat, origin_lon, dest_lat, dest_lon)
 
 
-def osm_directions_url(origin_lat: float, origin_lon: float,
-                       dest_lat: float, dest_lon: float) -> str:
-    """
-    Generate an OpenStreetMap directions URL (opens in browser).
-    No API key required.
-
-    Example output:
-      https://www.openstreetmap.org/directions?from=30.04,31.23&to=30.05,31.24
-    """
+def osm_directions_url(origin_lat, origin_lon, dest_lat, dest_lon) -> str:
     return (f"https://www.openstreetmap.org/directions"
             f"?from={origin_lat},{origin_lon}&to={dest_lat},{dest_lon}"
             f"&engine=osrm_car")
 
 
 def _haversine_fallback(lat1, lon1, lat2, lon2, city="Cairo") -> dict:
-    """Offline fallback when OSRM is unavailable."""
-    R = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    haversine_km = R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    factor       = 1.35 if city == "Cairo" else 1.20
-    road_km      = haversine_km * factor
-    # Estimate 30 km/h average city speed
-    dur_min      = (road_km / 30.0) * 60.0
-    return {"distance_km": round(road_km, 2),
-            "duration_min": round(dur_min, 1),
-            "source": "haversine_fallback"}
+    R  = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a  = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    hav_km  = R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    factor  = 1.35 if city == "Cairo" else 1.20
+    road_km = hav_km * factor
+    dur_min = (road_km / 30.0) * 60.0
+    return {
+        "distance_km":  round(road_km, 2),
+        "duration_min": round(dur_min, 1),
+        "source":       "haversine_fallback",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4c. OPENSTREETMAP  (Nominatim)
+# 4c. OPENSTREETMAP
 # ─────────────────────────────────────────────────────────────────────────────
-
 def osm_geocode(address: str) -> dict:
-    """
-    Forward geocode: address string → {lat, lon, display_name}.
-    Uses OpenStreetMap Nominatim — free, no key required.
-
-    Rate limit: max 1 req/sec (enforced internally).
-
-    Returns:
-        {"lat": float, "lon": float, "display_name": str, "source": "osm"}
-        or None if not found.
-    """
     if address in _osm_cache:
         return _osm_cache[address]
-
     url    = "https://nominatim.openstreetmap.org/search"
     params = {"q": address, "format": "json", "limit": 1, "countrycodes": "eg"}
     try:
-        time.sleep(1.1)  # Nominatim rate limit: 1 req/sec
+        time.sleep(1.1)
         resp = requests.get(url, params=params, headers=_HEADERS, timeout=6)
         data = resp.json()
         if data:
@@ -461,16 +488,9 @@ def osm_geocode(address: str) -> dict:
 
 
 def osm_reverse_geocode(lat: float, lon: float) -> dict:
-    """
-    Reverse geocode: lat/lon → {address, suburb, city}.
-    Useful for enriching attraction address fields.
-
-    Returns dict or None.
-    """
     cache_key = f"rev:{lat:.5f},{lon:.5f}"
     if cache_key in _osm_cache:
         return _osm_cache[cache_key]
-
     url    = "https://nominatim.openstreetmap.org/reverse"
     params = {"lat": lat, "lon": lon, "format": "json"}
     try:
@@ -493,13 +513,6 @@ def osm_reverse_geocode(lat: float, lon: float) -> dict:
 
 
 def osm_maps_url(lat: float, lon: float, name: str = "") -> str:
-    """
-    Generate an OpenStreetMap link for a location.
-    Opens in browser with a pin — no API key needed.
-
-    Example:
-      https://www.openstreetmap.org/?mlat=30.0478&mlon=31.2336&zoom=16
-    """
     base = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=16"
     if name:
         base += f"&layers=N&place={requests.utils.quote(name)}"
@@ -507,62 +520,31 @@ def osm_maps_url(lat: float, lon: float, name: str = "") -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5b. UNIFIED TRANSPORT INFO
+# 5. TRANSPORT INFO
 # ─────────────────────────────────────────────────────────────────────────────
-def get_transport_info(origin_lat: float, origin_lon: float,
-                       dest_lat: float, dest_lon: float,
-                       dest_name: str = "",
-                       city: str = "Cairo") -> dict:
-    """
-    Unified transport info using OSRM for routing and OSM for map links.
-
-    Returns a single dict used by the itinerary builder:
-    {
-        "mode":          "Walk" | "Walk or Taxi" | "Taxi",
-        "distance_km":   4.2,
-        "duration_min":  18.0,
-        "cost_egp":      55,
-        "icon":          "🚗",
-        "tip":           "Taxi: 49–65 EGP | 4.2 km, ~18 min",
-        "costs":         {"taxi_low": 49, "taxi_high": 65},
-        "directions_url": "https://...",
-        "osm_url":        "https://...",
-        "distance_source": "osrm" | "haversine_fallback",
-    }
-    """
-    # Step 1: Real road distance via OSRM (falls back to haversine)
+def get_transport_info(origin_lat, origin_lon,
+                       dest_lat, dest_lon,
+                       dest_name="", city="Cairo") -> dict:
     dist_info = osrm_distance(origin_lat, origin_lon, dest_lat, dest_lon)
     road_km   = dist_info["distance_km"]
     dur_min   = dist_info["duration_min"]
 
-    # Step 2: Taxi estimate using city-specific rates
     base, per_km_low, per_km_high = get_taxi_rates(city)
     taxi_low  = round(base + road_km * per_km_low)
     taxi_high = round(base + road_km * per_km_high)
     taxi_mid  = round((taxi_low + taxi_high) / 2)
 
-    # Step 3: Determine mode
     if road_km <= WALKING_KM:
-        mode     = "Walk"
-        icon     = "🚶"
-        cost_egp = 0
-        tip      = f"Walking distance — {road_km} km, ~{int(dur_min)} min (free)"
+        mode, icon, cost_egp = "Walk", "🚶", 0
+        tip = f"Walking distance — {road_km} km, ~{int(dur_min)} min (free)"
     elif road_km <= MAYBE_KM:
-        mode     = "Walk or Taxi"
-        icon     = "🚶🚗"
-        cost_egp = taxi_mid
-        tip      = (f"Short ride — {road_km} km, ~{int(dur_min)} min  |  "
-                    f"Taxi: {taxi_low}–{taxi_high} EGP")
+        mode, icon, cost_egp = "Walk or Taxi", "🚶🚗", taxi_mid
+        tip = (f"Short ride — {road_km} km, ~{int(dur_min)} min  |  "
+               f"Taxi: {taxi_low}–{taxi_high} EGP")
     else:
-        mode     = "Taxi"
-        icon     = "🚗"
-        cost_egp = taxi_mid
-        tip      = (f"Taxi: {taxi_low}–{taxi_high} EGP  |  "
-                    f"{road_km} km, ~{int(dur_min)} min")
-
-    # Step 4: Generate OSM map & directions links
-    directions_url = osm_directions_url(origin_lat, origin_lon, dest_lat, dest_lon)
-    osm_url        = osm_maps_url(dest_lat, dest_lon, dest_name)
+        mode, icon, cost_egp = "Taxi", "🚗", taxi_mid
+        tip = (f"Taxi: {taxi_low}–{taxi_high} EGP  |  "
+               f"{road_km} km, ~{int(dur_min)} min")
 
     return {
         "mode":            mode,
@@ -572,38 +554,38 @@ def get_transport_info(origin_lat: float, origin_lon: float,
         "icon":            icon,
         "tip":             tip,
         "costs":           {"taxi_low": taxi_low, "taxi_high": taxi_high},
-        "directions_url":  directions_url,
-        "osm_url":         osm_url,
+        "directions_url":  osm_directions_url(origin_lat, origin_lon,
+                                              dest_lat, dest_lon),
+        "osm_url":         osm_maps_url(dest_lat, dest_lon, dest_name),
         "distance_source": dist_info["source"],
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. MEAL RECOMMENDATION  (updated to use new transport layer)
+# 6. MEAL RECOMMENDATION
 # ─────────────────────────────────────────────────────────────────────────────
 def recommend_meals(df, user, slot, near_lat, near_lon,
                     visited_today, top_n=3):
     per_meal   = user.meal_budget / max(
-        sum([1 if slot == s else 0
-             for s in ["breakfast","lunch","dinner","coffee"]]), 1
+        sum([1 for s in ["breakfast","lunch","dinner","coffee"]
+             if slot == s]), 1
     )
     slot_clean = slot.lower().strip()
 
-    # Strict category whitelist per slot — prevents fish markets / attractions
-    # ending up as "coffee" just because their meal_slot field contains the word.
     SLOT_CATS = {
         "breakfast": {"cafe", "bakery", "restaurant", "food", "dessert"},
-        "lunch":     {"restaurant", "food", "cafe", "seafood", "grills", "local", "international"},
-        "dinner":    {"restaurant", "food", "seafood", "grills", "local", "international", "nile view", "waterfront"},
-        "coffee":    {"cafe", "bakery", "dessert"},   # strict — cafes/patisseries only
+        "lunch":     {"restaurant", "food", "cafe", "seafood", "grills",
+                      "local", "international"},
+        "dinner":    {"restaurant", "food", "seafood", "grills", "local",
+                      "international", "nile view", "waterfront"},
+        "coffee":    {"cafe", "bakery", "dessert"},
     }
-    slot_cats = SLOT_CATS.get(slot_clean, {"restaurant", "cafe", "food", "bakery", "dessert"})
+    slot_cats = SLOT_CATS.get(
+        slot_clean, {"restaurant", "cafe", "food", "bakery", "dessert"}
+    )
 
-    # Cuisine types worth tracking for cross-day diversity.
-    # Generic labels (restaurant, food, local, international) are excluded from
-    # the diversity check — otherwise we'd run out of options on Day 2.
     CUISINE_DIVERSITY_CATS = {"seafood", "grills", "nile view", "waterfront",
-                              "bakery", "dessert", "cafe"}
+                               "bakery", "dessert", "cafe"}
     eaten = set(user.eaten_meal_categories) & CUISINE_DIVERSITY_CATS
 
     cands = df[
@@ -615,9 +597,8 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
       & (~df["categories"].apply(lambda cats: bool(set(cats) & eaten)))
     ].copy()
 
-    # If all options are filtered out by the diversity rule, relax it gracefully.
     if cands.empty and eaten:
-        print(f"[DIVERSITY] No {slot} options left after excluding {eaten} — relaxing diversity rule")
+        print(f"[DIVERSITY] No {slot} options — relaxing diversity rule")
         cands = df[
             (df["city"] == user.city)
           & (df["meal_slot"].apply(lambda s: slot_clean in s))
@@ -627,7 +608,6 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
         ].copy()
 
     if cands.empty:
-        # Relax: drop price constraint but keep category whitelist
         cands = df[
             (df["city"] == user.city)
           & (df["meal_slot"].apply(lambda s: slot_clean in s))
@@ -650,9 +630,10 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
 
     cands["tier_score"] = cands.apply(meal_tier_score, axis=1)
     cands["dist_km"]    = cands.apply(
-        lambda r: _haversine_fallback(near_lat, near_lon,
-                                      r["latitude"], r["longitude"])["distance_km"],
-        axis=1,
+        lambda r: _haversine_fallback(
+            near_lat, near_lon,
+            r["latitude"], r["longitude"]
+        )["distance_km"], axis=1,
     )
     max_dist            = cands["dist_km"].max()
     cands["prox_score"] = 1 - (cands["dist_km"] / (max_dist + 1e-9))
@@ -666,7 +647,8 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
     results = []
     for _, row in cands.head(top_n).iterrows():
         transport = get_transport_info(
-            near_lat, near_lon, row["latitude"], row["longitude"],
+            near_lat, near_lon,
+            row["latitude"], row["longitude"],
             dest_name=row["name"], city=user.city,
         )
         results.append({
@@ -684,56 +666,169 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
             "crowd_label": row["crowd_label"],
             "lat":         row["latitude"],
             "lon":         row["longitude"],
-            "osm_url":     osm_maps_url(row["latitude"], row["longitude"], row["name"]),
+            "osm_url":     osm_maps_url(row["latitude"], row["longitude"],
+                                        row["name"]),
         })
     return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. ROUTE OPTIMISER  (unchanged)
+# 7. ROUTE OPTIMISER
+# UPDATE 3: 2-opt TSP replaces pure nearest-neighbor
+#
+# Academic basis: 2-opt local search for TSP (Lin & Kernighan, 1973)
+# Applied to TTDP in: Gavalas et al. (2014) — Journal of Heuristics
+#
+# Pipeline:
+#   Step 1 — Nearest-neighbor greedy construction (fast initialization)
+#   Step 2 — 2-opt improvement (swap route segments to reduce total distance)
 # ─────────────────────────────────────────────────────────────────────────────
-def optimise_route(top_df, start_lat, start_lon):
+def optimise_route(top_df: pd.DataFrame,
+                   start_lat: float,
+                   start_lon: float) -> list:
+    """
+    Build and improve a route through the given attractions.
+
+    Step 1: Nearest-neighbor greedy initialization.
+    Step 2: 2-opt local search improvement.
+
+    Returns an ordered list of attraction dicts.
+    """
+    if top_df.empty:
+        return []
+
+    # ── Step 1: Nearest-neighbor initialization ───────────────────────────────
     ordered   = []
     remaining = top_df.copy()
     clat, clon = start_lat, start_lon
+
     while not remaining.empty:
         remaining["dist"] = remaining.apply(
-            lambda r: _haversine_fallback(clat, clon,
-                                          r["latitude"], r["longitude"])["distance_km"],
-            axis=1,
+            lambda r: _haversine_fallback(
+                clat, clon,
+                r["latitude"], r["longitude"]
+            )["distance_km"], axis=1
         )
-        mx = remaining["dist"].max()
+        # Score combines proximity and attraction quality
+        mx               = remaining["dist"].max()
         remaining["prox"] = 1 - remaining["dist"] / (mx + 1e-9)
-        remaining["comb"] = 0.60 * remaining["prox"] + 0.40 * remaining["final_score"]
+        remaining["comb"] = (0.60 * remaining["prox"] +
+                             0.40 * remaining["final_score"])
         idx  = remaining["comb"].idxmax()
         best = remaining.loc[idx]
         ordered.append(best)
         clat, clon = best["latitude"], best["longitude"]
         remaining  = remaining.drop(idx)
+
+    if len(ordered) <= 2:
+        return ordered
+
+    # ── Step 2: 2-opt improvement ─────────────────────────────────────────────
+    def route_distance(route: list) -> float:
+        """Total haversine distance: start → route[0] → ... → route[-1]"""
+        total = _haversine_fallback(
+            start_lat, start_lon,
+            route[0]["latitude"], route[0]["longitude"]
+        )["distance_km"]
+        for i in range(len(route) - 1):
+            total += _haversine_fallback(
+                route[i]["latitude"],   route[i]["longitude"],
+                route[i+1]["latitude"], route[i+1]["longitude"]
+            )["distance_km"]
+        return total
+
+    improved = True
+    best_dist = route_distance(ordered)
+
+    while improved:
+        improved = False
+        for i in range(len(ordered) - 1):
+            for j in range(i + 1, len(ordered)):
+                # Reverse the segment between i and j
+                new_route = (
+                    ordered[:i] +
+                    ordered[i:j+1][::-1] +
+                    ordered[j+1:]
+                )
+                new_dist = route_distance(new_route)
+                if new_dist < best_dist:
+                    ordered   = new_route
+                    best_dist = new_dist
+                    improved  = True
+
+    print(f"[2-OPT] Final route distance: {round(best_dist, 1)} km "
+          f"({len(ordered)} stops)")
     return ordered
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7b. GEO-CLUSTERING
+# UPDATE 4: New function — assigns each attraction to a geo zone (one per day)
+#
+# Academic basis: Cluster-based heuristics for TTDP
+# (Gavalas et al. 2013, SEA'13 — CSCRoutes algorithm)
+# Also: "Selective discrete PSO for TOPTW" (ScienceDirect 2019)
+#   which validates: cluster POIs first, then route within each cluster.
+# ─────────────────────────────────────────────────────────────────────────────
+def assign_geo_zones(df: pd.DataFrame, num_days: int) -> pd.DataFrame:
+    """
+    K-Means clustering on lat/lng coordinates.
+    Assigns each attraction a geo_zone (0 to num_days-1).
+    One zone is planned per day, keeping daily routes geographically coherent.
+
+    Falls back gracefully if there are fewer attractions than days.
+    """
+    valid = df[
+        (df["latitude"]  != 0) &
+        (df["longitude"] != 0)
+    ].copy()
+
+    if len(valid) == 0:
+        df["geo_zone"] = 0
+        return df
+
+    k = min(num_days, len(valid))
+    coords = valid[["latitude", "longitude"]].values
+
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    valid["geo_zone"] = kmeans.fit_predict(coords)
+
+    # Merge zone labels back; attractions with no coords get zone 0
+    df = df.merge(
+        valid[["attraction_id", "geo_zone"]],
+        on="attraction_id", how="left"
+    )
+    df["geo_zone"] = df["geo_zone"].fillna(0).astype(int)
+
+    # Log cluster sizes
+    for z in range(k):
+        size = (df["geo_zone"] == z).sum()
+        print(f"[CLUSTER] Zone {z}: {size} attractions")
+
+    return df
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. PAYLOAD HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
-def expand_interest_labels(interests: list[str]) -> list[str]:
-    categories: list[str] = []
+def expand_interest_labels(interests: list) -> list:
+    categories = []
     for interest in interests:
         mapped = INTEREST_CATEGORY_MAP.get(str(interest).strip().lower(), [])
         categories.extend(mapped)
-    return list(dict.fromkeys(categories))  # preserve order, remove duplicates
+    return list(dict.fromkeys(categories))
 
 
-def get_city_coords(city: str) -> tuple[float, float]:
+def get_city_coords(city: str) -> tuple:
     return CITY_COORDS.get(str(city).strip().lower(), CITY_COORDS["cairo"])
 
 
 def build_user_from_payload(payload: dict) -> UserProfile:
-    city = str(payload.get("city", "Cairo") or "Cairo").strip().lower()
+    city     = str(payload.get("city", "Cairo") or "Cairo").strip().lower()
     lat, lon = get_city_coords(city)
     interests = payload.get("interests", []) or []
-    preferred_categories = expand_interest_labels(interests) or ["historical", "cultural", "outdoor"]
-
+    preferred_categories = (expand_interest_labels(interests) or
+                             ["historical", "cultural", "outdoor"])
     return UserProfile(
         user_id=str(payload.get("user_id", "guest")),
         name=str(payload.get("name", "TourMate User")),
@@ -745,19 +840,23 @@ def build_user_from_payload(payload: dict) -> UserProfile:
         current_lon=float(payload.get("current_lon", lon) or lon),
         liked_ids=[str(x) for x in (payload.get("liked_ids", []) or [])],
         visited_ids=[str(x) for x in (payload.get("visited_ids", []) or [])],
-        eaten_meal_categories=[str(x).lower() for x in (payload.get("eaten_meal_categories", []) or [])],
+        eaten_meal_categories=[
+            str(x).lower() for x in
+            (payload.get("eaten_meal_categories", []) or [])
+        ],
         dislikes_crowds=bool(payload.get("dislikes_crowds", False)),
         meal_budget_ratio=float(payload.get("meal_budget_ratio", 0.25) or 0.25),
         accessibility_needs=str(payload.get("accessibility_needs", "None")),
         meal_plan=str(payload.get("meal_plan", "3meals") or "3meals"),
         preferred_area_lat=float(payload.get("preferred_area_lat", 0.0) or 0.0),
         preferred_area_lon=float(payload.get("preferred_area_lon", 0.0) or 0.0),
-        preferred_area_radius_km=float(payload.get("preferred_area_radius_km", 0.0) or 0.0),
+        preferred_area_radius_km=float(
+            payload.get("preferred_area_radius_km", 0.0) or 0.0
+        ),
     )
 
 
 def make_serializable(obj):
-    """Recursively convert numpy types to plain Python so Flask can JSON-encode them."""
     if isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -771,28 +870,9 @@ def make_serializable(obj):
     return obj
 
 
-def generate_itinerary_from_payload(payload: dict,
-                                    df: pd.DataFrame | None = None,
-                                    att_matrix: np.ndarray | None = None) -> dict:
-    local_df     = df         if df         is not None else load_attractions()
-    local_matrix = att_matrix if att_matrix is not None else build_attraction_matrix(local_df)
-    user       = build_user_from_payload(payload)
-    start_hour = float(payload.get("start_hour", 9) or 9)
-    top_n      = int(payload.get("top_n", 10) or 10)
-    browse_n   = int(payload.get("browse_n", 20) or 20)
-    result     = build_itinerary(local_df, local_matrix, user, start_hour=start_hour, top_n=top_n, browse_n=browse_n)
-    result["request"] = {
-        "city":                 user.city,
-        "interests":            payload.get("interests", []),
-        "preferred_categories": user.preferred_categories,
-        "budget_egp":           user.budget_egp,
-        "available_hours":      user.available_hours,
-    }
-    return make_serializable(result)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 9. ITINERARY BUILDER
+# 9. SINGLE-DAY ITINERARY BUILDER  (unchanged logic, budget fix applied)
+# UPDATE 5: Transport cost now included in budget feasibility check
 # ─────────────────────────────────────────────────────────────────────────────
 def _fmt(hour):
     h = int(hour) % 24
@@ -801,56 +881,62 @@ def _fmt(hour):
     return f"{h:02d}:{m:02d}"
 
 
-def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
+def build_itinerary(df, att_matrix, user,
+                    start_hour=9, top_n=5, browse_n=5):
     scored = score_all_attractions(user, df, att_matrix)
     if scored.empty:
         return {"error": "No matching attractions found."}
 
     top = scored.head(top_n).reset_index(drop=True)
 
-    # Liked attractions are always scheduled first — they must not be buried
-    # behind regular stops and silently dropped when time runs out.
-    liked_ids_set  = {str(x) for x in user.liked_ids}
-    liked_in_top   = top[top["attraction_id"].astype(str).isin(liked_ids_set)]
-    other_in_top   = top[~top["attraction_id"].astype(str).isin(liked_ids_set)]
+    liked_ids_set = {str(x) for x in user.liked_ids}
+    liked_in_top  = top[top["attraction_id"].astype(str).isin(liked_ids_set)]
+    other_in_top  = top[~top["attraction_id"].astype(str).isin(liked_ids_set)]
 
-    # ── Liked restaurant / café pool for meal-slot priority ────────────────────
-    # Any liked venue whose categories overlap with food types is a candidate to
-    # be placed directly in a meal slot instead of the AI-picked restaurant.
     _LIKED_MEAL_CATS = {"restaurant", "cafe", "food", "seafood", "grills",
                         "local", "international", "bakery", "dessert"}
     liked_meal_pool: list = df[
         df["attraction_id"].astype(str).isin(liked_ids_set)
-        & df["categories"].apply(lambda cats: bool(set(cats) & _LIKED_MEAL_CATS))
+        & df["categories"].apply(
+            lambda cats: bool(set(cats) & _LIKED_MEAL_CATS)
+        )
     ].to_dict("records")
-    liked_used_as_meal: set = set()   # IDs placed in a meal slot this day
+    liked_used_as_meal: set = set()
 
-    ordered_liked  = optimise_route(liked_in_top,  user.current_lat, user.current_lon) \
-                     if not liked_in_top.empty else []
+    ordered_liked = (
+        optimise_route(liked_in_top, user.current_lat, user.current_lon)
+        if not liked_in_top.empty else []
+    )
 
-    # Re-sort liked attractions so nearby pairs (≤2km) are consecutive
+    # Re-sort liked attractions so nearby pairs are consecutive
     NEARBY_KM = 2.0
     if len(ordered_liked) >= 2:
         reordered = [ordered_liked[0]]
         remaining = list(ordered_liked[1:])
         while remaining:
-            last = reordered[-1]
-            dists = [_haversine_fallback(last["latitude"], last["longitude"],
-                     r["latitude"], r["longitude"])["distance_km"] for r in remaining]
+            last  = reordered[-1]
+            dists = [
+                _haversine_fallback(
+                    last["latitude"], last["longitude"],
+                    r["latitude"], r["longitude"]
+                )["distance_km"] for r in remaining
+            ]
             closest_idx = int(min(range(len(dists)), key=lambda i: dists[i]))
-            closest = remaining.pop(closest_idx)
-            closest_dist = dists[closest_idx]
-            if closest_dist <= NEARBY_KM:
-                print(f"[ROUTE] Grouping nearby liked: '{last['name']}' + '{closest['name']}' ({closest_dist:.1f} km)")
+            closest     = remaining.pop(closest_idx)
+            if dists[closest_idx] <= NEARBY_KM:
+                print(f"[ROUTE] Grouping nearby liked: "
+                      f"'{last['name']}' + '{closest['name']}'")
             reordered.append(closest)
         ordered_liked = reordered
 
-    # Route remaining attractions starting from the last liked stop (or user start)
-    last_lat = ordered_liked[-1]["latitude"]  if ordered_liked else user.current_lat
-    last_lon = ordered_liked[-1]["longitude"] if ordered_liked else user.current_lon
-    ordered_other  = optimise_route(other_in_top,  last_lat, last_lon) \
-                     if not other_in_top.empty else []
-
+    last_lat = (ordered_liked[-1]["latitude"]
+                if ordered_liked else user.current_lat)
+    last_lon = (ordered_liked[-1]["longitude"]
+                if ordered_liked else user.current_lon)
+    ordered_other = (
+        optimise_route(other_in_top, last_lat, last_lon)
+        if not other_in_top.empty else []
+    )
     ordered = ordered_liked + ordered_other
 
     itinerary       = []
@@ -864,34 +950,27 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
     lunch_done      = False
     dinner_done     = False
     last_stop_type  = None
+    beach_added     = False
+    mall_added      = False
+    BEACH_CATS      = {"beach", "coastal"}
+    MALL_CATS       = {"mall", "shopping"}
+    FOOD_CATS       = {"restaurant", "cafe", "food", "seafood", "grills",
+                       "local", "international", "bakery", "dessert"}
+    FOOD_GAP_HRS    = 2.0
+    last_meal_hr    = float(start_hour) - 999.0
+    last_att_dur    = 0.0
 
-    # ── Per-day category frequency limits ──────────────────────────────────────
-    beach_added = False   # max 1 beach/coastal per day
-    mall_added  = False   # max 1 mall/shopping per day
-    BEACH_CATS  = {"beach", "coastal"}
-    MALL_CATS   = {"mall", "shopping"}
-    # Food-type venues: skip as an attraction if a meal was served < 2 h ago.
-    # Applies equally to liked and non-liked spots — no exceptions.
-    FOOD_CATS    = {"restaurant", "cafe", "food", "seafood", "grills",
-                    "local", "international", "bakery", "dessert"}
-    FOOD_GAP_HRS = 2.0
-    last_meal_hr = float(start_hour) - 999.0  # sentinel: no meal served yet
-
-    # ── Meal rules (Option A + B) ─────────────────────────────────────────────
-    # Breakfast : always if start_hour ≤ 10, regardless of day length
-    # Coffee    : always after any attraction whose visit duration ≥ 1.5 h
-    # Lunch     : if avail_hrs ≥ 8  (triggered at ~40 % of the day)
-    # Dinner    : only if avail_hrs > 12 (triggered at ~75 % of the day)
-    avail_hrs      = user.available_hours
-    include_lunch  = avail_hrs >= 8
-    include_dinner = avail_hrs > 12
-    end_hr         = float(start_hour) + avail_hrs
+    avail_hrs       = user.available_hours
+    include_lunch   = avail_hrs >= 8
+    include_dinner  = avail_hrs > 12
+    end_hr          = float(start_hour) + avail_hrs
 
     def time_left():
         return user.available_hours - (curr_hr - float(start_hour))
 
     def add_meal(slot, emoji, nlat, nlon, dur):
-        nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
+        nonlocal curr_hr, prev_lat, prev_lon, total_cost
+        nonlocal total_transport, total_dist, last_stop_type, last_meal_hr
         opts = recommend_meals(df, user, slot, nlat, nlon, visited_today)
         if not opts:
             return
@@ -902,29 +981,31 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         total_stop_hrs = travel_hrs + dur
         if time_left() < total_stop_hrs:
             return
-        if (pick["price_avg"] + transport_cost) > (user.budget_egp - total_cost - total_transport):
+        # ── UPDATE 5: include transport cost in budget check ──────────────────
+        if (pick["price_avg"] + transport_cost) > \
+           (user.budget_egp - total_cost - total_transport):
             return
         itinerary.append({
-            "time":           _fmt(curr_hr + travel_hrs),
-            "departure_time": _fmt(curr_hr),
-            "type":           f"{emoji} {slot.capitalize()}",
-            "name":           pick["name"],
-            "id":             pick["id"],
-            "latitude":       pick["lat"],
-            "longitude":      pick["lon"],
-            "duration_hrs":   dur,
+            "time":                _fmt(curr_hr + travel_hrs),
+            "departure_time":      _fmt(curr_hr),
+            "type":                f"{emoji} {slot.capitalize()}",
+            "name":                pick["name"],
+            "id":                  pick["id"],
+            "latitude":            pick["lat"],
+            "longitude":           pick["lon"],
+            "duration_hrs":        dur,
             "travel_duration_min": transport.get("duration_min", 0),
-            "cost_egp":       pick["price_avg"],
-            "distance_km":    transport["distance_km"],
-            "transport":      transport,
-            "transport_cost": transport_cost,
-            "address":        pick["address"],
-            "description":    pick.get("description", ""),
-            "rating":         pick.get("rating", 0),
-            "categories":     pick.get("categories", []),
-            "options":        opts,
-            "osm_url":        pick.get("osm_url", ""),
-            "directions_url": transport.get("directions_url", ""),
+            "cost_egp":            pick["price_avg"],
+            "distance_km":         transport["distance_km"],
+            "transport":           transport,
+            "transport_cost":      transport_cost,
+            "address":             pick["address"],
+            "description":         pick.get("description", ""),
+            "rating":              pick.get("rating", 0),
+            "categories":          pick.get("categories", []),
+            "options":             opts,
+            "osm_url":             pick.get("osm_url", ""),
+            "directions_url":      transport.get("directions_url", ""),
         })
         visited_today.append(pick["id"])
         prev_lat        = pick["lat"]
@@ -934,21 +1015,13 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         total_transport += transport_cost
         total_dist     += transport["distance_km"]
         last_stop_type  = "meal"
-        last_meal_hr    = curr_hr   # curr_hr already advanced past this meal
+        last_meal_hr    = curr_hr
 
-    # Maximum straight-line distance we're willing to detour for a liked
-    # restaurant at meal time.  Beyond this the route disruption isn't worth it
-    # and we fall back to the nearest AI-picked option.
     MAX_MEAL_DETOUR_KM = 8.0
 
     def try_liked_meal(slot: str, emoji: str, dur: float) -> bool:
-        """Place the closest liked restaurant that fits this meal slot and is
-        within MAX_MEAL_DETOUR_KM of the current position.
-
-        Returns True if a liked venue was placed (caller should skip add_meal).
-        Returns False if none was close enough / feasible (falls back to add_meal).
-        """
-        nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
+        nonlocal curr_hr, prev_lat, prev_lon, total_cost
+        nonlocal total_transport, total_dist, last_stop_type, last_meal_hr
         slot_clean = slot.lower()
         candidates = [
             r for r in liked_meal_pool
@@ -959,22 +1032,24 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         if not candidates:
             return False
 
-        # Pre-rank by cheap haversine — avoids unnecessary OSRM calls.
         candidates.sort(key=lambda r: _haversine_fallback(
-            prev_lat, prev_lon, r["latitude"], r["longitude"])["distance_km"]
-        )
+            prev_lat, prev_lon,
+            r["latitude"], r["longitude"]
+        )["distance_km"])
 
         for r in candidates:
             straight_km = _haversine_fallback(
-                prev_lat, prev_lon, r["latitude"], r["longitude"])["distance_km"]
+                prev_lat, prev_lon,
+                r["latitude"], r["longitude"]
+            )["distance_km"]
             if straight_km > MAX_MEAL_DETOUR_KM:
-                # Sorted by distance — every remaining candidate is also too far.
-                print(f"[LIKED-MEAL] Closest liked option '{r['name']}' is {straight_km:.1f} km away"
-                      f" — exceeds {MAX_MEAL_DETOUR_KM} km cap, falling back to nearest restaurant")
+                print(f"[LIKED-MEAL] '{r['name']}' is {straight_km:.1f} km away "
+                      f"— exceeds cap, falling back")
                 return False
 
             t = get_transport_info(
-                prev_lat, prev_lon, r["latitude"], r["longitude"],
+                prev_lat, prev_lon,
+                r["latitude"], r["longitude"],
                 dest_name=r["name"], city=user.city,
             )
             travel_hrs     = float(t.get("duration_min", 0) or 0) / 60.0
@@ -982,30 +1057,33 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
 
             if time_left() < travel_hrs + dur:
                 continue
-            if (float(r["price_avg"]) + transport_cost) > (user.budget_egp - total_cost - total_transport):
+            # ── UPDATE 5: include transport cost in budget check ──────────────
+            if (float(r["price_avg"]) + transport_cost) > \
+               (user.budget_egp - total_cost - total_transport):
                 continue
 
-            # All checks passed — commit this candidate.
             itinerary.append({
-                "time":           _fmt(curr_hr + travel_hrs),
-                "departure_time": _fmt(curr_hr),
-                "type":           f"{emoji} {slot.capitalize()}",
-                "name":           r["name"],
-                "id":             r["attraction_id"],
-                "latitude":       r["latitude"],
-                "longitude":      r["longitude"],
-                "duration_hrs":   dur,
+                "time":                _fmt(curr_hr + travel_hrs),
+                "departure_time":      _fmt(curr_hr),
+                "type":                f"{emoji} {slot.capitalize()}",
+                "name":                r["name"],
+                "id":                  r["attraction_id"],
+                "latitude":            r["latitude"],
+                "longitude":           r["longitude"],
+                "duration_hrs":        dur,
                 "travel_duration_min": t.get("duration_min", 0),
-                "cost_egp":       float(r["price_avg"]),
-                "distance_km":    t["distance_km"],
-                "transport":      t,
-                "transport_cost": transport_cost,
-                "address":        r.get("address", ""),
-                "description":    str(r.get("description") or ""),
-                "rating":         float(r.get("avg_rating", 0)),
-                "categories":     list(r.get("categories", [])),
-                "osm_url":        osm_maps_url(r["latitude"], r["longitude"], r["name"]),
-                "directions_url": t.get("directions_url", ""),
+                "cost_egp":            float(r["price_avg"]),
+                "distance_km":         t["distance_km"],
+                "transport":           t,
+                "transport_cost":      transport_cost,
+                "address":             r.get("address", ""),
+                "description":         str(r.get("description") or ""),
+                "rating":              float(r.get("avg_rating", 0)),
+                "categories":          list(r.get("categories", [])),
+                "osm_url":             osm_maps_url(
+                    r["latitude"], r["longitude"], r["name"]
+                ),
+                "directions_url":      t.get("directions_url", ""),
             })
             visited_today.append(r["attraction_id"])
             liked_used_as_meal.add(str(r["attraction_id"]))
@@ -1017,69 +1095,62 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
             total_dist     += t["distance_km"]
             last_stop_type  = "meal"
             last_meal_hr    = curr_hr
-            print(f"[LIKED-MEAL] '{r['name']}' placed as {slot} ({straight_km:.1f} km away)")
+            print(f"[LIKED-MEAL] '{r['name']}' placed as {slot}")
             return True
 
-        return False  # all candidates failed feasibility checks
+        return False
 
-    # Breakfast: always at the start of a morning trip (any day length)
+    # ── Breakfast ─────────────────────────────────────────────────────────────
     if start_hour <= 10:
         add_meal("breakfast", "🍳", user.current_lat, user.current_lon, 0.5)
 
-    # Clock-based trigger times
-    # Lunch  at ~40 % of the day (capped at 13:00)
-    # Dinner at ~75 % of the day (only for >12 h days)
     lunch_trigger_hr  = min(float(start_hour) + avail_hrs * 0.40, 13.0)
     dinner_trigger_hr = float(start_hour) + avail_hrs * 0.75
-
-    last_att_dur = 0.0   # track previous attraction's actual duration for coffee
 
     for att in ordered:
         if time_left() <= 0:
             break
 
-        # ── Category frequency enforcement ─────────────────────────────────────
-        # These guards apply to ALL entries in `ordered`, including liked spots.
         att_cats = set(att["categories"])
+
         if att_cats & BEACH_CATS and beach_added:
-            print(f"[CAT-LIMIT] Skipping '{att['name']}' — beach already added today")
+            print(f"[CAT-LIMIT] Skipping '{att['name']}' — beach already added")
             continue
         if att_cats & MALL_CATS and mall_added:
-            print(f"[CAT-LIMIT] Skipping '{att['name']}' — mall/shopping already added today")
+            print(f"[CAT-LIMIT] Skipping '{att['name']}' — mall already added")
             continue
-        # ── Skip liked spots already consumed as a meal slot ───────────────────
         if str(att["attraction_id"]) in liked_used_as_meal:
             continue
 
-        # ── Coffee break after any long attraction (≥ 1.5 h) ─────────────────
-        # Only after lunch has been served — coffee before lunch is redundant.
-        if last_stop_type == "attraction" and last_att_dur >= COFFEE_GAP_HRS and lunch_done:
+        # Coffee after long attraction
+        if (last_stop_type == "attraction" and
+                last_att_dur >= COFFEE_GAP_HRS and lunch_done):
             add_meal("coffee", "☕", prev_lat, prev_lon, 0.4)
 
-        # ── Lunch injection — liked restaurant takes priority ──────────────────
+        # Lunch
         if include_lunch and not lunch_done and curr_hr >= lunch_trigger_hr:
             if not try_liked_meal("lunch", "🍽", 0.75):
                 add_meal("lunch", "🍽", prev_lat, prev_lon, 0.75)
             lunch_done = True
 
-        # ── Dinner injection — liked restaurant takes priority ─────────────────
-        if include_dinner and not dinner_done and lunch_done and curr_hr >= dinner_trigger_hr:
+        # Dinner
+        if (include_dinner and not dinner_done and
+                lunch_done and curr_hr >= dinner_trigger_hr):
             if not try_liked_meal("dinner", "🌙", 1.0):
                 add_meal("dinner", "🌙", prev_lat, prev_lon, 1.0)
             dinner_done = True
 
-        # ── Food-venue proximity guard ──────────────────────────────────────────
-        # Checked AFTER meal injections so last_meal_hr reflects any meal just placed
-        # this iteration. Prevents a food attraction from immediately following a meal.
-        if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS:
-            print(f"[FOOD-GAP] Skipping '{att['name']}' — meal served {curr_hr - last_meal_hr:.1f}h ago")
+        # Food-gap guard
+        if (att_cats & FOOD_CATS and
+                (curr_hr - last_meal_hr) < FOOD_GAP_HRS):
+            print(f"[FOOD-GAP] Skipping '{att['name']}' — "
+                  f"meal {curr_hr - last_meal_hr:.1f}h ago")
             continue
 
         if time_left() <= 0:
             break
 
-        # ── Transport & feasibility checks ─────────────────────────────────────
-        transport = get_transport_info(
+        transport      = get_transport_info(
             prev_lat, prev_lon,
             att["latitude"], att["longitude"],
             dest_name=att["name"], city=user.city,
@@ -1089,95 +1160,95 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         remaining_budget = user.budget_egp - total_cost - total_transport
 
         is_liked = str(att["attraction_id"]) in liked_ids_set
-        if not is_liked and float(att["price_avg"]) > remaining_budget:
+
+        # ── UPDATE 5: full stop cost (admission + transport) in budget check ──
+        full_stop_cost = float(att["price_avg"]) + transport_cost
+        if not is_liked and full_stop_cost > remaining_budget:
             continue
         if time_left() <= travel_hrs:
             continue
 
-        # ── Opening-hours enforcement ──────────────────────────────────────────
         arrival_hr = curr_hr + travel_hrs
         open_hr    = float(att.get("open_hour", 0))
         close_hr   = float(att.get("close_hour", 24))
-        # Skip if we arrive before the attraction opens
         if arrival_hr < open_hr:
-            print(f"[TIME-CHECK] Skipping '{att['name']}' — arrives at {_fmt(arrival_hr)}, opens at {_fmt(open_hr)}")
+            print(f"[TIME-CHECK] Skipping '{att['name']}' — "
+                  f"arrives {_fmt(arrival_hr)}, opens {_fmt(open_hr)}")
             continue
-        # Skip if we arrive so late there isn't at least MIN_VISIT_HRS before closing
         if arrival_hr >= close_hr - MIN_VISIT_HRS:
-            print(f"[TIME-CHECK] Skipping '{att['name']}' — arrives at {_fmt(arrival_hr)}, closes at {_fmt(close_hr)}")
+            print(f"[TIME-CHECK] Skipping '{att['name']}' — "
+                  f"arrives {_fmt(arrival_hr)}, closes {_fmt(close_hr)}")
             continue
 
-        raw_dur = max(float(att["avg_visit_hrs"]), MIN_VISIT_HRS)
-        # Cap visit so it doesn't run past closing time
+        raw_dur          = max(float(att["avg_visit_hrs"]), MIN_VISIT_HRS)
         time_until_close = close_hr - arrival_hr
-        dur     = min(raw_dur, max(0.0, time_left() - travel_hrs), time_until_close)
+        dur = min(raw_dur,
+                  max(0.0, time_left() - travel_hrs),
+                  time_until_close)
         if dur < MIN_VISIT_HRS:
             continue
 
-        effective_cost = float(att["price_avg"])
-
         itinerary.append({
-            "time":           _fmt(curr_hr + travel_hrs),
-            "departure_time": _fmt(curr_hr),
-            "type":           "🏛 Attraction",
-            "name":           att["name"],
-            "id":             att["attraction_id"],
-            "latitude":       att["latitude"],
-            "longitude":      att["longitude"],
-            "cosine_sim":     round(float(att["cosine_sim"]), 3),
-            "final_score":    round(float(att["final_score"]), 3),
-            "duration_hrs":   round(dur, 2),
+            "time":                _fmt(curr_hr + travel_hrs),
+            "departure_time":      _fmt(curr_hr),
+            "type":                "🏛 Attraction",
+            "name":                att["name"],
+            "id":                  att["attraction_id"],
+            "latitude":            att["latitude"],
+            "longitude":           att["longitude"],
+            "cosine_sim":          round(float(att["cosine_sim"]), 3),
+            "final_score":         round(float(att["final_score"]), 3),
+            "bayesian_rating":     round(float(att.get("bayesian_rating", 0)), 3),
+            "duration_hrs":        round(dur, 2),
             "travel_duration_min": transport.get("duration_min", 0),
-            "cost_egp":       effective_cost,
-            "distance_km":    transport["distance_km"],
-            "transport":      transport,
-            "transport_cost": transport_cost,
-            "address":        att["address"],
-            "description":    att.get("description", ""),
-            "categories":     att["categories"],
-            "crowd_label":    att["crowd_label"],
-            "crowd_pattern":  att["crowd_pattern"],
-            "rating":         att["avg_rating"],
-            "open":           att["open_hour"],
-            "close":          att["close_hour"],
-            "directions_url": transport.get("directions_url", ""),
-            "osm_url":        osm_maps_url(att["latitude"], att["longitude"], att["name"]),
+            "cost_egp":            float(att["price_avg"]),
+            "distance_km":         transport["distance_km"],
+            "transport":           transport,
+            "transport_cost":      transport_cost,
+            "address":             att["address"],
+            "description":         att.get("description", ""),
+            "categories":          att["categories"],
+            "crowd_label":         att["crowd_label"],
+            "crowd_pattern":       att["crowd_pattern"],
+            "rating":              att["avg_rating"],
+            "open":                att["open_hour"],
+            "close":               att["close_hour"],
+            "directions_url":      transport.get("directions_url", ""),
+            "osm_url":             osm_maps_url(
+                att["latitude"], att["longitude"], att["name"]
+            ),
         })
         visited_today.append(att["attraction_id"])
         prev_lat        = att["latitude"]
         prev_lon        = att["longitude"]
         curr_hr        += travel_hrs + dur
-        total_cost     += effective_cost
+        total_cost     += float(att["price_avg"])
         total_transport += transport_cost
         total_dist     += transport["distance_km"]
         last_stop_type  = "attraction"
-        last_att_dur    = dur   # record for next iteration's coffee check
+        last_att_dur    = dur
 
-        # Update category trackers after a successful add
         if att_cats & BEACH_CATS:
             beach_added = True
         if att_cats & MALL_CATS:
             mall_added = True
 
-    # ── Post-loop meal safety nets ──────────────────────────────────────────────
-    # Fire only when the loop ended before clock-based triggers were reached.
-
+    # ── Post-loop meal safety nets ────────────────────────────────────────────
     lunch_added_in_safety = False
     if include_lunch and not lunch_done and time_left() >= 1.5:
         if not try_liked_meal("lunch", "🍽", 0.75):
             add_meal("lunch", "🍽", prev_lat, prev_lon, 0.75)
-        lunch_done = True
+        lunch_done            = True
         lunch_added_in_safety = True
 
-    # Dinner safety net — only if lunch was done during the loop (not just now),
-    # to avoid two restaurants back-to-back.
-    if include_dinner and not dinner_done and lunch_done and not lunch_added_in_safety:
+    if (include_dinner and not dinner_done and
+            lunch_done and not lunch_added_in_safety):
         if not try_liked_meal("dinner", "🌙", 1.0):
             add_meal("dinner", "🌙", prev_lat, prev_lon, 1.0)
         dinner_done = True
 
-    # ── Missed liked places ─────────────────────────────────────────────────────
-    added_ids = {str(s["id"]) for s in itinerary}
+    # ── Missed liked places ───────────────────────────────────────────────────
+    added_ids          = {str(s["id"]) for s in itinerary}
     missed_liked_places = []
     for lid in user.liked_ids:
         if str(lid) not in added_ids:
@@ -1198,6 +1269,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         "name":          a["name"],
         "cosine_sim":    round(float(a["cosine_sim"]), 3),
         "final_score":   round(float(a["final_score"]), 3),
+        "bayesian_rating": round(float(a.get("bayesian_rating", 0)), 3),
         "categories":    a["categories"],
         "price_range":   a["price_range"],
         "price_avg":     round(float(a["price_avg"]), 0),
@@ -1218,8 +1290,13 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
         "stats": {
             "total_stops":            len(itinerary),
             "total_hours":            round(total_hrs, 1),
-            "total_visit_hours":      round(sum(s["duration_hrs"] for s in itinerary), 1),
-            "total_travel_hours":     round(sum(float(s.get("travel_duration_min", 0) or 0) / 60.0 for s in itinerary), 1),
+            "total_visit_hours":      round(
+                sum(s["duration_hrs"] for s in itinerary), 1
+            ),
+            "total_travel_hours":     round(
+                sum(float(s.get("travel_duration_min", 0) or 0) / 60.0
+                    for s in itinerary), 1
+            ),
             "cost_attractions_meals": round(total_cost, 0),
             "cost_transport_egp":     round(total_transport, 0),
             "total_cost_egp":         round(total_all, 0),
@@ -1227,35 +1304,235 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5):
             "budget_remaining":       round(user.budget_egp - total_all, 0),
         },
         "api_status": {
-            "osrm":          "live (always — no key needed)",
-            "openstreetmap": "live (always — no key needed)",
+            "osrm":          "live (no key needed)",
+            "openstreetmap": "live (no key needed)",
         },
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 10. PRETTY PRINTER
+# 10. MULTI-DAY ITINERARY GENERATOR
+# UPDATE 4: Core new feature — TTDP / TOPTW implementation
+#
+# Academic basis:
+#   - Gavalas et al. (2014) — TTDP survey, Journal of Heuristics
+#   - CSCRoutes cluster-based approach (Gavalas et al. 2013)
+#   - "Cluster first, route second" validated by ScienceDirect 2019 paper
+#
+# Pipeline per day:
+#   1. Filter attractions to the geo zone assigned to this day
+#   2. Force-include liked attractions regardless of zone (UPDATE 6)
+#   3. Run the single-day builder on this zone's attractions
+#   4. Track visited attractions and remaining budget across days
+# ─────────────────────────────────────────────────────────────────────────────
+def generate_multi_day_itinerary(payload: dict,
+                                  df: pd.DataFrame = None,
+                                  att_matrix: np.ndarray = None) -> dict:
+    """
+    Generate a multi-day trip itinerary using geo-clustering.
+
+    For each day:
+      - Attractions are filtered to a geographic zone (K-Means cluster)
+      - Liked attractions are force-included even if in another zone
+      - Budget and visited set are shared across days
+      - Single-day builder handles meals, routing, and time constraints
+
+    Payload fields (in addition to single-day fields):
+      num_days      : int   — number of trip days (default 1)
+      start_hour    : float — daily start time (default 9)
+      top_n         : int   — max attractions to consider per day
+    """
+    local_df     = df         if df is not None else load_attractions()
+    local_matrix = att_matrix if att_matrix is not None else build_attraction_matrix(local_df)
+
+    user      = build_user_from_payload(payload)
+    num_days  = int(payload.get("num_days", 1))
+    start_hour = float(payload.get("start_hour", 9))
+    top_n     = int(payload.get("top_n", 10))
+    browse_n  = int(payload.get("browse_n", 20))
+
+    # ── Step 1: Filter to city ─────────────────────────────────────────────────
+    city_df = local_df[local_df["city"] == user.city].copy()
+    if city_df.empty:
+        return {"error": f"No attractions found for city: {user.city}"}
+
+    # ── Step 2: Geo-cluster into num_days zones ────────────────────────────────
+    city_df = assign_geo_zones(city_df, num_days)
+
+    # ── Step 3: Shared state across days ──────────────────────────────────────
+    visited_all  = list(user.visited_ids)
+    budget_left  = user.budget_egp
+    daily_budget = user.budget_egp / num_days
+    daily_hours  = user.available_hours
+    all_days     = []
+
+    # Liked attraction rows — needed for force-include across zones
+    liked_ids_set = {str(x) for x in user.liked_ids}
+
+    for day in range(num_days):
+        print(f"\n{'='*60}")
+        print(f"[MULTI-DAY] Planning Day {day + 1} / {num_days} — "
+              f"Zone {day}, Budget: {round(daily_budget)} EGP, "
+              f"Hours: {daily_hours}h")
+        print(f"{'='*60}")
+
+        # ── Step 4: Zone attractions ──────────────────────────────────────────
+        zone_df = city_df[city_df["geo_zone"] == day].copy()
+
+        # Fallback: if zone is too small, use full city attractions
+        if len(zone_df) < 3:
+            print(f"[MULTI-DAY] Zone {day} too small "
+                  f"({len(zone_df)} attractions) — using full city pool")
+            zone_df = city_df.copy()
+
+        # ── UPDATE 6: Force-include liked attractions from any zone ────────────
+        # Liked places are always placed — they shouldn't be trapped in a
+        # different zone and silently missed.
+        unvisited_liked = liked_ids_set - set(str(x) for x in visited_all)
+        if unvisited_liked:
+            liked_rows = city_df[
+                city_df["attraction_id"].astype(str).isin(unvisited_liked)
+            ]
+            if not liked_rows.empty:
+                zone_df = pd.concat(
+                    [liked_rows, zone_df]
+                ).drop_duplicates("attraction_id").reset_index(drop=True)
+                print(f"[MULTI-DAY] Force-included liked attractions: "
+                      f"{liked_rows['name'].tolist()}")
+
+        # Remove already visited
+        zone_df = zone_df[
+            ~zone_df["attraction_id"].astype(str).isin(
+                [str(x) for x in visited_all]
+            )
+        ].reset_index(drop=True)
+
+        if zone_df.empty:
+            print(f"[MULTI-DAY] No remaining attractions for Day {day + 1}")
+            all_days.append({
+                "day":   day + 1,
+                "error": "No remaining attractions for this day."
+            })
+            continue
+
+        # ── Step 5: Rebuild matrix for this zone's subset ─────────────────────
+        zone_matrix = build_attraction_matrix(zone_df)
+
+        # ── Step 6: Configure user for this day ───────────────────────────────
+        user.visited_ids = visited_all
+        user.budget_egp  = min(daily_budget, budget_left)
+
+        # ── Step 7: Run single-day builder ────────────────────────────────────
+        day_result = build_itinerary(
+            zone_df, zone_matrix, user,
+            start_hour=start_hour,
+            top_n=top_n,
+            browse_n=browse_n,
+        )
+
+        if "error" not in day_result:
+            # Update shared state
+            for stop in day_result.get("itinerary", []):
+                visited_all.append(str(stop["id"]))
+
+            spent       = day_result["stats"]["total_cost_egp"]
+            budget_left = max(0.0, budget_left - spent)
+
+            day_result["day"]            = day + 1
+            day_result["geo_zone"]       = int(day)
+            day_result["budget_for_day"] = round(user.budget_egp, 0)
+        else:
+            day_result["day"] = day + 1
+
+        all_days.append(day_result)
+
+    total_spent = user.budget_egp * num_days - budget_left
+    return make_serializable({
+        "user":               user.name,
+        "city":               user.city,
+        "num_days":           num_days,
+        "days":               all_days,
+        "total_budget":       round(user.budget_egp * num_days, 0),
+        "total_spent":        round(total_spent, 0),
+        "budget_remaining":   round(budget_left, 0),
+        "visited_all":        visited_all,
+    })
+
+
+def generate_itinerary_from_payload(payload: dict,
+                                     df: pd.DataFrame = None,
+                                     att_matrix: np.ndarray = None) -> dict:
+    """
+    Entry point for the API.
+    Routes to multi-day or single-day builder based on num_days.
+    """
+    num_days = int(payload.get("num_days", 1))
+
+    if num_days > 1:
+        return generate_multi_day_itinerary(payload, df, att_matrix)
+
+    # Single-day path (original behaviour)
+    local_df     = df         if df is not None else load_attractions()
+    local_matrix = att_matrix if att_matrix is not None else build_attraction_matrix(local_df)
+    user         = build_user_from_payload(payload)
+    start_hour   = float(payload.get("start_hour", 9) or 9)
+    top_n        = int(payload.get("top_n", 10) or 10)
+    browse_n     = int(payload.get("browse_n", 20) or 20)
+    result       = build_itinerary(
+        local_df, local_matrix, user,
+        start_hour=start_hour, top_n=top_n, browse_n=browse_n
+    )
+    result["request"] = {
+        "city":                 user.city,
+        "interests":            payload.get("interests", []),
+        "preferred_categories": user.preferred_categories,
+        "budget_egp":           user.budget_egp,
+        "available_hours":      user.available_hours,
+    }
+    return make_serializable(result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. PRETTY PRINTER
 # ─────────────────────────────────────────────────────────────────────────────
 def print_itinerary(result, user=None):
     if "error" in result:
         print(f"\n  ERROR: {result['error']}\n")
         return
-    W = 75
-    print("\n" + "=" * W)
-    print(f"  TourMate  |  {result['user']}  |  {result['city']}")
 
-    # API status banner
+    # Multi-day result
+    if "days" in result:
+        print(f"\n{'='*75}")
+        print(f"  TourMate  |  {result['user']}  |  {result['city']}  "
+              f"|  {result['num_days']} days")
+        print(f"  Total Budget: {int(result['total_budget'])} EGP  |  "
+              f"Spent: {int(result['total_spent'])} EGP  |  "
+              f"Remaining: {int(result['budget_remaining'])} EGP")
+        print(f"{'='*75}")
+        for day in result["days"]:
+            print(f"\n  ── DAY {day['day']} "
+                  f"(Zone {day.get('geo_zone', '?')}) ──────────────────────────")
+            if "error" in day:
+                print(f"     {day['error']}")
+                continue
+            print_itinerary(day, user=None)
+        return
+
+    W = 75
+    print(f"\n{'='*W}")
+    print(f"  TourMate  |  {result['user']}  |  {result['city']}")
     if "api_status" in result:
         s = result["api_status"]
         print(f"  APIs: OSRM [{s['osrm']}]  OSM [{s['openstreetmap']}]")
-    print("=" * W)
+    print(f"{'='*W}")
 
-    print(f"\n  {'#':<3} {'Name':<30} {'Cosine':<8} {'Final':<8} {'Crowd':<12} Price")
+    print(f"\n  {'#':<3} {'Name':<28} {'Cosine':<8} {'Bayes':<7} "
+          f"{'Final':<8} {'Crowd':<12} Price")
     print("  " + "-" * (W - 2))
     for a in result["recommended_attractions"]:
-        print(f"  {a['rank']:<3} {a['name'][:28]:<30} {a['cosine_sim']:<8} "
-              f"{a['final_score']:<8} {a['crowd_label']:<12} {a['price_range']}")
-        print(f"       OSM → {a['osm_url']}")
+        print(f"  {a['rank']:<3} {a['name'][:26]:<28} {a['cosine_sim']:<8} "
+              f"{a.get('bayesian_rating', 0):<7} {a['final_score']:<8} "
+              f"{a['crowd_label']:<12} {a['price_range']}")
 
     print(f"\n  FULL DAY ITINERARY")
     print("  " + "-" * (W - 2))
@@ -1263,40 +1540,41 @@ def print_itinerary(result, user=None):
         print(f"\n  {stop['time']}  {stop['type']}  —  {stop['name']}")
         t     = stop.get("transport", {})
         costs = t.get("costs", {})
-
         print(f"     {t.get('icon','')}  {t.get('tip','')}")
         if costs:
-            print(f"     Taxi: {costs.get('taxi_low',0)}–{costs.get('taxi_high',0)} EGP")
-
-        line = f"     Duration: {stop['duration_hrs']}hr   Place cost: {int(stop['cost_egp'])} EGP"
+            print(f"     Taxi: {costs.get('taxi_low',0)}–"
+                  f"{costs.get('taxi_high',0)} EGP")
+        line = (f"     Duration: {stop['duration_hrs']}hr  "
+                f"Place cost: {int(stop['cost_egp'])} EGP  "
+                f"Transport: {int(stop.get('transport_cost', 0))} EGP")
         if "cosine_sim" in stop:
-            line += f"   Cosine: {stop['cosine_sim']}  Score: {stop['final_score']}"
+            line += (f"  Cosine: {stop['cosine_sim']}  "
+                     f"Bayes: {stop.get('bayesian_rating', '—')}  "
+                     f"Score: {stop['final_score']}")
         print(line)
-
-        # Map & directions links
-        directions = stop.get("directions_url", "")
-        osm        = stop.get("osm_url", "")
-        if directions: print(f"     🗺  Directions → {directions}")
-        if osm:        print(f"     📍 OSM pin    → {osm}")
-
-        if "crowd_label" in stop:
-            print(f"     Crowd: {stop['crowd_label']} ({stop.get('crowd_pattern','')})")
+        d = stop.get("directions_url", "")
+        o = stop.get("osm_url", "")
+        if d: print(f"     🗺  Directions → {d}")
+        if o: print(f"     📍 OSM pin    → {o}")
         if "options" in stop and len(stop["options"]) > 1:
-            print(f"     Other options: {', '.join(o['name'] for o in stop['options'][1:])}")
+            print(f"     Other options: "
+                  f"{', '.join(x['name'] for x in stop['options'][1:])}")
 
     s = result["stats"]
-    print("\n" + "-" * W)
-    print(f"  {s['total_stops']} stops  |  {s['total_hours']} hrs  |  {s['total_distance_km']} km")
+    print(f"\n{'-'*W}")
+    print(f"  {s['total_stops']} stops  |  {s['total_hours']} hrs  |  "
+          f"{s['total_distance_km']} km")
     print(f"  Attractions & Meals: {int(s['cost_attractions_meals'])} EGP  |  "
-          f"Transport (est.): {int(s['cost_transport_egp'])} EGP  |  "
+          f"Transport: {int(s['cost_transport_egp'])} EGP  |  "
           f"TOTAL: {int(s['total_cost_egp'])} EGP")
     if user:
-        print(f"  Budget: {int(user.budget_egp)} EGP  →  Remaining: {int(s['budget_remaining'])} EGP")
-    print("=" * W + "\n")
+        print(f"  Budget: {int(user.budget_egp)} EGP  →  "
+              f"Remaining: {int(s['budget_remaining'])} EGP")
+    print(f"{'='*W}\n")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 10. DEMO
+# 12. DEMO
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
 
@@ -1305,38 +1583,44 @@ if __name__ == "__main__":
     att_matrix = build_attraction_matrix(df)
     print(f"Loaded {len(df)} attractions | {N_DIMS}-dim vector space\n")
 
-    print("API Status:")
-    print(f"  OSRM          : ✅ always available (no key needed)")
-    print(f"  OpenStreetMap : ✅ always available (no key needed)\n")
-
-    # Quick OSM geocode demo
-    print("OSM Geocode demo — searching 'Pyramids of Giza, Egypt':")
-    geo = osm_geocode("Pyramids of Giza, Egypt")
-    if geo:
-        print(f"  Found: {geo['display_name']}")
-        print(f"  Coords: {geo['lat']}, {geo['lon']}")
-        print(f"  OSM link: {osm_maps_url(geo['lat'], geo['lon'], 'Pyramids of Giza')}\n")
-
-    # Demo 1: Sarah
+    # ── Demo 1: Single-day (Sarah, Cairo) ─────────────────────────────────────
     sarah = UserProfile(
-        user_id="USR001", name="Sarah Mitchell (Tourist, Cairo)",
-        city="Cairo",
+        user_id="USR001",
+        name="Sarah Mitchell (Tourist, Cairo)",
+        city="cairo",
         preferred_categories=["historical", "ancient", "museum", "outdoor"],
-        budget_egp=2000, available_hours=9.0,
-        current_lat=30.0478, current_lon=31.2336,
-        liked_ids=["ATT001", "ATT002"], visited_ids=["ATT001"],
+        budget_egp=2000,
+        available_hours=9.0,
+        current_lat=30.0478,
+        current_lon=31.2336,
+        liked_ids=["ATT001", "ATT002"],
+        visited_ids=["ATT001"],
         dislikes_crowds=False,
     )
-    print_itinerary(build_itinerary(df, att_matrix, sarah, start_hour=9, top_n=5), user=sarah)
-
-    # Demo 2: Omar
-    omar = UserProfile(
-        user_id="USR007", name="Omar Tarek (Local, Alexandria)",
-        city="Alexandria",
-        preferred_categories=["historical", "ancient", "outdoor", "coastal"],
-        budget_egp=400, available_hours=5.0,
-        current_lat=31.1988, current_lon=29.9134,
-        liked_ids=["ATT049"], visited_ids=["ATT049", "ATT052", "ATT055"],
-        dislikes_crowds=True,
+    print_itinerary(
+        build_itinerary(df, att_matrix, sarah, start_hour=9, top_n=5),
+        user=sarah
     )
-    print_itinerary(build_itinerary(df, att_matrix, omar, start_hour=10, top_n=4), user=omar)
+
+    # ── Demo 2: Multi-day (3 days Cairo via payload) ──────────────────────────
+    print("\n" + "="*75)
+    print("MULTI-DAY DEMO — 3 days in Cairo")
+    print("="*75)
+    multi_payload = {
+        "user_id":         "USR002",
+        "name":            "Ahmed Hassan",
+        "city":            "cairo",
+        "interests":       ["history", "culture", "food"],
+        "budget_egp":      5000,
+        "available_hours": 9,
+        "num_days":        3,
+        "start_hour":      9,
+        "top_n":           8,
+        "browse_n":        15,
+        "liked_ids":       ["ATT001", "ATT016"],
+        "visited_ids":     [],
+        "dislikes_crowds": False,
+        "meal_budget_ratio": 0.25,
+    }
+    result = generate_itinerary_from_payload(multi_payload, df, att_matrix)
+    print_itinerary(result)
