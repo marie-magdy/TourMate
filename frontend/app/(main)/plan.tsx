@@ -12,20 +12,63 @@ import * as Location from 'expo-location';
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 
+import DesertTriangles from '../../components/DesertTriangles';
+import { Theme } from '../../constants/theme';
+
 const { width } = Dimensions.get('window');
 
 // ── Egyptian Cities ───────────────────────────────────────────────────
 const EGYPTIAN_CITIES = [
-  { name: 'Hurghada', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Hurghada_city.jpg/1280px-Hurghada_city.jpg', lat: 27.2579, lon: 33.8116 },
-  { name: 'Cairo', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Cairo_from_the_Nile.jpg/1280px-Cairo_from_the_Nile.jpg', lat: 30.0444, lon: 31.2357 },
-  { name: 'Alexandria', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Alexandria_montage.jpg/1280px-Alexandria_montage.jpg', lat: 31.2001, lon: 29.9187 },
-  { name: 'Luxor', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Valley_of_the_Kings_from_the_air.jpg/1280px-Valley_of_the_Kings_from_the_air.jpg', lat: 25.6872, lon: 32.6396 },
-  { name: 'Aswan', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Aswan_-_panoramio.jpg/1280px-Aswan_-_panoramio.jpg', lat: 24.0889, lon: 32.8998 },
-  { name: 'Sharm El Sheikh', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Sharm_el-Sheikh_bay.jpg/1280px-Sharm_el-Sheikh_bay.jpg', lat: 27.9158, lon: 34.3300 },
-  { name: 'Dahab', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Dahab_-_panoramio.jpg/1280px-Dahab_-_panoramio.jpg', lat: 28.5096, lon: 34.5179 },
-  { name: 'Marsa Matrouh', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Marsa_Matruh.jpg/1280px-Marsa_Matruh.jpg', lat: 31.3543, lon: 27.2373 },
-  { name: 'Siwa', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Siwa_Oasis.jpg/1280px-Siwa_Oasis.jpg', lat: 29.2031, lon: 25.5195 },
-  { name: 'El Gouna', image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Hurghada_city.jpg/1280px-Hurghada_city.jpg', lat: 27.3949, lon: 33.6773 },
+  {
+    name: 'Hurghada',
+    image: 'https://cdn.magzter.com/1387351795/1659543263/articles/M589TSHUD1660125370805/SHOAL-BUSINESS.jpg',
+    lat: 27.2579,
+    lon: 33.8116
+  },
+  {
+    name: 'Cairo',
+    image: 'https://c8.alamy.com/comp/2BR4300/the-mosque-madrassa-of-sultan-hassan-and-the-pyramids-in-the-background-cairo-egypt-2BR4300.jpg',
+    lat: 30.0444,
+    lon: 31.2357
+  },
+  {
+    name: 'Alexandria',
+    image: 'https://www.egypttoursportal.com/images/2017/11/Alexandria-Library-Egypt-Tours-Portal.jpg',
+    lat: 31.2001,
+    lon: 29.9187
+  },
+  {
+    name: 'Luxor',
+    image: 'https://www.en-vols.com/wp-content/uploads/afmm/2023/01/shutterstock_1997301695.jpg',
+    lat: 25.6872,
+    lon: 32.6396
+  },
+  {
+    name: 'Aswan',
+    image: 'https://r-xx.bstatic.com/xdata/images/city/1680x840/633155.webp?k=9c0e7cebc054516c31d7856a820f04a120fbc179172f38cd3310025a265d8ab9&o=',
+    lat: 24.0889,
+    lon: 32.8998
+  },
+  {
+    name: 'Sharm El Sheikh',
+    image: 'https://egyptescapes.com/wp-content/uploads/2019/12/sharm-el-sheihk.jpg',
+    lat: 27.9158,
+    lon: 34.3300
+  },
+  {
+    name: 'Dahab',
+    image: 'https://www.scuba.com/blog/wp-content/uploads/2017/07/dahab-blue-hole-shutterstock_1748271710.jpg',
+    lat: 28.5096,
+    lon: 34.5179
+  },
+
+  {
+    name: 'Siwa',
+    image: 'https://d3rr2gvhjw0wwy.cloudfront.net/uploads/activity_galleries/61004/2000x2000-0-70-2a5f725ac8aaf04bcbdf66da09b9d04b.jpg',
+    lat: 29.2031,
+    lon: 25.5195
+  },
+
 ];
 
 // ── Interest Tags ─────────────────────────────────────────────────────
@@ -84,15 +127,15 @@ export default function PlanScreen() {
   const router = useRouter();
   const { t } = useApp();
 
-  const [selectedCity, setSelectedCity] = useState(EGYPTIAN_CITIES[0]);
+  const [selectedCity, setSelectedCity] = useState(EGYPTIAN_CITIES.find(c => c.name === 'Alexandria') || EGYPTIAN_CITIES[0]);
   const [showCityModal, setShowCityModal] = useState(false);
 
   // Calendar
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [startDate, setStartDate] = useState<number | null>(null);
-  const [endDate, setEndDate] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate]     = useState<Date | null>(null);
 
   //Time
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -120,7 +163,7 @@ export default function PlanScreen() {
   // Reset per-day hours whenever the date range changes
   useEffect(() => {
     if (startDate && endDate && endDate >= startDate) {
-      const count = endDate - startDate + 1;
+      const count = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
       setDaySchedules(prev =>
         Array.from({ length: count }, (_, i) =>
@@ -191,18 +234,52 @@ export default function PlanScreen() {
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
 
+  const isPastDay = (day: number) => {
+    const today = new Date();
+    const cellDate = new Date(currentYear, currentMonth, day);
+
+    // remove time part (important)
+    today.setHours(0, 0, 0, 0);
+    cellDate.setHours(0, 0, 0, 0);
+
+    return cellDate < today;
+  };
+
   const handleDayPress = (day: number) => {
+    const tapped = new Date(currentYear, currentMonth, day);
     if (!startDate || (startDate && endDate)) {
-      setStartDate(day); setEndDate(null);
+      setStartDate(tapped);
+      setEndDate(null);
     } else {
-      if (day < startDate) { setStartDate(day); setEndDate(null); }
-      else setEndDate(day);
+      if (tapped < startDate) {
+        setStartDate(tapped);
+        setEndDate(null);
+      } else if (tapped.getTime() === startDate.getTime()) {
+        // deselect if same day tapped
+        setStartDate(null);
+        setEndDate(null);
+      } else {
+        setEndDate(tapped);
+      }
     }
   };
 
-  const isDaySelected = (day: number) => day === startDate || day === endDate;
-  const isDayInRange = (day: number) => startDate && endDate && day > startDate && day < endDate;
-  const isDayToday = (day: number) => day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+  const isDaySelected = (day: number) => {
+    const d = new Date(currentYear, currentMonth, day);
+    return (startDate !== null && d.getTime() === startDate.getTime()) ||
+          (endDate   !== null && d.getTime() === endDate.getTime());
+  };
+
+  const isDayInRange = (day: number) => {
+    if (!startDate || !endDate) return false;
+    const d = new Date(currentYear, currentMonth, day);
+    return d > startDate && d < endDate;
+  };
+
+  const isDayToday = (day: number) =>
+    day === today.getDate() &&
+    currentMonth === today.getMonth() &&
+    currentYear === today.getFullYear();
 
   const prevMonth = () => {
     if (currentMonth === 0) { setCurrentMonth(11); setCurrentYear(y => y - 1); }
@@ -284,8 +361,8 @@ export default function PlanScreen() {
       pathname: '/(main)/pick-spots' as any,
       params: {
         city: selectedCity.name,
-        startDate: `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(startDate).padStart(2,'0')}`,
-        endDate:   `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(endDate).padStart(2,'0')}`,
+        startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
+        endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
         budget,
 
         daySchedules: JSON.stringify(formattedSchedules),
@@ -309,7 +386,14 @@ export default function PlanScreen() {
   const CELL_SIZE = (width - 40 - 32) / 7;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+<View style={{ flex: 1, backgroundColor: Theme.colors.background }}>
+  
+  <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <DesertTriangles />
+  </View>
+
+  {/* CONTENT LAYER */}
+  <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Text style={styles.backIcon}>←</Text>
@@ -402,7 +486,7 @@ export default function PlanScreen() {
                   (day && isDayToday(day) && !isDaySelected(day)) ? styles.dayCellToday : undefined,
                 ]}
                 onPress={() => day && handleDayPress(day)}
-                disabled={!day}
+                disabled={!day || isPastDay(day)}
                 activeOpacity={0.7}
               >
                 <Text style={[
@@ -418,8 +502,8 @@ export default function PlanScreen() {
           {startDate && (
             <Text style={styles.selectedRange}>
               {startDate && endDate
-                ? `${MONTHS[currentMonth]} ${startDate} → ${MONTHS[currentMonth]} ${endDate}`
-                : `From: ${MONTHS[currentMonth]} ${startDate} — select end date`}
+                ? `${MONTHS[startDate.getMonth()]} ${startDate.getDate()} → ${MONTHS[endDate.getMonth()]} ${endDate.getDate()}`
+                : `From: ${MONTHS[startDate.getMonth()]} ${startDate.getDate()} — select end date`}
             </Text>
           )}
         </View>
@@ -530,7 +614,7 @@ export default function PlanScreen() {
             </Text>
 
             {daySchedules.map((sched, i) => {
-              const d = new Date(currentYear, currentMonth, startDate + i);
+              const d = new Date(currentYear, currentMonth, startDate.getDate() + i);
               const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 
               return (
@@ -649,7 +733,7 @@ export default function PlanScreen() {
       {/* ── Next Step ── */}
       <View style={styles.bottomBar}>
         <TouchableOpacity style={styles.nextBtn} onPress={handleNext} activeOpacity={0.85}>
-          <Text style={styles.nextBtnText}>{t('plan')} →</Text>
+          <Text style={styles.nextBtnText}>{t('Generate Plan')} →</Text>
         </TouchableOpacity>
       </View>
 
@@ -683,149 +767,620 @@ export default function PlanScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+    </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { fontSize: 22, fontWeight: '700', color: '#333' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  container: { flex: 1 },
-
-  // Booking chips
- bookingBtn: {
-  flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-  gap: 8, backgroundColor: '#FFF3E0',
-  borderRadius: 14, paddingVertical: 13,
-  borderWidth: 1.5, borderColor: '#FDDCB5',
-  marginBottom: 16,
-},
-bookingBtnText: {
-  fontSize: 14, fontWeight: '700', color: '#E67E22',
-  flex: 1, textAlign: 'center',
-},
-orDivider: {
-  flexDirection: 'row', alignItems: 'center',
-  gap: 8, marginBottom: 14,
-},
-orLine:  { flex: 1, height: 1, backgroundColor: '#F0F0F0' },
-orText:  { fontSize: 11, color: '#BBB', fontWeight: '500' },
-
-  // City card
-  cityCard: { margin: 16, borderRadius: 20, overflow: 'hidden', height: 160 },
-  cityImage: { width: '100%', height: '100%' },
-  cityOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-start', padding: 12 },
-  cityPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, gap: 4 },
-  cityPillIcon: { fontSize: 12 },
-  cityPillText: { fontSize: 13, fontWeight: '600', color: '#333' },
-  cityPillArrow: { fontSize: 12, color: '#666' },
-  cityName: { position: 'absolute', bottom: 14, left: 16, fontSize: 28, fontWeight: '800', color: '#FFF' },
-
-  // Card
-  card: { backgroundColor: '#FFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 20, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 14 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
-  cardTitleText: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-
-  // Forecast
-  forecastHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  forecastSubtitle: { fontSize: 12, color: '#999' },
-  forecastDay: {
-    alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12,
-    borderRadius: 18, marginRight: 8, backgroundColor: '#F7F7F7', minWidth: 72,
+  safeArea: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
-  forecastDayToday: { backgroundColor: '#FFF3E0', borderWidth: 1.5, borderColor: '#E67E22' },
-  forecastDayName: { fontSize: 11, color: '#999', fontWeight: '700', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' },
-  forecastDayNameToday: { color: '#E67E22' },
-  forecastIconMCI: { marginBottom: 6 },
-  forecastLabel: { fontSize: 10, color: '#AAA', fontWeight: '500', marginBottom: 8, textAlign: 'center' },
-  forecastLabelToday: { color: '#C87020' },
-  forecastTemps: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  forecastMax: { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
-  forecastMaxToday: { color: '#E67E22' },
-  forecastTempSep: { fontSize: 12, color: '#CCC', fontWeight: '400' },
-  forecastMin: { fontSize: 13, color: '#AAA', fontWeight: '500' },
 
-  // Calendar
-  monthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  monthArrowBtn: { padding: 8 },
-  monthArrow: { fontSize: 22, color: '#333', fontWeight: '600' },
-  monthLabel: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
-  dayHeaders: { flexDirection: 'row', marginBottom: 6 },
-  dayHeader: { textAlign: 'center', fontSize: 11, color: '#AAA', fontWeight: '600' },
-  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  dayCell: { justifyContent: 'center', alignItems: 'center', borderRadius: 100 },
-  dayCellSelected: { backgroundColor: '#E67E22' },
-  dayCellInRange: { backgroundColor: '#FFF3E0', borderRadius: 0 },
-  dayCellToday: { borderWidth: 1.5, borderColor: '#E67E22' },
-  dayCellText: { fontSize: 13, color: '#333', fontWeight: '500' },
-  dayCellTextSelected: { color: '#FFF', fontWeight: '700' },
-  dayCellTextRange: { color: '#E67E22' },
-  selectedRange: { marginTop: 10, fontSize: 13, color: '#E67E22', fontWeight: '600', textAlign: 'center' },
+header: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingHorizontal: 20,
+  paddingVertical: 14,
 
-  // Budget
-  budgetRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#EEE', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
-  budgetCurrency: { fontSize: 18, fontWeight: '700', color: '#333', marginRight: 8 },
-  budgetInput: { flex: 1, fontSize: 16, color: '#333' },
-  helperText: { fontSize: 13, color: '#888', marginTop: -6, marginBottom: 12, lineHeight: 18 },
-  dayHourRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
-  dayHourLabel: { fontSize: 14, color: '#333', fontWeight: '500' },
+  backgroundColor: 'rgba(255,255,255,0.85)',
+  borderBottomWidth: 0,
+},
+
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.card,
+  },
+
+  backIcon: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  container: {
+    flex: 1,
+  },
+
+  // ── Booking chips ───────────────────────────────────────────────
+  bookingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 14,
+    paddingVertical: 13,
+
+    borderWidth: 1.5,
+    borderColor: Theme.colors.primary,
+    marginBottom: 16,
+  },
+
+  bookingBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+  },
+
+  orDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+
+  orText: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    fontWeight: '500',
+  },
+
+  // ── City card ───────────────────────────────────────────────
+  cityCard: {
+    margin: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: 160,
+  },
+
+  cityImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  cityOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    padding: 12,
+  },
+
+  cityPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 4,
+  },
+
+  cityPillIcon: { fontSize: 12 },
+
+  cityPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+
+  cityPillArrow: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  cityName: {
+    position: 'absolute',
+    bottom: 14,
+    left: 16,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+
+  // ── Card ───────────────────────────────────────────────
+  card: {
+    backgroundColor: Theme.colors.card,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginBottom: 14,
+  },
+
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+
+  cardTitleText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  // ── Forecast ───────────────────────────────────────────────
+  forecastHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+
+  forecastSubtitle: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  forecastDay: {
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: '#F7F7F7',
+    minWidth: 72,
+  },
+
+  forecastDayToday: {
+    backgroundColor: Theme.colors.primary + '22',
+    borderWidth: 1.5,
+    borderColor: Theme.colors.primary,
+  },
+
+  forecastDayName: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+
+  forecastDayNameToday: {
+    color: Theme.colors.primary,
+  },
+
+  forecastIconMCI: {
+    marginBottom: 6,
+  },
+
+  forecastLabel: {
+    fontSize: 10,
+    color: Theme.colors.muted,
+    fontWeight: '500',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+
+  forecastLabelToday: {
+    color: Theme.colors.primary,
+  },
+
+  forecastTemps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+
+  forecastMax: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Theme.colors.text,
+  },
+
+  forecastMaxToday: {
+    color: Theme.colors.primary,
+  },
+
+  forecastTempSep: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  forecastMin: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+  },
+
+  // ── Calendar ───────────────────────────────────────────────
+  monthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+
+  monthArrowBtn: {
+    padding: 8,
+  },
+
+  monthArrow: {
+    fontSize: 22,
+    color: Theme.colors.text,
+  },
+
+  monthLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  dayHeaders: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+
+  dayHeader: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+  },
+
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+
+  dayCell: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 100,
+  },
+
+  dayCellSelected: {
+    backgroundColor: Theme.colors.primary,
+  },
+
+  dayCellInRange: {
+    backgroundColor: Theme.colors.primary + '22',
+    borderRadius: 0,
+  },
+
+  dayCellToday: {
+    borderWidth: 1.5,
+    borderColor: Theme.colors.primary,
+  },
+
+  dayCellText: {
+    fontSize: 13,
+    color: Theme.colors.text,
+    fontWeight: '500',
+  },
+
+  dayCellTextSelected: {
+    color: '#FFF',
+    fontWeight: '700',
+  },
+
+  dayCellTextRange: {
+    color: Theme.colors.primary,
+  },
+
+  selectedRange: {
+    marginTop: 10,
+    fontSize: 13,
+    color: Theme.colors.primary,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  // ── Budget ───────────────────────────────────────────────
+  budgetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#EEE',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+
+  budgetCurrency: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginRight: 8,
+  },
+
+  budgetInput: {
+    flex: 1,
+    fontSize: 16,
+    color: Theme.colors.text,
+  },
+
+  helperText: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    marginTop: -6,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+
+  dayHourRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+
+  dayHourLabel: {
+    fontSize: 14,
+    color: Theme.colors.text,
+    fontWeight: '500',
+  },
+
   dayHourInputBox: {
     flex: 0,
     backgroundColor: '#F7F7F7',
     borderRadius: 10,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    alignItems: 'flex-start',
     justifyContent: 'center',
-    minHeight: 20,   // 👈 smaller height
-    },
-    dayHourText: {
+    minHeight: 20,
+  },
+
+  dayHourText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#1A1A1A',
+    color: Theme.colors.text,
   },
-    dayHourUnit: {
+
+  dayHourUnit: {
     fontSize: 10,
-    color: '#888',
-    marginBottom: 2,
+    color: Theme.colors.muted,
   },
 
-  // Location
-  locationConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F0FBF4', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 },
-  locationConfirmedText: { flex: 1, fontSize: 13, color: '#27AE60', fontWeight: '600' },
-  locationInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  locationInput: { flex: 1, borderWidth: 1, borderColor: '#EEE', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#333' },
-  locationSearchBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center' },
-  gpsBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
-  gpsBtnText: { fontSize: 13, color: '#E67E22', fontWeight: '600' },
+  // ── Location ───────────────────────────────────────────────
+  locationConfirmed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F0FBF4',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
 
-  // Interests
-  interestsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  interestTag: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F5F5F5', borderRadius: 30, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1.5, borderColor: 'transparent' },
-  interestTagSelected: { backgroundColor: '#FFF3E0', borderColor: '#E67E22' },
-  interestIcon: { fontSize: 14 },
-  interestLabel: { fontSize: 13, color: '#666', fontWeight: '500' },
-  interestLabelSelected: { color: '#E67E22', fontWeight: '700' },
+  locationConfirmedText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#27AE60',
+    fontWeight: '600',
+  },
 
-  // Bottom bar
-  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 30, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 8 },
-  nextBtn: { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 16, alignItems: 'center' },
-  nextBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  locationInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
 
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '70%', paddingBottom: 30 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  modalClose: { fontSize: 18, color: '#999', fontWeight: '600' },
-  cityOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F8F8F8', gap: 12 },
-  cityOptionSelected: { backgroundColor: '#FFF8F0' },
-  cityOptionImage: { width: 44, height: 44, borderRadius: 10 },
-  cityOptionText: { flex: 1, fontSize: 15, color: '#333', fontWeight: '500' },
-  cityOptionTextSelected: { color: '#E67E22', fontWeight: '700' },
-  cityOptionCheck: { fontSize: 16, color: '#E67E22', fontWeight: '700' },
+  locationInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#EEE',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
+    color: Theme.colors.text,
+  },
+
+  locationSearchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: Theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  gpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+  },
+
+  gpsBtnText: {
+    fontSize: 13,
+    color: Theme.colors.primary,
+    fontWeight: '600',
+  },
+
+  // ── Interests ───────────────────────────────────────────────
+  interestsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  interestTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 30,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+
+  interestTagSelected: {
+    backgroundColor: Theme.colors.primary + '22',
+    borderColor: Theme.colors.primary,
+  },
+
+  interestIcon: {
+    fontSize: 14,
+  },
+
+  interestLabel: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    fontWeight: '500',
+  },
+
+  interestLabelSelected: {
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
+
+  // ── Bottom bar ───────────────────────────────────────────────
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Theme.colors.card,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 30,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+
+  nextBtn: {
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 30,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+
+  nextBtnText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // ── Modal ───────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  modalSheet: {
+    backgroundColor: Theme.colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '70%',
+    paddingBottom: 30,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  modalClose: {
+    fontSize: 18,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+  },
+
+  cityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F8F8',
+    gap: 12,
+  },
+
+  cityOptionSelected: {
+    backgroundColor: Theme.colors.primary + '22',
+  },
+
+  cityOptionImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+  },
+
+  cityOptionText: {
+    flex: 1,
+    fontSize: 15,
+    color: Theme.colors.text,
+    fontWeight: '500',
+  },
+
+  cityOptionTextSelected: {
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
+
+  cityOptionCheck: {
+    fontSize: 16,
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
 });
