@@ -12,8 +12,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 import { Attraction } from '../../constants/types';
 import AttractionSheet from '../../components/AttractionSheet';
-import * as Notifications from 'expo-notifications';
-import { scheduleItineraryNotifications, cancelItineraryNotifications, requestNotificationPermission } from '../../notifications';
 
 const { width } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -269,8 +267,6 @@ export default function ItineraryScreen() {
   const [activeDay, setActiveDay] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [scheduledNotifIds, setScheduledNotifIds] = useState<string[]>([]);
   const [planSaving, setPlanSaving] = useState(false);
   const [planSaved, setPlanSaved] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
@@ -838,33 +834,6 @@ export default function ItineraryScreen() {
     }
   };
 
-  const toggleNotifications = async (): Promise<void> => {
-  if (notificationsEnabled) {
-    await cancelItineraryNotifications(scheduledNotifIds);
-    setScheduledNotifIds([]);
-    setNotificationsEnabled(false);
-    Alert.alert('Notifications off', 'Plan reminders cancelled.');
-    return;
-  }
-  const granted = await requestNotificationPermission();
-  if (!granted) {
-    Alert.alert('Permission required', 'Please enable notifications in your phone settings.');
-    return;
-  }
-  const allIds: string[] = [];
-  for (let i = 0; i < days.length; i++) {
-    const day = days[i];
-    const planStart = new Date(startDate);
-    const dayDate = new Date(planStart);
-    dayDate.setDate(planStart.getDate() + i);
-    const ids = await scheduleItineraryNotifications(day.activities, dayDate, 10);
-    allIds.push(...ids);
-  }
-  setScheduledNotifIds(allIds);
-  setNotificationsEnabled(true);
-  Alert.alert('🔔 Reminders set!', `You will get notified 10 minutes before each stop.`);
-};
-
   const savePlan = async (): Promise<void> => {
     if (planSaved || planSaving) return;
     setPlanSaving(true);
@@ -932,17 +901,6 @@ export default function ItineraryScreen() {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('plan')}</Text>
-        <TouchableOpacity
-  style={styles.saveBtn}
-  onPress={toggleNotifications}
-  activeOpacity={0.7}
->
-  <MaterialCommunityIcons
-    name={notificationsEnabled ? 'bell-ring' : 'bell-outline'}
-    size={24}
-    color={notificationsEnabled ? '#E67E22' : '#888'}
-  />
-</TouchableOpacity>
         <TouchableOpacity
           style={styles.saveBtn}
           onPress={savePlan}
