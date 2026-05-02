@@ -1,10 +1,13 @@
 // app/(admin)/dashboard.tsx
 import React, { useState, useEffect } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, StatusBar, RefreshControl,
   Alert, TextInput, Modal, Dimensions,
 } from 'react-native';
+
+type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -31,9 +34,9 @@ interface User {
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────
-const StatCard: React.FC<{ icon: string; label: string; value: string | number; color: string }> = ({ icon, label, value, color }) => (
+const StatCard: React.FC<{ iconName: MCIconName; label: string; value: string | number; color: string }> = ({ iconName, label, value, color }) => (
   <View style={[styles.statCard, { borderLeftColor: color }]}>
-    <Text style={styles.statIcon}>{icon}</Text>
+    <MaterialCommunityIcons name={iconName} size={24} color={color} style={{ marginBottom: 8 }} />
     <Text style={[styles.statValue, { color }]}>{value}</Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
@@ -50,7 +53,7 @@ const UserRow: React.FC<{
     {/* Top: avatar + info */}
     <View style={styles.userRowTop}>
       <View style={[styles.userAvatar, user.role === 'admin' && styles.userAvatarAdmin]}>
-        <Text style={styles.userAvatarText}>{user.role === 'admin' ? '👑' : '👤'}</Text>
+        <MaterialCommunityIcons name={user.role === 'admin' ? 'crown' : 'account'} size={20} color={user.role === 'admin' ? '#E67E22' : '#666'} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.userNameRow}>
@@ -60,30 +63,35 @@ const UserRow: React.FC<{
           </View>
         </View>
         <Text style={styles.userEmail}>{user.email}</Text>
-        <Text style={styles.userMeta}>⭐ {user.points} pts · ❤️ {user.favorites_count} saved</Text>
+        <Text style={styles.userMeta}>
+          <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {user.points} pts · <MaterialCommunityIcons name="heart" size={12} color="#E74C3C" /> {user.favorites_count} saved
+        </Text>
       </View>
     </View>
 
     {/* Bottom: action buttons */}
     <View style={styles.userRowActions}>
-      <TouchableOpacity style={styles.addPtsBtn} onPress={() => onAddPoints(user)}>
-        <Text style={styles.addPtsBtnText}>⭐ Add pts</Text>
+      <TouchableOpacity style={[styles.addPtsBtn, { flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => onAddPoints(user)}>
+        <MaterialCommunityIcons name="star-plus" size={14} color="#27AE60" />
+        <Text style={styles.addPtsBtnText}>Add pts</Text>
       </TouchableOpacity>
 
       {/* id=1 is the protected super-admin, can't be touched */}
       {user.id !== 1 && (
         <>
           <TouchableOpacity
-            style={[styles.roleBtn, user.role === 'admin' ? styles.roleBtnDemote : styles.roleBtnPromote]}
+            style={[styles.roleBtn, user.role === 'admin' ? styles.roleBtnDemote : styles.roleBtnPromote, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}
             onPress={() => onToggleRole(user)}
           >
+            <MaterialCommunityIcons name={user.role === 'admin' ? 'arrow-down-bold' : 'arrow-up-bold'} size={14} color="#555" />
             <Text style={styles.roleBtnText}>
-              {user.role === 'admin' ? '⬇️ Demote' : '⬆️ Promote'}
+              {user.role === 'admin' ? 'Demote' : 'Promote'}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.deleteUserBtn} onPress={() => onDelete(user.id, user.username)}>
-            <Text style={styles.deleteUserBtnText}>🗑️ Delete</Text>
+          <TouchableOpacity style={[styles.deleteUserBtn, { flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => onDelete(user.id, user.username)}>
+            <MaterialCommunityIcons name="trash-can" size={14} color="#E74C3C" />
+            <Text style={styles.deleteUserBtnText}>Delete</Text>
           </TouchableOpacity>
         </>
       )}
@@ -239,7 +247,10 @@ export default function AdminDashboard() {
       {/* ── Header ── */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>👑 Admin Panel</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <MaterialCommunityIcons name="crown" size={24} color="#F1C40F" />
+            <Text style={styles.headerTitle}>Admin Panel</Text>
+          </View>
           <Text style={styles.headerSubtitle}>TourMate Dashboard</Text>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
@@ -251,9 +262,16 @@ export default function AdminDashboard() {
       <View style={styles.tabs}>
         {(['overview', 'users', 'attractions'] as const).map(tab => (
           <TouchableOpacity key={tab} style={[styles.tab, activeTab === tab && styles.tabActive]} onPress={() => setActiveTab(tab)}>
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab === 'overview' ? '📊 Overview' : tab === 'users' ? '👥 Users' : '🏛️ Attractions'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <MaterialCommunityIcons 
+                name={tab === 'overview' ? 'chart-bar' : tab === 'users' ? 'account-group' : 'bank'} 
+                size={16} 
+                color={activeTab === tab ? '#FFF' : 'rgba(255,255,255,0.5)'} 
+              />
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                {tab === 'overview' ? 'Overview' : tab === 'users' ? 'Users' : 'Attractions'}
+              </Text>
+            </View>
           </TouchableOpacity>
         ))}
       </View>
@@ -267,12 +285,15 @@ export default function AdminDashboard() {
           <View style={styles.tabContent}>
             <Text style={styles.sectionTitle}>App Statistics</Text>
             <View style={styles.statsGrid}>
-              <StatCard icon="👥" label="Total Users" value={stats.total_users} color="#3498DB" />
-              <StatCard icon="🏛️" label="Attractions" value={stats.total_attractions} color="#E67E22" />
-              <StatCard icon="❤️" label="Total Favorites" value={stats.total_favorites} color="#E74C3C" />
-              <StatCard icon="⭐" label="Points Earned" value={stats.total_points} color="#F39C12" />
+              <StatCard iconName="account-group" label="Total Users" value={stats.total_users} color="#3498DB" />
+              <StatCard iconName="bank" label="Attractions" value={stats.total_attractions} color="#E67E22" />
+              <StatCard iconName="heart" label="Total Favorites" value={stats.total_favorites} color="#E74C3C" />
+              <StatCard iconName="star" label="Points Earned" value={stats.total_points} color="#F39C12" />
             </View>
-            <Text style={styles.sectionTitle}>🏆 Most Favorited Attractions</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 12 }}>
+              <MaterialCommunityIcons name="trophy" size={20} color="#E67E22" />
+              <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>Most Favorited Attractions</Text>
+            </View>
             {stats.top_attractions.map((a, i) => (
               <View key={i} style={styles.topAttractionRow}>
                 <Text style={styles.topAttractionRank}>#{i + 1}</Text>
@@ -280,7 +301,10 @@ export default function AdminDashboard() {
                   <Text style={styles.topAttractionName}>{a.name}</Text>
                   <Text style={styles.topAttractionCity}>{a.city}</Text>
                 </View>
-                <Text style={styles.topAttractionFavs}>❤️ {a.favorites}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <MaterialCommunityIcons name="heart" size={14} color="#E74C3C" />
+                  <Text style={styles.topAttractionFavs}>{a.favorites}</Text>
+                </View>
               </View>
             ))}
           </View>
@@ -306,8 +330,9 @@ export default function AdminDashboard() {
         {activeTab === 'attractions' && (
           <View style={styles.tabContent}>
             <Text style={styles.sectionTitle}>Manage Attractions</Text>
-            <TouchableOpacity style={styles.manageBtn} onPress={() => router.push('/(admin)/attractions' as any)}>
-              <Text style={styles.manageBtnText}>🏛️ View & Edit All Attractions →</Text>
+            <TouchableOpacity style={[styles.manageBtn, { flexDirection: 'row', justifyContent: 'center', gap: 8 }]} onPress={() => router.push('/(admin)/attractions' as any)}>
+              <MaterialCommunityIcons name="bank" size={18} color="#FFF" />
+              <Text style={styles.manageBtnText}>View & Edit All Attractions →</Text>
             </TouchableOpacity>
           </View>
         )}

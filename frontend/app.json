@@ -10,7 +10,8 @@
     "newArchEnabled": true,
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "ios": {
       "supportsTablet": true
@@ -29,6 +30,10 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.misho123.TourMate"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -51,7 +56,9 @@
         }
       ],
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      "expo-asset",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,10 +1,11 @@
 // frontend/api.ts
 import axios from 'axios';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'localhost';
+const raw = process.env.EXPO_PUBLIC_API_URL ?? 'localhost';
+const baseURL = raw.startsWith('http') ? `${raw}/api` : `http://${raw}:3000/api`;
 
 const api = axios.create({
-  baseURL: `http://${API_URL}:3000/api`,
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },

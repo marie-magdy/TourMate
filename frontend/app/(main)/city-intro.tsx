@@ -2,11 +2,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Image, ActivityIndicator, SafeAreaView, Modal, FlatList,
+  Image, ActivityIndicator, SafeAreaView, Modal,
   Dimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+import DesertTriangles from '../../components/DesertTriangles';
+import { Theme } from '../../constants/theme';
+
+type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 const { width } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -14,22 +20,22 @@ const AVIATION_KEY = process.env.EXPO_PUBLIC_AVIATIONSTACK_KEY;
 
 // ── Airport codes per city ────────────────────────────────────────────
 const CITY_AIRPORTS: Record<string, { code: string; name: string }> = {
-  'Hurghada': { code: 'HRG', name: 'Hurghada International' },
-  'Cairo': { code: 'CAI', name: 'Cairo International' },
-  'Alexandria': { code: 'HBE', name: 'Borg El Arab' },
-  'Luxor': { code: 'LXR', name: 'Luxor International' },
-  'Aswan': { code: 'ASW', name: 'Aswan International' },
-  'Sharm El Sheikh': { code: 'SSH', name: 'Sharm El Sheikh International' },
+  'Hurghada':       { code: 'HRG', name: 'Hurghada International' },
+  'Cairo':          { code: 'CAI', name: 'Cairo International' },
+  'Alexandria':     { code: 'HBE', name: 'Borg El Arab' },
+  'Luxor':          { code: 'LXR', name: 'Luxor International' },
+  'Aswan':          { code: 'ASW', name: 'Aswan International' },
+  'Sharm El Sheikh':{ code: 'SSH', name: 'Sharm El Sheikh International' },
 };
 
 // ── Departure cities ──────────────────────────────────────────────────
 const DEPARTURE_CITIES = [
-  { city: 'Alexandria', code: 'HBE', flag: '🇪🇬' },
-  { city: 'Cairo', code: 'CAI', flag: '🇪🇬' },
-  { city: 'Dubai', code: 'DXB', flag: '🇦🇪' },
-  { city: 'London', code: 'LHR', flag: '🇬🇧' },
-  { city: 'Riyadh', code: 'RUH', flag: '🇸🇦' },
-  { city: 'Kuwait', code: 'KWI', flag: '🇰🇼' },
+  { city: 'Alexandria', code: 'HBE' },
+  { city: 'Cairo',      code: 'CAI' },
+  { city: 'Dubai',      code: 'DXB' },
+  { city: 'London',     code: 'LHR' },
+  { city: 'Riyadh',     code: 'RUH' },
+  { city: 'Kuwait',     code: 'KWI' },
 ];
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -43,7 +49,6 @@ interface Flight {
   duration: string;
   class: string;
   price: number;
-  logo: string;
 }
 
 interface Hotel {
@@ -68,7 +73,6 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     duration: '2h 15m',
     class: 'Economy',
     price: 199,
-    logo: '🛫',
   },
   {
     airline: 'Air Arabia',
@@ -80,7 +84,6 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     duration: '2h 15m',
     class: 'Economy',
     price: 149,
-    logo: '✈️',
   },
   {
     airline: 'EgyptAir',
@@ -92,7 +95,6 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     duration: '2h 15m',
     class: 'Business',
     price: 349,
-    logo: '🛫',
   },
 ];
 
@@ -100,7 +102,12 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
 const Stars: React.FC<{ count: number }> = ({ count }) => (
   <View style={{ flexDirection: 'row' }}>
     {Array.from({ length: 5 }).map((_, i) => (
-      <Text key={i} style={{ color: i < count ? '#FFC107' : '#DDD', fontSize: 12 }}>★</Text>
+      <MaterialCommunityIcons
+        key={i}
+        name={i < count ? 'star' : 'star-outline'}
+        size={12}
+        color={i < count ? '#FFC107' : '#DDD'}
+      />
     ))}
   </View>
 );
@@ -152,11 +159,9 @@ export default function CityIntroScreen() {
           duration: '2h 15m',
           class: i === 2 ? 'Business' : 'Economy',
           price: i === 2 ? 349 : 149 + (i * 50),
-          logo: '✈️',
         }));
         setFlights(mapped);
       } else {
-        // Fallback to sample data if API returns nothing
         setFlights(getSampleFlights(fromCode, toAirport.code));
       }
     } catch (err) {
@@ -195,9 +200,38 @@ export default function CityIntroScreen() {
   const total = hotelTotal + flightTotal;
 
   const handleDetermineplan = () => {
-    if (!selectedFlight) { alert('Please select a flight.'); return; }
-    if (!selectedHotel) { alert('Please select a hotel.'); return; }
-    alert(`🎉 Your plan is confirmed!\n\nFlight: ${selectedFlight.airline} ${selectedFlight.flightNumber}\nHotel: ${selectedHotel.name}\nTotal: ${convertPrice(total)}`);
+    // Both selected
+    if (selectedFlight && selectedHotel) {
+      router.push({
+        pathname: '/(main)/plan' as any,
+        params: {
+          autoFillLocation: selectedHotel.name,
+          autoFillCity: selectedHotel.city,
+        },
+      });
+      return;
+    }
+
+    // Only hotel
+    if (!selectedFlight && selectedHotel) {
+      router.push({
+        pathname: '/(main)/plan' as any,
+        params: {
+          autoFillLocation: selectedHotel.name,
+          autoFillCity: selectedHotel.city,
+        },
+      });
+      return;
+    }
+
+    // Only flight
+    if (selectedFlight && !selectedHotel) {
+      router.back(); // just go back, no location to fill
+      return;
+    }
+
+    // Nothing selected — just go back
+    router.back();
   };
 
   const changeDeparture = (dep: typeof DEPARTURE_CITIES[0]) => {
@@ -207,12 +241,19 @@ export default function CityIntroScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+<View style={{ flex: 1, backgroundColor: Theme.colors.background }}>
+  
+  <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <DesertTriangles />
+  </View>
+
+  {/* CONTENT LAYER */}
+  <SafeAreaView style={styles.safeArea}>
 
       {/* ── Header ── */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <MaterialCommunityIcons name="arrow-left" size={22} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('plan')}</Text>
         <View style={{ width: 40 }} />
@@ -222,31 +263,34 @@ export default function CityIntroScreen() {
 
         {/* ── Destination banner ── */}
         <View style={styles.destinationBanner}>
-          <Text style={styles.destinationIcon}>📍</Text>
+          <MaterialCommunityIcons name="map-marker" size={20} color="#E67E22" />
           <Text style={styles.destinationText}>Traveling to {city}</Text>
           {planId && <Text style={styles.planId}>Plan #{planId}</Text>}
         </View>
 
         {/* ── Departure selector ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('whereTo')}</Text>
+          <Text style={styles.sectionTitle}>{t('Select Departure City')}</Text>
           <TouchableOpacity
             style={styles.departureSelector}
             onPress={() => setShowDepartureModal(true)}
           >
-            <Text style={styles.departurFlag}>{selectedDeparture.flag}</Text>
+            <MaterialCommunityIcons name="flag-variant" size={26} color="#E67E22" />
             <View style={styles.departureSelectorText}>
               <Text style={styles.departureCityName}>{selectedDeparture.city}</Text>
               <Text style={styles.departureCode}>{selectedDeparture.code} Airport</Text>
             </View>
-            <Text style={styles.departureSelectorArrow}>▾</Text>
+            <MaterialCommunityIcons name="chevron-down" size={18} color="#999" />
           </TouchableOpacity>
         </View>
 
         {/* ── Flights ── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>✈️ {t('flights')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialCommunityIcons name="airplane" size={18} color="#1A1A1A" />
+              <Text style={styles.sectionTitle}>{t('flights')}</Text>
+            </View>
             <Text style={styles.sectionSubtitle}>{selectedDeparture.code} → {CITY_AIRPORTS[city]?.code ?? 'HRG'}</Text>
           </View>
 
@@ -257,12 +301,14 @@ export default function CityIntroScreen() {
               <TouchableOpacity
                 key={index}
                 style={[styles.flightCard, selectedFlight === flight && styles.flightCardSelected]}
-                onPress={() => setSelectedFlight(flight)}
+                onPress={() => setSelectedFlight(prev => prev === flight ? null : flight)}
                 activeOpacity={0.85}
               >
                 <View style={styles.flightTop}>
                   <View style={styles.flightAirline}>
-                    <Text style={styles.flightLogo}>{flight.logo}</Text>
+                    <View style={styles.flightLogoBox}>
+                      <MaterialCommunityIcons name="airplane" size={22} color="#1A1A1A" />
+                    </View>
                     <View>
                       <Text style={styles.flightAirlineName}>{flight.airline}</Text>
                       <Text style={styles.flightNumber}>{flight.flightNumber}</Text>
@@ -283,7 +329,7 @@ export default function CityIntroScreen() {
                     <View style={styles.flightLine}>
                       <View style={styles.flightDot} />
                       <View style={styles.flightLineBar} />
-                      <Text style={styles.flightPlane}>✈</Text>
+                      <MaterialCommunityIcons name="airplane" size={14} color="#E67E22" />
                     </View>
                   </View>
                   <View style={styles.flightTime}>
@@ -299,7 +345,8 @@ export default function CityIntroScreen() {
 
                 {selectedFlight === flight && (
                   <View style={styles.selectedBadge}>
-                    <Text style={styles.selectedBadgeText}>✓ Selected</Text>
+                    <MaterialCommunityIcons name="check" size={12} color="#FFF" />
+                    <Text style={styles.selectedBadgeText}> Selected</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -310,7 +357,10 @@ export default function CityIntroScreen() {
         {/* ── Hotels ── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🏨 {t('hotels')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialCommunityIcons name="bed" size={18} color="#1A1A1A" />
+              <Text style={styles.sectionTitle}>{t('hotels')}</Text>
+            </View>
             <Text style={styles.sectionSubtitle}>{nights} nights</Text>
           </View>
 
@@ -323,14 +373,17 @@ export default function CityIntroScreen() {
               <TouchableOpacity
                 key={hotel.id}
                 style={[styles.hotelCard, selectedHotel?.id === hotel.id && styles.hotelCardSelected]}
-                onPress={() => setSelectedHotel(hotel)}
+                onPress={() => setSelectedHotel(prev => prev?.id === hotel.id ? null : hotel)}
                 activeOpacity={0.85}
               >
                 <Image source={{ uri: hotel.image_url }} style={styles.hotelImage} />
                 <View style={styles.hotelInfo}>
                   <Text style={styles.hotelName} numberOfLines={1}>{hotel.name}</Text>
                   <Stars count={hotel.stars} />
-                  <Text style={styles.hotelRating}>⭐ {hotel.rating}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <MaterialCommunityIcons name="star" size={12} color="#FFC107" />
+                    <Text style={styles.hotelRating}>{hotel.rating}</Text>
+                  </View>
                   <View style={styles.hotelPriceRow}>
                     <Text style={styles.hotelPrice}>{convertPrice(hotel.price_per_night)}</Text>
                     <Text style={styles.hotelPriceNight}>/night</Text>
@@ -339,7 +392,7 @@ export default function CityIntroScreen() {
                 </View>
                 {selectedHotel?.id === hotel.id && (
                   <View style={styles.selectedBadge}>
-                    <Text style={styles.selectedBadgeText}>✓</Text>
+                    <MaterialCommunityIcons name="check" size={12} color="#FFF" />
                   </View>
                 )}
               </TouchableOpacity>
@@ -353,13 +406,19 @@ export default function CityIntroScreen() {
             <Text style={styles.summaryTitle}>Cost Summary</Text>
             {selectedFlight && (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>✈️ Flights (round trip)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="airplane" size={14} color="#555" />
+                  <Text style={styles.summaryLabel}>Flights (round trip)</Text>
+                </View>
                 <Text style={styles.summaryValue}>{convertPrice(flightTotal)}</Text>
               </View>
             )}
             {selectedHotel && (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>🏨 Hotel ({nights} nights)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="bed" size={14} color="#555" />
+                  <Text style={styles.summaryLabel}>Hotel ({nights} nights)</Text>
+                </View>
                 <Text style={styles.summaryValue}>{convertPrice(hotelTotal)}</Text>
               </View>
             )}
@@ -377,11 +436,22 @@ export default function CityIntroScreen() {
       {/* ── Determine Plan Button ── */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
-          style={[styles.determineBtn, (!selectedFlight || !selectedHotel) && styles.determineBtnDisabled]}
+          style={styles.determineBtn}
           onPress={handleDetermineplan}
           activeOpacity={0.85}
         >
-          <Text style={styles.determineBtnText}>{t('plan')} ✓</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <MaterialCommunityIcons name="check-circle-outline" size={20} color="#FFF" />
+            <Text style={styles.determineBtnText}>
+              {selectedFlight && selectedHotel
+                ? 'Confirm Flight + Hotel →'
+                : selectedHotel
+                ? 'Continue with Hotel →'
+                : selectedFlight
+                ? 'Continue with Flight →'
+                : 'Skip — Add location manually'}
+            </Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -392,7 +462,7 @@ export default function CityIntroScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Departure City</Text>
               <TouchableOpacity onPress={() => setShowDepartureModal(false)}>
-                <Text style={styles.modalClose}>✕</Text>
+                <MaterialCommunityIcons name="close" size={22} color="#999" />
               </TouchableOpacity>
             </View>
             {DEPARTURE_CITIES.map(dep => (
@@ -401,13 +471,13 @@ export default function CityIntroScreen() {
                 style={[styles.depOption, selectedDeparture.code === dep.code && styles.depOptionSelected]}
                 onPress={() => changeDeparture(dep)}
               >
-                <Text style={styles.depFlag}>{dep.flag}</Text>
+                <MaterialCommunityIcons name="flag-variant" size={22} color="#E67E22" />
                 <View style={styles.depOptionText}>
                   <Text style={styles.depCityName}>{dep.city}</Text>
                   <Text style={styles.depCode}>{dep.code} Airport</Text>
                 </View>
                 {selectedDeparture.code === dep.code && (
-                  <Text style={styles.depCheck}>✓</Text>
+                  <MaterialCommunityIcons name="check" size={18} color="#E67E22" />
                 )}
               </TouchableOpacity>
             ))}
@@ -416,106 +486,503 @@ export default function CityIntroScreen() {
       </Modal>
 
     </SafeAreaView>
+    </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { fontSize: 22, fontWeight: '700', color: '#333' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  container: { flex: 1 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+
+header: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingHorizontal: 20,
+  paddingVertical: 14,
+
+  backgroundColor: 'rgba(255,255,255,0.85)',
+  borderBottomWidth: 0,
+},
+
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  backIcon: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  container: {
+    flex: 1,
+  },
 
   // Destination banner
-  destinationBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF3E0', margin: 16, borderRadius: 16, padding: 14, gap: 8 },
-  destinationIcon: { fontSize: 20 },
-  destinationText: { flex: 1, fontSize: 15, fontWeight: '700', color: '#E67E22' },
-  planId: { fontSize: 12, color: '#999' },
+  destinationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.gold,
+    margin: 16,
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+  },
+
+  destinationText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+
+  planId: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
 
   // Section
-  section: { marginHorizontal: 16, marginBottom: 16 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A', marginBottom: 10 },
-  sectionSubtitle: { fontSize: 12, color: '#999' },
-  emptyText: { fontSize: 14, color: '#999', textAlign: 'center', paddingVertical: 20 },
+  section: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginBottom: 10,
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  emptyText: {
+    fontSize: 14,
+    color: Theme.colors.muted,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
 
   // Departure selector
-  departureSelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, padding: 14, gap: 12, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
-  departurFlag: { fontSize: 28 },
-  departureSelectorText: { flex: 1 },
-  departureCityName: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
-  departureCode: { fontSize: 12, color: '#999', marginTop: 2 },
-  departureSelectorArrow: { fontSize: 14, color: '#999' },
+  departureSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  departureSelectorText: {
+    flex: 1,
+  },
+
+  departureCityName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  departureCode: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
 
   // Flight card
-  flightCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2, borderWidth: 1.5, borderColor: 'transparent' },
-  flightCardSelected: { borderColor: '#E67E22', backgroundColor: '#FFFAF5' },
-  flightTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  flightAirline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  flightLogo: { fontSize: 24 },
-  flightAirlineName: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-  flightNumber: { fontSize: 12, color: '#999', marginTop: 2 },
-  flightClassBadge: { backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  flightClassText: { fontSize: 11, color: '#E67E22', fontWeight: '700' },
-  flightRoute: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  flightTime: { alignItems: 'center' },
-  flightTimeText: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  flightCode: { fontSize: 12, color: '#999', marginTop: 2 },
-  flightMiddle: { flex: 1, alignItems: 'center', paddingHorizontal: 10 },
-  flightDuration: { fontSize: 11, color: '#999', marginBottom: 4 },
-  flightLine: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  flightDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E67E22' },
-  flightLineBar: { flex: 1, height: 1.5, backgroundColor: '#E0E0E0' },
-  flightPlane: { fontSize: 14 },
-  flightBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F5F5F5', paddingTop: 10 },
-  flightPriceLabel: { fontSize: 12, color: '#999' },
-  flightPrice: { fontSize: 18, fontWeight: '800', color: '#E67E22' },
+  flightCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+
+  flightCardSelected: {
+    borderColor: Theme.colors.primary,
+    backgroundColor: '#FFF7EF',
+  },
+
+  flightTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+
+  flightAirline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  flightLogoBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  flightAirlineName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  flightNumber: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
+
+  flightClassBadge: {
+    backgroundColor: Theme.colors.gold,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+
+  flightClassText: {
+    fontSize: 11,
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
+
+  flightRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+
+  flightTime: {
+    alignItems: 'center',
+  },
+
+  flightTimeText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Theme.colors.text,
+  },
+
+  flightCode: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
+
+  flightMiddle: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+
+  flightDuration: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    marginBottom: 4,
+  },
+
+  flightLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+
+  flightDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Theme.colors.primary,
+  },
+
+  flightLineBar: {
+    flex: 1,
+    height: 1.5,
+    backgroundColor: '#E0E0E0',
+  },
+
+  flightBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#F5F5F5',
+    paddingTop: 10,
+  },
+
+  flightPriceLabel: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  flightPrice: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Theme.colors.primary,
+  },
 
   // Hotel card
-  hotelCard: { backgroundColor: '#FFF', borderRadius: 16, flexDirection: 'row', overflow: 'hidden', marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2, borderWidth: 1.5, borderColor: 'transparent' },
-  hotelCardSelected: { borderColor: '#E67E22' },
-  hotelImage: { width: 110, height: 110 },
-  hotelInfo: { flex: 1, padding: 12 },
-  hotelName: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  hotelRating: { fontSize: 12, color: '#666', marginTop: 4 },
-  hotelPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2, marginTop: 6 },
-  hotelPrice: { fontSize: 18, fontWeight: '800', color: '#E67E22' },
-  hotelPriceNight: { fontSize: 12, color: '#999' },
-  hotelTotal: { fontSize: 11, color: '#999', marginTop: 2 },
+  hotelCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+
+  hotelCardSelected: {
+    borderColor: Theme.colors.primary,
+  },
+
+  hotelImage: {
+    width: 110,
+    height: 110,
+  },
+
+  hotelInfo: {
+    flex: 1,
+    padding: 12,
+  },
+
+  hotelName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginBottom: 4,
+  },
+
+  hotelRating: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  hotelPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+    marginTop: 6,
+  },
+
+  hotelPrice: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Theme.colors.primary,
+  },
+
+  hotelPriceNight: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+  },
+
+  hotelTotal: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
 
   // Selected badge
-  selectedBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: '#E67E22', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
-  selectedBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  selectedBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  selectedBadgeText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
 
   // Summary
-  summaryCard: { backgroundColor: '#FFF', marginHorizontal: 16, borderRadius: 20, padding: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 },
-  summaryTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 14 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  summaryLabel: { fontSize: 14, color: '#555' },
-  summaryValue: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-  summaryDivider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 10 },
-  summaryTotalLabel: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  summaryTotal: { fontSize: 20, fontWeight: '800', color: '#E67E22' },
+  summaryCard: {
+    backgroundColor: '#FFF',
+    marginHorizontal: 16,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginBottom: 14,
+  },
+
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+
+  summaryLabel: {
+    fontSize: 14,
+    color: Theme.colors.muted,
+  },
+
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+    marginVertical: 10,
+  },
+
+  summaryTotalLabel: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Theme.colors.text,
+  },
+
+  summaryTotal: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Theme.colors.primary,
+  },
 
   // Bottom bar
-  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 30, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 8 },
-  determineBtn: { backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 16, alignItems: 'center' },
-  determineBtnDisabled: { backgroundColor: '#DDD' },
-  determineBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFF',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 30,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+
+  determineBtn: {
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 30,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+
+  determineBtnText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 
   // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 40 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  modalClose: { fontSize: 18, color: '#999' },
-  depOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F8F8F8', gap: 12 },
-  depOptionSelected: { backgroundColor: '#FFF8F0' },
-  depFlag: { fontSize: 24 },
-  depOptionText: { flex: 1 },
-  depCityName: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
-  depCode: { fontSize: 12, color: '#999', marginTop: 2 },
-  depCheck: { fontSize: 16, color: '#E67E22', fontWeight: '700' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  modalSheet: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 40,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  depOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F8F8',
+    gap: 12,
+  },
+
+  depOptionSelected: {
+    backgroundColor: Theme.colors.gold,
+  },
+
+  depOptionText: {
+    flex: 1,
+  },
+
+  depCityName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+
+  depCode: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
 });

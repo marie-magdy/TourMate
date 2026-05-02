@@ -3,12 +3,22 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator 
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '@/components/ScreenWrapper';
+import { useApp } from '../../constants/AppContext';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+import { useEffect } from 'react';
+import { API_BASE } from '../../constants/api';
 
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_WEB_ID = '1091318160461-6gaei76c5f9c7ktsm0crab5le3um6nt7.apps.googleusercontent.com';
 
 export default function Login() {
+  const { setUser } = useApp();
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,10 +26,71 @@ export default function Login() {
 
   const [errors, setErrors] = useState({ email: '', password: '', general: '' });
 
+  const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  // ── Google Auth ───────────────────────────────────────────────────
+  const redirectUri = AuthSession.makeRedirectUri({
+    scheme: 'tourmate',
+  });
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: GOOGLE_WEB_ID,
+    redirectUri,
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      if (authentication?.accessToken) {
+        handleGoogleLogin(authentication.accessToken);
+      }
+    }
+  }, [response]);
+
+  const handleGoogleLogin = async (accessToken: string) => {
+    setGoogleLoading(true);
+    try {
+      // Fetch user info from Google
+      const profileRes  = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const profile = await profileRes.json();
+
+      // Send to our backend to create/login the user
+      const res  = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          google_id: profile.id,
+          email: profile.email,
+          username: profile.name,
+          avatar_url: profile.picture,
+        }),
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        Alert.alert('Error', data.message ?? 'Google login failed.');
+        return;
+      }
+
+      await AsyncStorage.setItem('token', data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      await setUser(data.user);
+
+      router.replace('/(main)/home' as any);
+    } catch (err) {
+      console.error('Google login error:', err);
+      Alert.alert('Error', 'Google login failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // ── Email Login ───────────────────────────────────────────────────
   const handleLogin = async () => {
     const newErrors = { email: '', password: '', general: '' };
     let hasError = false;
@@ -56,6 +127,7 @@ export default function Login() {
 
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      await setUser(data.user);
 
       if (data.user.role === 'admin') {
         router.replace('/(admin)/dashboard' as any);
@@ -76,12 +148,36 @@ export default function Login() {
 
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoEmoji}>🧳</Text>
+          <MaterialCommunityIcons name="briefcase-outline" size={52} color="#E67E22" style={{ marginBottom: 8 }} />
           <Text style={styles.logoText}>TourMate</Text>
           <Text style={styles.logoSubtitle}>Your Egyptian adventure awaits</Text>
         </View>
 
         <Text style={styles.title}>Sign in</Text>
+
+      {/* Google Button */}
+      <TouchableOpacity
+        style={styles.googleButton}
+        onPress={() => promptAsync()}
+        disabled={!request || googleLoading}
+        activeOpacity={0.85}
+      >
+        {googleLoading ? (
+          <ActivityIndicator color="#333" />
+        ) : (
+          <>
+            <Text style={styles.googleIcon}>G</Text>
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {/* Divider */}
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
 
         {/* General error (wrong credentials / network) */}
         {errors.general ? (
@@ -163,8 +259,19 @@ const styles = StyleSheet.create({
   logoText:      { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
   logoSubtitle:  { fontSize: 14, color: '#999', marginTop: 4 },
 
-  title:      { fontSize: 26, fontWeight: '800', color: '#1A1A1A', marginBottom: 8 },
-  inputLabel: { fontSize: 15, fontWeight: '600', marginTop: 16, color: '#333', marginBottom: 6 },
+  title: { fontSize: 26, fontWeight: '800', color: '#1A1A1A', marginBottom: 16 },
+
+  // Google button
+  googleButton:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#E0E0E0', borderRadius: 30, padding: 14, gap: 10, backgroundColor: '#FFF' },
+  googleIcon:       { fontSize: 18, fontWeight: '900', color: '#4285F4' },
+  googleButtonText: { fontSize: 15, fontWeight: '700', color: '#333' },
+
+  // Divider
+  divider:     { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#E0E0E0' },
+  dividerText: { fontSize: 13, color: '#999', fontWeight: '600' },
+
+  inputLabel: { fontSize: 15, fontWeight: '600', marginTop: 4, color: '#333', marginBottom: 6 },
 
   input:         { borderWidth: 1, borderColor: '#E0E0E0', padding: 14, borderRadius: 14, fontSize: 16, color: '#000', backgroundColor: '#FAFAFA' },
   inputError:    { borderColor: '#E53935' },
@@ -178,7 +285,7 @@ const styles = StyleSheet.create({
   passwordInput:     { flex: 1, borderWidth: 1, borderColor: '#E0E0E0', padding: 14, borderRadius: 14, fontSize: 16, color: '#000', backgroundColor: '#FAFAFA' },
   eyeIcon:           { position: 'absolute', right: 16 },
 
-  loginButton:     { backgroundColor: '#E67E22', padding: 16, borderRadius: 30, marginTop: 28, alignItems: 'center' },
+  loginButton:     { backgroundColor: '#E67E22', padding: 16, borderRadius: 30, marginTop: 24, alignItems: 'center' },
   loginButtonText: { fontWeight: '800', color: '#FFF', fontSize: 16 },
 
   signupText: { marginTop: 16, textAlign: 'center', fontSize: 14, color: '#444' },

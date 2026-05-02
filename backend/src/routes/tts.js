@@ -3,15 +3,90 @@ import express from 'express';
 
 const router = express.Router();
 
-// ElevenLabs voice IDs
+// ── Groq Orpheus voices (replaces ElevenLabs — free daily quota) ──
+// English voices: autumn, diana, hannah, austin, daniel, troy
+// Arabic: Groq Orpheus English model doesn't support Arabic,
+//         so Arabic falls back to English voice with Arabic script
 const VOICES = {
-  en: 'JBFqnCBsd6RMkjVDRZzb', // George — clear, natural English male
-  ar: 'pqHfZKP75CvOlQylNhV4', // Bella Arabic — ElevenLabs Arabic voice
+  en: 'austin',   // clear, natural English male — great for audio guides
+  ar: 'hannah',   // female voice for Arabic text (reads transliteration)
+};
+
+// ── Split long text into chunks ≤ 190 chars (Groq Orpheus limit) ─────
+const splitIntoChunks = (text, maxLen = 190) => {
+  const sentences = text.match(/[^.!?؟]+[.!?؟]+/g) || [text];
+  const chunks = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if ((current + ' ' + trimmed).trim().length <= maxLen) {
+      current = (current + ' ' + trimmed).trim();
+    } else {
+      if (current) chunks.push(current);
+      if (trimmed.length > maxLen) {
+        const words = trimmed.split(' ');
+        let part = '';
+        for (const word of words) {
+          if ((part + ' ' + word).trim().length <= maxLen) {
+            part = (part + ' ' + word).trim();
+          } else {
+            if (part) chunks.push(part);
+            part = word;
+          }
+        }
+        if (part) current = part;
+      } else {
+        current = trimmed;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+// ── Convert one chunk to base64 audio via Groq Orpheus ───────────────
+const fetchChunk = async (chunk, voice) => {
+  const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'canopylabs/orpheus-v1-english',
+      input: chunk,
+      voice,
+      response_format: 'wav',
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    // Rate limit — return special marker
+    if (response.status === 429) return 'RATE_LIMITED';
+    console.error('Groq TTS chunk error:', response.status, err);
+    return null;
+  }
+
+  const buf = await response.arrayBuffer();
+  return Buffer.from(buf).toString('base64');
+};
+
+// ── Combine all chunk base64 WAV buffers into one ────────────────────
+// WAV files: keep header from first chunk, append raw PCM from rest
+const combineWavChunks = (chunks) => {
+  if (chunks.length === 1) return chunks[0];
+  const buffers = chunks.map(b => Buffer.from(b, 'base64'));
+  // First 44 bytes = WAV header, rest = PCM data
+  const header = buffers[0].slice(0, 44);
+  const pcmData = buffers.map(b => b.slice(44));
+  const combined = Buffer.concat([header, ...pcmData]);
+  return combined.toString('base64');
 };
 
 // POST /api/tts
 // Body: { name, city, category, description, price_from, opening_hours, language }
-//   OR: { raw_text, language }  ← skips Groq, reads text directly (used by AI chat)
+//   OR: { raw_text, language }  ← skips Groq script, reads text directly
 // Returns: { success, audio: base64, script }
 router.post('/', async (req, res) => {
   try {
@@ -23,51 +98,45 @@ router.post('/', async (req, res) => {
       price_from,
       opening_hours,
       language = 'en',
-      raw_text,       // ← AI chat passes this to skip Groq
+      raw_text,
     } = req.body;
 
-    // ── Raw text mode: skip Groq entirely (AI chatbot) ─────────────
+    const voice = VOICES[language] ?? VOICES.en;
+
+    // ── Raw text mode (AI chatbot bubble listen button) ─────────────
     if (raw_text) {
-      // Strip markdown symbols so ElevenLabs reads clean text
       const cleanText = raw_text
         .replace(/[*_`#~]/g, '')
-        .replace(/\n{2,}/g, ' ')
+        .replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27FF}]|[\u{1F300}-\u{1F9FF}]/gu, '')
+        .replace(/\n+/g, ' ')
+        .replace(/\s{2,}/g, ' ')
         .trim();
 
-      const voiceId = VOICES[language] ?? VOICES.en;
+      const chunks = splitIntoChunks(cleanText);
+      const results = await Promise.all(chunks.map(c => fetchChunk(c, voice)));
 
-      const elevenResponse = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': process.env.ELEVENLABS_API_KEY,
-          },
-          body: JSON.stringify({
-            text: cleanText,
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true },
-          }),
-        }
-      );
+      if (results.includes('RATE_LIMITED')) {
+        return res.status(429).json({
+          success: false,
+          rateLimited: true,
+          message: 'Voice is temporarily unavailable. Please try again in a few minutes.',
+        });
+      }
 
-      if (!elevenResponse.ok) {
-        const errText = await elevenResponse.text();
-        console.error('ElevenLabs error (raw):', errText);
+      const valid = results.filter(Boolean);
+      if (valid.length === 0) {
         return res.status(500).json({ success: false, message: 'Failed to generate audio' });
       }
 
-      const audioBuffer = await elevenResponse.arrayBuffer();
-      const base64Audio = Buffer.from(audioBuffer).toString('base64');
-      return res.json({ success: true, audio: base64Audio, script: cleanText });
+      const combined = combineWavChunks(valid);
+      return res.json({ success: true, audio: combined, script: cleanText });
     }
 
     if (!name) {
       return res.status(400).json({ success: false, message: 'Attraction name is required' });
     }
 
-    // ── Step 1: Generate tour script via Groq ──────────────────────
+    // ── Step 1: Generate tour script via Groq LLM ──────────────────
     const isArabic = language === 'ar';
 
     const prompt = isArabic
@@ -109,49 +178,45 @@ Write 4 to 6 sentences only. Start by welcoming the visitor to the attraction. M
     const groqData = await groqResponse.json();
 
     if (!groqData.choices || !groqData.choices[0]) {
-      console.error('Groq TTS script error:', JSON.stringify(groqData));
+      console.error('Groq script error:', JSON.stringify(groqData));
       return res.status(500).json({ success: false, message: 'Failed to generate tour script' });
     }
 
     const script = groqData.choices[0].message.content.trim();
 
-    // ── Step 2: Convert script to audio via ElevenLabs ─────────────
-    const voiceId = VOICES[language] ?? VOICES.en;
+    // ── Step 2: Convert script to audio via Groq Orpheus ──────────
+    const cleanScript = script
+      .replace(/[*_`#~]/g, '')
+      .replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27FF}]|[\u{1F300}-\u{1F9FF}]/gu, '')
+      .replace(/\n+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
-    const elevenResponse = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': process.env.ELEVENLABS_API_KEY,
-        },
-        body: JSON.stringify({
-          text: script,
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0.4,
-            use_speaker_boost: true,
-          },
-        }),
-      }
-    );
+    const chunks = splitIntoChunks(cleanScript);
+    console.log(`Audio guide TTS — voice: ${voice} | chunks: ${chunks.length}`);
 
-    if (!elevenResponse.ok) {
-      const errText = await elevenResponse.text();
-      console.error('ElevenLabs error:', errText);
+    const results = await Promise.all(chunks.map(c => fetchChunk(c, voice)));
+
+    if (results.includes('RATE_LIMITED')) {
+      // Return script even if audio fails — user can read it
+      return res.status(429).json({
+        success: false,
+        rateLimited: true,
+        script,
+        message: 'Audio temporarily unavailable. Please try again in a few minutes.',
+      });
+    }
+
+    const valid = results.filter(Boolean);
+    if (valid.length === 0) {
       return res.status(500).json({ success: false, message: 'Failed to generate audio' });
     }
 
-    // Convert audio buffer to base64
-    const audioBuffer = await elevenResponse.arrayBuffer();
-    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+    const combined = combineWavChunks(valid);
 
     res.json({
       success: true,
-      audio: base64Audio,
+      audio: combined,
       script,
     });
 

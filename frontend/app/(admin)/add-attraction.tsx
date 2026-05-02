@@ -6,6 +6,7 @@ import {
   Image, Switch, FlatList, Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const API_BASE    = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 const PLACES_KEY  = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
@@ -237,7 +238,7 @@ export default function AddAttractionScreen() {
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <MaterialCommunityIcons name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Add Attraction</Text>
         <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
@@ -249,7 +250,10 @@ export default function AddAttractionScreen() {
 
         {/* ── Google Places Search ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🔍 Search & Auto-fill</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <MaterialCommunityIcons name="magnify" size={18} color="#1A1A1A" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Search & Auto-fill</Text>
+          </View>
           <Text style={styles.sectionHint}>Type an attraction name to auto-fill all details from Google</Text>
 
           <View style={styles.searchRow}>
@@ -285,7 +289,10 @@ export default function AddAttractionScreen() {
 
         {/* ── Images ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📸 Images ({images.length}/5)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <MaterialCommunityIcons name="camera" size={18} color="#1A1A1A" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Images ({images.length}/5)</Text>
+          </View>
           {images.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesScroll}>
               {images.map((uri, i) => (
@@ -293,14 +300,17 @@ export default function AddAttractionScreen() {
                   <Image source={{ uri }} style={styles.imageThumb} />
                   {i === 0 && <View style={styles.primaryBadge}><Text style={styles.primaryBadgeText}>Cover</Text></View>}
                   <TouchableOpacity style={styles.removeImageBtn} onPress={() => handleRemoveImage(i)}>
-                    <Text style={styles.removeImageBtnText}>✕</Text>
+                    <MaterialCommunityIcons name="close" size={12} color="#FFF" />
                   </TouchableOpacity>
                 </View>
               ))}
             </ScrollView>
           ) : (
             <View style={styles.noImagesHint}>
-              <Text style={styles.noImagesText}>📷 Images auto-fill from Google Places</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="image-multiple-outline" size={16} color="#BBB" />
+                <Text style={styles.noImagesText}>Images auto-fill from Google Places</Text>
+              </View>
               <Text style={styles.noImagesSubText}>Or paste a Drive/image URL below</Text>
             </View>
           )}
@@ -323,7 +333,10 @@ export default function AddAttractionScreen() {
 
         {/* ── Basic Info ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📝 Details</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <MaterialCommunityIcons name="note-edit-outline" size={18} color="#1A1A1A" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Details</Text>
+          </View>
 
           <Text style={styles.fieldLabel}>Description</Text>
           <TextInput style={[styles.input, styles.textArea]} value={description} onChangeText={setDescription} placeholder="Auto-filled from Google or type here..." placeholderTextColor="#AAA" multiline textAlignVertical="top" />
@@ -356,7 +369,10 @@ export default function AddAttractionScreen() {
 
         {/* ── City ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🏙️ City <Text style={styles.autoTag}>auto-detected</Text></Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <MaterialCommunityIcons name="city" size={18} color="#1A1A1A" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>City <Text style={styles.autoTag}>auto-detected</Text></Text>
+          </View>
           <View style={styles.pillsRow}>
             {CITIES.map(c => (
               <TouchableOpacity key={c} style={[styles.pill, city === c && styles.pillActive]} onPress={() => setCity(c)}>
@@ -368,7 +384,10 @@ export default function AddAttractionScreen() {
 
         {/* ── Category ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🏷️ Category <Text style={styles.autoTag}>auto-detected</Text></Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <MaterialCommunityIcons name="tag-outline" size={18} color="#1A1A1A" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Category <Text style={styles.autoTag}>auto-detected</Text></Text>
+          </View>
           <View style={styles.pillsRow}>
             {CATEGORIES.map(c => (
               <TouchableOpacity key={c} style={[styles.pill, category === c && styles.pillActive]} onPress={() => setCategory(c)}>
@@ -382,15 +401,23 @@ export default function AddAttractionScreen() {
         <View style={styles.section}>
           <View style={styles.toggleRow}>
             <View>
-              <Text style={styles.sectionTitle}>⭐ Mark as Popular</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <MaterialCommunityIcons name="star" size={18} color="#F39C12" />
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Mark as Popular</Text>
+              </View>
               <Text style={styles.sectionHint}>Shows in the Popular section on home screen</Text>
             </View>
             <Switch value={isPopular} onValueChange={setIsPopular} trackColor={{ false: '#DDD', true: '#E67E22' }} thumbColor="#FFF" />
           </View>
         </View>
 
-        <TouchableOpacity style={styles.saveFullBtn} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveFullBtnText}>✓ Add Attraction to Database</Text>}
+        <TouchableOpacity style={[styles.saveFullBtn, { flexDirection: 'row', justifyContent: 'center', gap: 8 }]} onPress={handleSave} disabled={saving}>
+          {saving ? <ActivityIndicator color="#FFF" /> : (
+            <>
+              <MaterialCommunityIcons name="check" size={20} color="#FFF" />
+              <Text style={styles.saveFullBtnText}>Add Attraction to Database</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <View style={{ height: 60 }} />
