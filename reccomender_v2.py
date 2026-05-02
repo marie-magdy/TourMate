@@ -1,4 +1,3 @@
-
 """
 TourMate Recommendation Engine  v3
 Graduation Project Edition
@@ -1360,13 +1359,12 @@ def generate_multi_day_itinerary(payload: dict,
     city_df = assign_geo_zones(city_df, num_days)
 
     # ── Step 3: Shared state across days ──────────────────────────────────────
-    visited_all  = list(user.visited_ids)
-    budget_left  = user.budget_egp
-    daily_budget = user.budget_egp / num_days
-    daily_hours  = user.available_hours
-    all_days     = []
-
-    # Liked attraction rows — needed for force-include across zones
+    total_budget  = user.budget_egp          # preserve original for final stats
+    visited_all   = list(user.visited_ids)
+    budget_left   = user.budget_egp
+    daily_budget  = user.budget_egp / num_days
+    daily_hours   = user.available_hours
+    all_days      = []
     liked_ids_set = {str(x) for x in user.liked_ids}
 
     for day in range(num_days):
@@ -1376,19 +1374,17 @@ def generate_multi_day_itinerary(payload: dict,
               f"Hours: {daily_hours}h")
         print(f"{'='*60}")
 
-        # ── Step 4: Zone attractions ──────────────────────────────────────────
+        # ── Step 4: Zone attractions ───────────────────────────────────────────
         zone_df = city_df[city_df["geo_zone"] == day].copy()
 
-        # Fallback: if zone is too small, use full city attractions
+        # FIX BUG 2: Fallback if zone is too small
         if len(zone_df) < 3:
             print(f"[MULTI-DAY] Zone {day} too small "
                   f"({len(zone_df)} attractions) — using full city pool")
             zone_df = city_df.copy()
 
-        # ── UPDATE 6: Force-include liked attractions from any zone ────────────
-        # Liked places are always placed — they shouldn't be trapped in a
-        # different zone and silently missed.
-        unvisited_liked = liked_ids_set - set(str(x) for x in visited_all)
+        # Force-include liked attractions from any zone
+        unvisited_liked = liked_ids_set - {str(x) for x in visited_all}
         if unvisited_liked:
             liked_rows = city_df[
                 city_df["attraction_id"].astype(str).isin(unvisited_liked)
@@ -1397,7 +1393,7 @@ def generate_multi_day_itinerary(payload: dict,
                 zone_df = pd.concat(
                     [liked_rows, zone_df]
                 ).drop_duplicates("attraction_id").reset_index(drop=True)
-                print(f"[MULTI-DAY] Force-included liked attractions: "
+                print(f"[MULTI-DAY] Force-included liked: "
                       f"{liked_rows['name'].tolist()}")
 
         # Remove already visited
@@ -1420,7 +1416,15 @@ def generate_multi_day_itinerary(payload: dict,
 
         # ── Step 6: Configure user for this day ───────────────────────────────
         user.visited_ids = visited_all
-        user.budget_egp  = min(daily_budget, budget_left)
+
+        # FIX BUG 1: Use remaining budget (not split daily_budget) for the
+        # price filter inside score_all_attractions. The daily_budget split
+        # caused too many attractions to be filtered out on Day 1 when the
+        # per-day amount was small relative to attraction prices.
+        # We give the full remaining budget to the scorer so nothing is wrongly
+        # excluded, then cap actual spending via the budget_left check in
+        # build_itinerary's loop.
+        user.budget_egp = budget_left
 
         # ── Step 7: Run single-day builder ────────────────────────────────────
         day_result = build_itinerary(
@@ -1430,9 +1434,21 @@ def generate_multi_day_itinerary(payload: dict,
             browse_n=browse_n,
         )
 
+        # FIX BUG 3: If build_itinerary returns empty itinerary (not an error
+        # dict but an empty list), treat it as a soft error rather than silently
+        # returning a day with no stops.
         if "error" not in day_result:
-            # Update shared state
-            for stop in day_result.get("itinerary", []):
+            itinerary = day_result.get("itinerary", [])
+            if not itinerary:
+                print(f"[MULTI-DAY] Day {day + 1} returned empty itinerary "
+                      f"— budget or time too tight for this zone")
+                day_result["warning"] = (
+                    "No stops could be scheduled for this day. "
+                    "Try increasing budget or available hours."
+                )
+
+            # Update shared state with what was actually spent
+            for stop in itinerary:
                 visited_all.append(str(stop["id"]))
 
             spent       = day_result["stats"]["total_cost_egp"]
@@ -1440,22 +1456,24 @@ def generate_multi_day_itinerary(payload: dict,
 
             day_result["day"]            = day + 1
             day_result["geo_zone"]       = int(day)
-            day_result["budget_for_day"] = round(user.budget_egp, 0)
+            day_result["budget_for_day"] = round(daily_budget, 0)
+            day_result["budget_spent"]   = round(spent, 0)
+            day_result["budget_left"]    = round(budget_left, 0)
         else:
             day_result["day"] = day + 1
 
         all_days.append(day_result)
 
-    total_spent = user.budget_egp * num_days - budget_left
+    total_spent = total_budget - budget_left
     return make_serializable({
-        "user":               user.name,
-        "city":               user.city,
-        "num_days":           num_days,
-        "days":               all_days,
-        "total_budget":       round(user.budget_egp * num_days, 0),
-        "total_spent":        round(total_spent, 0),
-        "budget_remaining":   round(budget_left, 0),
-        "visited_all":        visited_all,
+        "user":             user.name,
+        "city":             user.city,
+        "num_days":         num_days,
+        "days":             all_days,
+        "total_budget":     round(total_budget, 0),
+        "total_spent":      round(total_spent, 0),
+        "budget_remaining": round(budget_left, 0),
+        "visited_all":      visited_all,
     })
 
 
