@@ -27,6 +27,7 @@ interface User {
   username: string;
   email: string;
   role: string;
+  voice_chat_enabled?: boolean;
   points: number;
   total_earned: number;
   favorites_count: number;
@@ -48,7 +49,8 @@ const UserRow: React.FC<{
   onDelete: (id: number, name: string) => void;
   onAddPoints: (user: User) => void;
   onToggleRole: (user: User) => void;
-}> = ({ user, onDelete, onAddPoints, onToggleRole }) => (
+  onToggleVoiceAccess: (user: User) => void;
+}> = ({ user, onDelete, onAddPoints, onToggleRole, onToggleVoiceAccess }) => (
   <View style={styles.userRow}>
     {/* Top: avatar + info */}
     <View style={styles.userRowTop}>
@@ -65,6 +67,9 @@ const UserRow: React.FC<{
         <Text style={styles.userEmail}>{user.email}</Text>
         <Text style={styles.userMeta}>
           <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {user.points} pts · <MaterialCommunityIcons name="heart" size={12} color="#E74C3C" /> {user.favorites_count} saved
+        </Text>
+        <Text style={[styles.userMeta, { marginTop: 4 }]}>
+          <MaterialCommunityIcons name={user.voice_chat_enabled ? 'microphone' : 'microphone-off'} size={12} color={user.voice_chat_enabled ? '#27AE60' : '#999'} /> Voice access: {user.voice_chat_enabled ? 'Enabled' : 'Points only'}
         </Text>
       </View>
     </View>
@@ -86,6 +91,16 @@ const UserRow: React.FC<{
             <MaterialCommunityIcons name={user.role === 'admin' ? 'arrow-down-bold' : 'arrow-up-bold'} size={14} color="#555" />
             <Text style={styles.roleBtnText}>
               {user.role === 'admin' ? 'Demote' : 'Promote'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.voiceAccessBtn, user.voice_chat_enabled ? styles.voiceAccessBtnDisable : styles.voiceAccessBtnEnable, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}
+            onPress={() => onToggleVoiceAccess(user)}
+          >
+            <MaterialCommunityIcons name={user.voice_chat_enabled ? 'microphone-off' : 'microphone'} size={14} color={user.voice_chat_enabled ? '#9B2C2C' : '#1F7A44'} />
+            <Text style={[styles.voiceAccessBtnText, user.voice_chat_enabled ? styles.voiceAccessBtnTextDisable : styles.voiceAccessBtnTextEnable]}>
+              {user.voice_chat_enabled ? 'Disable Voice' : 'Enable Voice'}
             </Text>
           </TouchableOpacity>
 
@@ -138,6 +153,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'attractions'>('overview');
   const [addPtsModal, setAddPtsModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -146,6 +162,7 @@ export default function AdminDashboard() {
 
   const fetchAll = async () => {
     try {
+      setAdminError(null);
       const [statsRes, usersRes] = await Promise.all([
         fetch(`${API_BASE}/auth/admin/stats`),
         fetch(`${API_BASE}/auth/admin/users`),
@@ -153,7 +170,13 @@ export default function AdminDashboard() {
       const [statsData, usersData] = await Promise.all([statsRes.json(), usersRes.json()]);
       if (statsData.success) setStats(statsData.data);
       if (usersData.success) setUsers(usersData.data);
-    } catch (err) { console.error('Admin fetch error:', err); }
+      if (!statsData.success || !usersData.success) {
+        setAdminError('Could not load all dashboard data. Pull to refresh.');
+      }
+    } catch (err) {
+      console.error('Admin fetch error:', err);
+      setAdminError('Could not connect to admin services. Pull to refresh.');
+    }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -205,6 +228,40 @@ export default function AdminDashboard() {
   };
 
   const handleAddPoints = (user: User) => { setSelectedUser(user); setAddPtsModal(true); };
+
+  const handleToggleVoiceAccess = (user: User) => {
+    const nextEnabled = !Boolean(user.voice_chat_enabled);
+    Alert.alert(
+      nextEnabled ? 'Enable Voice Access' : 'Disable Voice Access',
+      nextEnabled
+        ? `Enable voice mode for "${user.username}" even if points are below 500?`
+        : `Disable admin voice access for "${user.username}" and return to points-based unlock?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: nextEnabled ? 'Enable' : 'Disable',
+          onPress: async () => {
+            try {
+              const res = await fetch(`${API_BASE}/auth/admin/users/${user.id}/voice-access`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: nextEnabled }),
+              });
+              const data = await res.json();
+              if (data.success) {
+                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, voice_chat_enabled: nextEnabled } : u));
+                Alert.alert('Done ✓', `Voice access ${nextEnabled ? 'enabled' : 'disabled'} for ${user.username}.`);
+              } else {
+                Alert.alert('Error', data.message ?? 'Could not update voice access.');
+              }
+            } catch {
+              Alert.alert('Error', 'Could not update voice access.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const confirmAddPoints = async (points: number, reason: string) => {
     if (!selectedUser || isNaN(points) || points <= 0) { Alert.alert('Error', 'Enter a valid amount.'); return; }
@@ -309,6 +366,19 @@ export default function AdminDashboard() {
             ))}
           </View>
         )}
+        {activeTab === 'overview' && !stats && (
+          <View style={styles.tabContent}>
+            <Text style={styles.sectionTitle}>Overview</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyCardText}>
+                {adminError ?? 'No overview data available yet.'}
+              </Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={fetchAll}>
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* ── Users Tab ── */}
         {activeTab === 'users' && (
@@ -321,6 +391,7 @@ export default function AdminDashboard() {
                 onDelete={handleDeleteUser}
                 onAddPoints={handleAddPoints}
                 onToggleRole={handleToggleRole}
+                onToggleVoiceAccess={handleToggleVoiceAccess}
               />
             ))}
           </View>
@@ -405,8 +476,18 @@ const styles = StyleSheet.create({
   roleBtnPromote: { backgroundColor: '#EEF4FF' },
   roleBtnDemote: { backgroundColor: '#FFF3E0' },
   roleBtnText: { fontSize: 12, fontWeight: '800', color: '#555' },
+  voiceAccessBtn: { borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
+  voiceAccessBtnEnable: { backgroundColor: '#E8F8F0' },
+  voiceAccessBtnDisable: { backgroundColor: '#FDECEC' },
+  voiceAccessBtnText: { fontSize: 12, fontWeight: '800' },
+  voiceAccessBtnTextEnable: { color: '#1F7A44' },
+  voiceAccessBtnTextDisable: { color: '#9B2C2C' },
   deleteUserBtn: { backgroundColor: '#FEE', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
   deleteUserBtnText: { color: '#E74C3C', fontSize: 12, fontWeight: '800' },
+  emptyCard: { backgroundColor: '#FFF', borderRadius: 14, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 2 },
+  emptyCardText: { fontSize: 13, color: '#777', lineHeight: 20 },
+  retryBtn: { marginTop: 12, alignSelf: 'flex-start', backgroundColor: '#E67E22', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
+  retryBtnText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
 
   manageBtn: { backgroundColor: '#E67E22', borderRadius: 16, padding: 16, alignItems: 'center' },
   manageBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },

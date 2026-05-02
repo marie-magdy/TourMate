@@ -1,11 +1,18 @@
 from pathlib import Path
 import sys
+import os
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+
+# Force-load service env so DATABASE_URL is available even under Flask reloader.
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+if not os.getenv("DATABASE_URL"):
+    load_dotenv(BASE_DIR / "backend" / ".env", override=False)
 
 from reccomender_v2 import build_attraction_matrix, generate_itinerary_from_payload, load_attractions  # noqa: E402
 

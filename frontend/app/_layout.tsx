@@ -1,9 +1,11 @@
 // app/_layout.tsx
 import { Stack } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../constants/AppContext";
 
 export default function RootLayout() {
   return (
+    <SafeAreaProvider>
     <AppProvider>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
@@ -12,6 +14,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)/login" options={{ headerShown: true, title: "Login" }} />
         <Stack.Screen name="(auth)/signup" options={{ title: 'Sign-up' }} />
         <Stack.Screen name="(auth)/confirmation" options={{ headerShown: true, title: "Confirmation" }} />
+        <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(main)/home" />
         <Stack.Screen name="(main)/attraction" />
         <Stack.Screen name="(main)/map" />
@@ -29,5 +32,6 @@ export default function RootLayout() {
         <Stack.Screen name="(main)/about" options={{ headerShown: false }} />
       </Stack>
     </AppProvider>
+    </SafeAreaProvider>
   );
 }

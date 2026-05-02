@@ -355,6 +355,7 @@ export default function SavedPlansScreen() {
                     router.push({
                       pathname: '/(main)/itinerary' as any,
                       params: {
+                        planId: String(plan.id),
                         city: plan.city,
                         startDate: plan.start_date,
                         endDate: plan.end_date,

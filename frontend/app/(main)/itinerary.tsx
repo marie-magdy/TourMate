@@ -239,6 +239,7 @@ export default function ItineraryScreen() {
   const router = useRouter();
   const { t } = useApp();
   const params = useLocalSearchParams<{
+    planId?: string;
     city: string;
     startDate: string;
     endDate: string;
@@ -252,6 +253,7 @@ export default function ItineraryScreen() {
     startLon?: string;
     startLabel?: string;
   }>();
+  const existingPlanId = params.planId ? String(params.planId) : undefined;
 
   const city = params.city ?? 'Hurghada';
   const interests = params.interests?.split(',') ?? [];
@@ -832,7 +834,7 @@ export default function ItineraryScreen() {
 
   const openMap = async (): Promise<void> => {
     setSaving(true);
-    const planId = await persistPlan();
+    const planId = existingPlanId ?? await persistPlan();
     setSaving(false);
 
     router.push({
@@ -847,7 +849,7 @@ export default function ItineraryScreen() {
 
   const openTravelOptions = async (): Promise<void> => {
     setSaving(true);
-    const planId = await persistPlan();
+    const planId = existingPlanId ?? await persistPlan();
     setSaving(false);
 
     router.push({

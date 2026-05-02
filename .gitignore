@@ -1,61 +1,20 @@
-# ==========================
-# Frontend (React Native / Expo)
-# ==========================
-/frontend/node_modules/
-/frontend/.expo/
-/frontend/dist/
-/frontend/web-build/
-/frontend/expo-env.d.ts
+# dependencies
+node_modules/
 
-# Native build files
-/frontend/.kotlin/
-/frontend/*.orig.*
-/frontend/*.jks
-/frontend/*.p8
-/frontend/*.p12
-/frontend/*.key
-/frontend/*.mobileprovision
+# env
+.env
 
-# Metro bundler
-/frontend/.metro-health-check*
+# expo
+.expo/
 
-# Debug logs
-/frontend/npm-debug.*
-/frontend/yarn-debug.*
-/frontend/yarn-error.*
-
-# macOS
-.DS_Store
-/frontend/*.pem
-
-# Local environment files
-/frontend/.env*
-/frontend/.env*.local
-
-# TypeScript build info
-/frontend/*.tsbuildinfo
-
-# Generated native folders
-/frontend/ios/
-/frontend/android/
-/frontend/.env
-
-# ==========================
-# Backend (Node.js)
-# ==========================
-/backend/node_modules/
-
-
-# Local environment files
-/backend/.env
-
-# npm debug logs
-/backend/npm-debug.*
-/backend/yarn-debug.*
-/backend/yarn-error.*
-
-/recommendation_service/.venv/
-/recommendation_service/__pycache__/
-/recommendation_service/.env
-
+# python
 __pycache__/
+*.pyc
+
+# build
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
