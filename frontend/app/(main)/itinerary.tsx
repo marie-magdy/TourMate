@@ -242,7 +242,10 @@ export default function ItineraryScreen() {
     city: string;
     startDate: string;
     endDate: string;
+    daySchedules?: string;
     budget: string;
+    startTime?: string;  // ← ADD
+    endTime?: string;
     dayHours: string;
     interests: string;
     spotIds: string;
@@ -257,8 +260,6 @@ export default function ItineraryScreen() {
   const interests = params.interests?.split(',') ?? [];
   const startDate = params.startDate ?? new Date().toISOString();
   const endDate = params.endDate ?? new Date().toISOString();
-  // Parse per-day hours; fall back to 8 for any missing day
-  const dayHoursArr = (params.dayHours ?? '8').split(',').map(h => Math.max(1, Number(h) || 8));
 
   const userLocationRef = useRef<{ lat: number; lon: number } | null>(null);
 
@@ -480,19 +481,19 @@ export default function ItineraryScreen() {
   const generatePlan = async (): Promise<void> => {
     setLoading(true);
     try {
-      const start    = new Date(startDate);
-      const end      = new Date(endDate);
+      // Parse dates safely — handles both "2025-04-05" and "2025-4-5" formats
+      const parseDate = (str: string): Date => {
+        const parts = str.split('-').map(Number);
+        return new Date(parts[0], (parts[1] ?? 1) - 1, parts[2] ?? 1);
+      };
+      const start    = parseDate(startDate);
+      const end      = parseDate(endDate);
       const dayCount = Math.max(1, Math.round(
         (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
       ) + 1);
       const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
       const totalBudget = Number(params.budget ?? 1000);
-      // Hours per day — pad with last value if dayHoursArr is shorter than dayCount
-      const hoursPerDay = Array.from({ length: dayCount }, (_, i) =>
-        dayHoursArr[i] ?? dayHoursArr[dayHoursArr.length - 1] ?? 8
-      );
-
 
       const allDays: DayPlan[]   = [];
       const visitedIds: string[] = [];
@@ -529,7 +530,6 @@ export default function ItineraryScreen() {
         dayDate.setDate(start.getDate() + d);
         const label = `${MONTH_LABELS[dayDate.getMonth()]} ${dayDate.getDate()}`;
 
-        const hoursToday      = hoursPerDay[d];
         const remainingBudget = totalBudget - cumulativeSpent;
         const remainingDays   = dayCount - d;
         const budgetToday     = Math.floor(remainingBudget / remainingDays);
@@ -541,18 +541,34 @@ export default function ItineraryScreen() {
         );
 
         try {
+          // Parse start/end time from params e.g. "09:00" → 9.0
+          const parsedSchedules = JSON.parse(params.daySchedules || '[]');
+
+          const daySchedule = parsedSchedules[d];
+
+          let startHour = daySchedule?.start_hour ?? 9;
+          let endHour   = daySchedule?.end_hour ?? 21;
+
+          // ✅ handle overnight (e.g. 18 → 1 AM)
+          let availableHoursToday = endHour - startHour;
+
+          if (endHour <= startHour) {
+            endHour += 24;
+          }
+          
           const itineraryPayload: Record<string, any> = {
             user_id: 1,
             name: 'TourMate User',
             city,
             interests,
             budget_egp: budgetToday,
-            available_hours: hoursToday,
+            available_hours: availableHoursToday,  // ← from time range
             liked_ids: likedIds0,
             visited_ids: dayVisited,
-            top_n: Math.max(20, Math.ceil(hoursToday * 3) + likedIds0.length),
+            top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
             browse_n: 5,
-            start_hour: 9,
+            start_hour: startHour,   // ← from time range
+            end_hour: endHour,       // ← NEW
             ...(userLocationRef.current && {
               current_lat: userLocationRef.current.lat,
               current_lon: userLocationRef.current.lon,
@@ -567,7 +583,7 @@ export default function ItineraryScreen() {
           console.log('  liked_ids (favorited):', favIds0);
           console.log('  liked_ids (merged):', likedIds0);
           console.log('  visited_ids (dayVisited):', dayVisited);
-          console.log('  budget_egp:', budgetToday, '| available_hours:', hoursToday);
+          console.log('  budget_egp:', budgetToday, '| available_hours:', availableHoursToday);
           if (d > 0 && areaHint) console.log('  areaHint:', areaHint);
 
           const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
@@ -1036,14 +1052,15 @@ export default function ItineraryScreen() {
             : <Text style={styles.nextBtnText}>Show on map</Text>
           }
         </TouchableOpacity>
+
+        {/* Back to Home — pops all screens back to home (swipes left/back) */}
         <TouchableOpacity
-          style={[styles.secondaryBtn, saving && styles.nextBtnDisabled]}
-          onPress={openTravelOptions}
-          disabled={saving}
+          style={styles.homeBtn}
+          onPress={() => router.dismissAll()}
           activeOpacity={0.85}
         >
-          <Text style={styles.secondaryBtnText}>Flights & hotels</Text>
-          <Text style={styles.secondaryBtnSubtext}>Optional</Text>
+          <MaterialCommunityIcons name="home-outline" size={18} color="#888" />
+          <Text style={styles.homeBtnText}>Back to Home</Text>
         </TouchableOpacity>
       </View>
 
@@ -1453,6 +1470,8 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: '#E67E22', fontSize: 15, fontWeight: '700' },
   secondaryBtnSubtext: { color: '#A6662B', fontSize: 12, marginTop: 2 },
+  homeBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  homeBtnText:     { color: '#888', fontSize: 14, fontWeight: '600' },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
