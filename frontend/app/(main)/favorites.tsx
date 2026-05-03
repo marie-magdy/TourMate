@@ -45,7 +45,7 @@ const StarRating: React.FC<{ rating: number; size?: number; color?: string }> = 
 }) => (
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
     {[1,2,3,4,5].map(i => (
-      <Text key={i} style={{ color: i <= Math.round(rating) ? color : '#DDD', fontSize: size }}>★</Text>
+      <MaterialCommunityIcons key={i} name={i <= Math.round(rating) ? 'star' : 'star-outline'} size={size} color={i <= Math.round(rating) ? color : '#DDD'} />
     ))}
     <Text style={{ color: '#888', fontSize: size - 1, marginLeft: 3 }}>{rating}</Text>
   </View>

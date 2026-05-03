@@ -78,7 +78,7 @@ const ChangePasswordModal: React.FC<{
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Success ✓', 'Password changed successfully!');
+        Alert.alert('Success', 'Password changed successfully!');
         reset(); onClose();
       } else {
         Alert.alert('Error', data.message ?? 'Could not change password.');
@@ -170,7 +170,7 @@ const EditProfileModal: React.FC<{
           role: data.data?.role ?? 'user',
         }));
         onSaved(name.trim(), email.trim());
-        Alert.alert('Saved ✓', 'Profile updated!');
+        Alert.alert('Saved', 'Profile updated!');
         onClose();
       } else {
         Alert.alert('Error', data.message ?? 'Could not update profile.');
@@ -353,7 +353,7 @@ export default function SettingsScreen() {
             if (token) await AsyncStorage.setItem('token', token);
             if (user)  await AsyncStorage.setItem('user', user);
             if (prefs) await AsyncStorage.setItem('preferences', prefs);
-            Alert.alert('Done ✓', 'Cache cleared successfully.');
+            Alert.alert('Done', 'Cache cleared successfully.');
           } catch { Alert.alert('Error', 'Could not clear cache.'); }
         },
       },

@@ -555,16 +555,14 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
             <Text style={ss.getRideNote}>App installed → opens with destination pre-filled · Not installed → download from store</Text>
           </View>
 
-          <View style={{ height: 20 }} />
+          <View style={{ height: 100 }} />
         </ScrollView>
 
-        {/* Action Buttons */}
+        {/* Get Directions */}
         <View style={ss.sheetActions}>
-          <TouchableOpacity style={ss.sheetFavoritesBtn} onPress={toggleFavorite} activeOpacity={0.85}>
-            <Text style={ss.sheetFavoritesBtnText}>{isFavorited ? t('saved') : t('save')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={ss.sheetPlanBtn} activeOpacity={0.85}>
-            <Text style={ss.sheetPlanBtnText}>{t('addToPlan')}</Text>
+          <TouchableOpacity style={ss.directionsBtn} activeOpacity={0.85}>
+            <MaterialCommunityIcons name="directions" size={20} color="#FFF" />
+            <Text style={ss.directionsBtnText}>Get Directions</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -656,15 +654,15 @@ export const sheetStyles = StyleSheet.create({
   careemBtnText:    { color: '#FFF', fontWeight: '800', fontSize: 14 },
   getRideNote:      { fontSize: 10, color: '#C0A882', textAlign: 'center', marginTop: 10 },
   sheetActions: {
-    flexDirection: 'row', paddingHorizontal: 22, paddingVertical: 18,
-    paddingBottom: 34, gap: 12,
-    borderTopWidth: 1, borderTopColor: '#F0E2C8',
-    backgroundColor: '#FDF8F0',
+    paddingHorizontal: 22, paddingVertical: 16, paddingBottom: 34,
+    borderTopWidth: 1, borderTopColor: '#F0E2C8', backgroundColor: '#FDF8F0',
   },
-  sheetFavoritesBtn:     { flex: 1, borderWidth: 2, borderColor: '#C4873A', borderRadius: 30, paddingVertical: 15, alignItems: 'center' },
-  sheetFavoritesBtnText: { color: '#C4873A', fontSize: 15, fontWeight: '800' },
-  sheetPlanBtn:          { flex: 2, backgroundColor: '#1A0A00', borderRadius: 30, paddingVertical: 15, alignItems: 'center', shadowColor: '#1A0A00', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-  sheetPlanBtnText:      { color: '#FFF', fontSize: 15, fontWeight: '800' },
+  directionsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1A0A00', borderRadius: 30, paddingVertical: 15,
+    shadowColor: '#1A0A00', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
+  },
+  directionsBtnText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
 });
 
 // Internal alias so JSX above doesn't need the long name

@@ -57,4 +57,22 @@ router.post('/itinerary', async (req, res) => {
   }
 });
 
+router.post('/budget-split', async (req, res) => {
+  try {
+    const response = await fetch(`${RECOMMENDATION_SERVICE}/budget-split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ success: false, error: data.error ?? 'Error' });
+    }
+    return res.json({ success: true, fractions: data.fractions });
+  } catch (err) {
+    console.error('Budget-split route error:', err);
+    return res.status(503).json({ success: false, error: 'Recommendation service not available' });
+  }
+});
+
 export default router;

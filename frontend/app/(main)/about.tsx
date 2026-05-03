@@ -2,6 +2,7 @@ import React from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const getAppVersionLabel = (): string => {
   // Expo SDK 49+ exposes both `expoConfig` (dev) and `manifest` (classic).
@@ -33,7 +34,7 @@ export default function AboutTourMateScreen() {
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.brandCard}>
-          <Text style={styles.brandEmoji}>🧳</Text>
+          <MaterialCommunityIcons name="bag-suitcase" size={36} color="#E67E22" />
           <Text style={styles.brandTitle}>TourMate</Text>
           <Text style={styles.brandSub}>Your ultimate guide to exploring Egypt</Text>
           <View style={styles.metaRow}>
@@ -45,13 +46,13 @@ export default function AboutTourMateScreen() {
         <Text style={styles.h2}>Quick links</Text>
         <View style={styles.linkCard}>
           <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(main)/privacy' as any)} activeOpacity={0.8}>
-            <Text style={styles.linkIcon}>📋</Text>
+            <MaterialCommunityIcons name="clipboard-text" size={18} color="#1A1A1A" />
             <Text style={styles.linkLabel}>Privacy Policy</Text>
             <Text style={styles.linkArrow}>›</Text>
           </TouchableOpacity>
           <View style={styles.divider} />
           <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(main)/terms' as any)} activeOpacity={0.8}>
-            <Text style={styles.linkIcon}>📄</Text>
+            <MaterialCommunityIcons name="file-document-outline" size={18} color="#1A1A1A" />
             <Text style={styles.linkLabel}>Terms of Service</Text>
             <Text style={styles.linkArrow}>›</Text>
           </TouchableOpacity>

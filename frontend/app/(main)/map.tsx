@@ -115,7 +115,7 @@ const WalkableBannerModal: React.FC<{
           </View>
         </View>
         <TouchableOpacity onPress={onDismiss} style={styles.walkBannerClose}>
-          <Text style={styles.walkBannerCloseText}>✕</Text>
+          <MaterialCommunityIcons name="close" size={14} color="#999" />
         </TouchableOpacity>
       </View>
 
@@ -887,9 +887,12 @@ export default function MapScreen() {
 
         {!locationEnabled && (
           <View style={styles.locationDisabledBanner}>
-            <Text style={styles.locationDisabledText}>
-              📍 Location Services are turned off in Settings. Enable it to use GPS and walkability.
-            </Text>
+            <View style={{flexDirection:'row', alignItems:'center', gap:6}}>
+              <MaterialCommunityIcons name="map-marker" size={12} color="#8A5A00" />
+              <Text style={styles.locationDisabledText}>
+                Location Services are turned off in Settings. Enable it to use GPS and walkability.
+              </Text>
+            </View>
           </View>
         )}
 
@@ -932,7 +935,7 @@ export default function MapScreen() {
       {walkingInProgress && walkTarget && (
         <View style={styles.walkingProgressPanel}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚶</Text>
+            <MaterialCommunityIcons name="walk" size={36} color="#27AE60" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Walking in progress…</Text>
               <Text style={styles.walkingProgressDest} numberOfLines={1}>{walkTarget.name}</Text>
@@ -956,7 +959,10 @@ export default function MapScreen() {
               ]}
             />
           </View>
-          <Text style={styles.walkingProgressHint}>🏆 You'll earn 50 pts when you arrive!</Text>
+          <View style={{flexDirection:'row', alignItems:'center', gap:6, justifyContent:'center'}}>
+            <MaterialCommunityIcons name="trophy" size={13} color="#E67E22" />
+            <Text style={styles.walkingProgressHint}>You'll earn 50 pts when you arrive!</Text>
+          </View>
           <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
             <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
           </TouchableOpacity>
@@ -967,7 +973,7 @@ export default function MapScreen() {
       {vehicleDetected && (
         <View style={styles.walkingProgressPanel}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚗</Text>
+            <MaterialCommunityIcons name="car" size={36} color="#E74C3C" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Vehicle Detected!</Text>
               <Text style={styles.walkingProgressDest}>Walk cancelled</Text>
@@ -1123,7 +1129,7 @@ export default function MapScreen() {
                       <Text style={styles.placeChipNumber}>{index + 1}</Text>
                       <Text style={styles.placeChipName} numberOfLines={1}>{place.name}</Text>
                       <TouchableOpacity onPress={() => removePlace(place.id)}>
-                        <Text style={styles.placeChipRemove}>✕</Text>
+                        <MaterialCommunityIcons name="close" size={12} color="#E74C3C" />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -1160,7 +1166,7 @@ export default function MapScreen() {
       {walkingInProgress && walkTarget && (
         <View style={styles.walkingProgressPanel}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚶</Text>
+            <MaterialCommunityIcons name="walk" size={36} color="#27AE60" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Walking in progress…</Text>
               <Text style={styles.walkingProgressDest} numberOfLines={1}>{walkTarget.name}</Text>
@@ -1179,7 +1185,10 @@ export default function MapScreen() {
               width: `${Math.max(0, Math.min(100, 100 - (walkDistanceLeft / walkInitialDistRef.current) * 100))}%`,
             }]} />
           </View>
-          <Text style={styles.walkingProgressHint}>🏆 You'll earn 50 pts when you arrive!</Text>
+          <View style={{flexDirection:'row', alignItems:'center', gap:6, justifyContent:'center'}}>
+            <MaterialCommunityIcons name="trophy" size={13} color="#E67E22" />
+            <Text style={styles.walkingProgressHint}>You'll earn 50 pts when you arrive!</Text>
+          </View>
           <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
             <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
           </TouchableOpacity>
@@ -1190,7 +1199,7 @@ export default function MapScreen() {
       {vehicleDetected && (
         <View style={styles.walkingProgressPanel}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚗</Text>
+            <MaterialCommunityIcons name="car" size={36} color="#E74C3C" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Vehicle Detected!</Text>
               <Text style={styles.walkingProgressDest}>Walk cancelled</Text>

@@ -372,7 +372,7 @@ const TABS: TabItem[] = [
   { name: 'Home',      label: 'Home',   iconDefault: 'home-outline',               iconActive: 'home',                  route: '/(main)/home' },
   { name: 'Plan',      label: 'Plan',   iconDefault: 'calendar-plus-outline',      iconActive: 'calendar-plus',         route: '/(main)/plan' },
   { name: 'Tour Mate', label: 'AI',     iconDefault: 'robot-outline',              iconActive: 'robot',                 route: '/(main)/tourmate-ai' },
-  { name: 'Favorites', label: 'Saved',  iconDefault: 'heart-outline',              iconActive: 'heart',                 route: '/(main)/favorites' },
+  { name: 'Favorites', label: 'Likes',  iconDefault: 'heart-outline',              iconActive: 'heart',                 route: '/(main)/favorites' },
   { name: 'My Plans',  label: 'Plans',  iconDefault: 'bookmark-multiple-outline',  iconActive: 'bookmark-multiple',     route: '/(main)/saved-plans' },
   { name: 'View Map',  label: 'Map',    iconDefault: 'map-marker-outline',         iconActive: 'map-marker',            route: '/(main)/map' },
 ];
@@ -799,7 +799,10 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
                   .catch(() => setShowLocationError(true));
               }}
             >
-              <Text style={styles.locationErrorText}>⚠️ Showing Alexandria — tap to use your location</Text>
+              <View style={{flexDirection:'row', alignItems:'center', gap:6, justifyContent:'center'}}>
+                <MaterialCommunityIcons name="alert" size={12} color="#C4873A" />
+                <Text style={styles.locationErrorText}>Showing Alexandria — tap to use your location</Text>
+              </View>
             </TouchableOpacity>
           )}
 

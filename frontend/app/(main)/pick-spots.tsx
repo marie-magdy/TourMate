@@ -93,9 +93,7 @@ const SpotCard: React.FC<{
       onPress={() => onFavorite(item)}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
-      <Text style={[styles.favoriteIcon, isFavorited && styles.favoritedIcon]}>
-        {isFavorited ? '♥' : '♡'}
-      </Text>
+      <MaterialCommunityIcons name={isFavorited ? "heart" : "heart-outline"} size={16} color={isFavorited ? "#E74C3C" : "#CCC"} />
     </TouchableOpacity>
 
     {/* Add to plan button */}
@@ -104,9 +102,7 @@ const SpotCard: React.FC<{
       onPress={() => onAdd(item)}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
-      <Text style={[styles.addIcon, isAdded && styles.addIconActive]}>
-        {isAdded ? '✓' : '+'}
-      </Text>
+      <MaterialCommunityIcons name={isAdded ? "check" : "plus"} size={18} color={isAdded ? "#FFF" : "#333"} />
     </TouchableOpacity>
 
     {/* Card info */}
@@ -115,7 +111,7 @@ const SpotCard: React.FC<{
       <View style={styles.cardMeta}>
         <Text style={styles.cardPrice}>from {convertPrice(item.price_from)}</Text>
         <View style={styles.cardRating}>
-          <Text style={styles.cardRatingStar}>★</Text>
+          <MaterialCommunityIcons name="star" size={12} color="#FFC107" />
           <Text style={styles.cardRatingText}>{item.rating}</Text>
         </View>
       </View>
@@ -133,7 +129,7 @@ export default function PickSpotsScreen() {
     startDate: string;
     endDate: string;
     budget: string;
-    dayHours: string;
+    daySchedules: string;
     interests: string;
     startLat?: string;
     startLon?: string;
@@ -168,7 +164,7 @@ export default function PickSpotsScreen() {
   const openSheet = async (item: Spot) => {
     setSheetLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/attractions/code/${item.id}`);
+      const res  = await fetch(`${API_BASE}/attractions/${item.id}`);
       const data = await res.json();
       if (data.success && data.data) {
         setSheetAttraction(data.data);
@@ -225,7 +221,7 @@ export default function PickSpotsScreen() {
 
       if (data.success && data.data?.length > 0) {
         // STEP 1 DEBUG — confirm string IDs from Excel, e.g. ["ATT001", "ATT002"]
-        console.log('[PICK-SPOTS] Loaded from Excel. Sample IDs:', data.data.slice(0, 5).map((x: any) => x.id));
+        console.log('[PICK-SPOTS] Loaded from DB. Sample IDs:', data.data.slice(0, 5).map((x: any) => x.id));
         setSpots(normalizeSpots(data.data));
       } else {
         throw new Error('Empty response from recommendation service');
@@ -357,7 +353,7 @@ export default function PickSpotsScreen() {
           </View>
         ) : fetchError ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorIcon}>⚠️</Text>
+            <MaterialCommunityIcons name="alert" size={40} color="#E67E22" />
             <Text style={styles.errorText}>{fetchError}</Text>
             <TouchableOpacity style={styles.retryBtn} onPress={fetchSpots} activeOpacity={0.8}>
               <Text style={styles.retryBtnText}>Retry</Text>
@@ -431,12 +427,6 @@ export default function PickSpotsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Sheet loading overlay */}
-      {sheetLoading && (
-        <View style={styles.sheetLoadingOverlay}>
-          <ActivityIndicator size="large" color="#E67E22" />
-        </View>
-      )}
 
       <AttractionSheet
         attraction={sheetAttraction}
