@@ -1,20 +1,11 @@
-from pathlib import Path
-import sys
-import os
-
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BASE_DIR))
-
-# Force-load service env so DATABASE_URL is available even under Flask reloader.
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
-if not os.getenv("DATABASE_URL"):
-    load_dotenv(BASE_DIR / "backend" / ".env", override=False)
-
-from reccomender_v2 import build_attraction_matrix, generate_itinerary_from_payload, load_attractions  # noqa: E402
+from reccomender_v2 import (
+    build_attraction_matrix, generate_itinerary_from_payload,
+    load_attractions, split_budget_across_days,
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -87,11 +78,22 @@ def health():
 def itinerary():
     payload = request.get_json(silent=True) or {}
 
-    # DEBUG — confirm what the frontend sent
-    print("[FLASK /itinerary] raw payload keys:", list(payload.keys()))
-    print("[FLASK /itinerary] liked_ids received:", payload.get("liked_ids", []))
-    print("[FLASK /itinerary] visited_ids received:", payload.get("visited_ids", []))
-    print("[FLASK /itinerary] city:", payload.get("city"), "| budget:", payload.get("budget_egp"), "| hours:", payload.get("available_hours"))
+    day_index = int(payload.get("day_index", 0) or 0)
+    n_days    = int(payload.get("n_days", 1) or 1)
+    city      = str(payload.get("city", "?")).upper()
+
+    if day_index == 0:
+        print("\n" + "═" * 60)
+        print(f"  NEW PLAN REQUEST  ·  {city}  ·  {n_days} day(s)")
+        print("═" * 60)
+    else:
+        print("\n" + "─" * 60)
+        print(f"  DAY {day_index + 1} / {n_days}  ·  {city}")
+        print("─" * 60)
+
+    print(f"  liked    : {payload.get('liked_ids', [])}")
+    print(f"  visited  : {payload.get('visited_ids', [])}")
+    print(f"  budget   : {payload.get('budget_egp')} EGP  |  hours: {payload.get('available_hours')}")
 
     try:
         result = generate_itinerary_from_payload(payload, df=df, att_matrix=att_matrix)
@@ -101,6 +103,67 @@ def itinerary():
         print("[FLASK ERROR] Full traceback:")
         traceback.print_exc()
         return jsonify({"error": str(exc), "details": traceback.format_exc()}), 500
+
+
+@app.post("/budget-split")
+def budget_split():
+    """
+    Compute adaptive per-day budget fractions.
+    Body: { city, daily_hours, liked_ids? }
+    Response: { fractions, daily_pressures }
+
+    Per-day cost pressure is derived from the user's liked/selected spot prices,
+    distributed across days proportional to each day's share of total hours.
+    Days assigned expensive liked spots receive a higher cost-pressure weight,
+    giving genuinely non-uniform fractions even for same-city trips.
+    Fallback: city-median price when no liked spots are available.
+    """
+    payload     = request.get_json(silent=True) or {}
+    daily_hours = payload.get("daily_hours", [])
+    city        = str(payload.get("city", "")).strip().lower()
+    liked_ids   = [str(x) for x in (payload.get("liked_ids") or [])]
+
+    if not daily_hours:
+        return jsonify({"error": "daily_hours is required"}), 400
+
+    n = len(daily_hours)
+
+    # City-level median as the baseline fallback
+    city_median = 1.0
+    if not df.empty:
+        city_df = df[df["city"].str.strip().str.lower() == city] if city else df
+        if city_df.empty:
+            city_df = df
+        top_prices = city_df.nlargest(20, "avg_rating")["price_avg"].dropna()
+        if not top_prices.empty:
+            city_median = float(top_prices.median())
+
+    # Distribute liked spots across days proportional to hours, then compute
+    # per-day cost pressure as the mean price of spots assigned to that day.
+    daily_top_prices = [city_median] * n
+    if liked_ids and not df.empty:
+        liked_df = df[df["attraction_id"].astype(str).isin(liked_ids)][["attraction_id", "price_avg"]].copy()
+        if not liked_df.empty:
+            # Sort expensive spots first so the heaviest items spread across days
+            liked_df = liked_df.sort_values("price_avg", ascending=False).reset_index(drop=True)
+            total_hrs    = sum(daily_hours) or 1.0
+            day_capacity = [h / total_hrs for h in daily_hours]  # share of total hours per day
+            day_buckets: list[list] = [[] for _ in range(n)]
+
+            # Greedy round-robin weighted by remaining day capacity
+            for _, spot in liked_df.iterrows():
+                # Assign to the day with the most remaining proportional capacity
+                idx = max(range(n), key=lambda d: day_capacity[d])
+                day_buckets[idx].append(float(spot["price_avg"]))
+                day_capacity[idx] -= (1.0 / len(liked_df))  # reduce that day's "slot weight"
+
+            daily_top_prices = [
+                float(sum(bucket) / len(bucket)) if bucket else city_median
+                for bucket in day_buckets
+            ]
+
+    fractions = split_budget_across_days(daily_hours, daily_top_prices)
+    return jsonify({"fractions": fractions, "daily_pressures": daily_top_prices}), 200
 
 
 if __name__ == "__main__":

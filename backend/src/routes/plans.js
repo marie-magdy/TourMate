@@ -4,26 +4,35 @@ import pool from '../db.js';
 
 const router = express.Router();
 
-// Ensure the table exists on first use
-const ensureTable = pool.query(`
-  CREATE TABLE IF NOT EXISTS saved_plans (
-    id          SERIAL PRIMARY KEY,
-    user_id     INTEGER NOT NULL,
-    city        TEXT,
-    start_date  TEXT,
-    end_date    TEXT,
-    budget      TEXT,
-    day_hours   TEXT,
-    interests   JSONB,
-    spot_ids    JSONB,
-    itinerary   JSONB,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`).catch(err => console.error('[plans] table init error:', err));
+// Ensure the table exists — runs once on first request, not at import time.
+let _tableReady = null;
+function ensureTable() {
+  if (!_tableReady) {
+    _tableReady = pool.query(`
+      CREATE TABLE IF NOT EXISTS saved_plans (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL,
+        city        TEXT,
+        start_date  TEXT,
+        end_date    TEXT,
+        budget      TEXT,
+        day_hours   TEXT,
+        interests   JSONB,
+        spot_ids    JSONB,
+        itinerary   JSONB,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch(err => {
+      console.error('[plans] table init error:', err);
+      _tableReady = null; // allow retry on next request
+    });
+  }
+  return _tableReady;
+}
 
 // POST /api/plans  — save a plan
 router.post('/', async (req, res) => {
-  await ensureTable;
+  await ensureTable();
   try {
     const { user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary } = req.body;
     if (!user_id || !itinerary) {
@@ -47,7 +56,7 @@ router.post('/', async (req, res) => {
 
 // GET /api/plans/:user_id  — list saved plans for a user
 router.get('/:user_id', async (req, res) => {
-  await ensureTable;
+  await ensureTable();
   try {
     const { user_id } = req.params;
     const result = await pool.query(
@@ -63,7 +72,7 @@ router.get('/:user_id', async (req, res) => {
 
 // DELETE /api/plans/:id  — delete a saved plan
 router.delete('/:id', async (req, res) => {
-  await ensureTable;
+  await ensureTable();
   try {
     const { id } = req.params;
     const result = await pool.query(

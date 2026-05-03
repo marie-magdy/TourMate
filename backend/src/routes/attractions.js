@@ -205,11 +205,17 @@ router.get('/:id/images', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    // Itinerary stops use attraction_id (e.g. "ATT062"); home-screen taps use the
+    // integer serial id.  Try attraction_id first so both formats work.
+    const isInteger = /^\d+$/.test(id);
+    const whereClause = isInteger
+      ? 'WHERE a.id = $1'
+      : 'WHERE a.attraction_id = $1';
     const result = await pool.query(
       `${BASE_SELECT}
-       WHERE a.id = $1
+       ${whereClause}
        ${GROUP_BY}`,
-      [id]
+      [isInteger ? parseInt(id, 10) : id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Attraction not found' });

@@ -145,6 +145,7 @@ export default function PlanScreen() {
   const [budget, setBudget] = useState('');
  const [daySchedules, setDaySchedules] = useState<{ start: Date; end: Date }[]>([]);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const [isForeigner, setIsForeigner] = useState(false);
 
   // Starting location
   const [locationLabel, setLocationLabel] = useState('');
@@ -368,6 +369,7 @@ export default function PlanScreen() {
         daySchedules: JSON.stringify(formattedSchedules),
 
         interests: selectedInterests.join(','),
+        isForeigner: String(isForeigner),
 
         ...(locationCoords && {
           startLat: String(locationCoords.lat),
@@ -508,6 +510,28 @@ export default function PlanScreen() {
           )}
         </View>
 
+        {/* ── Visitor Type ── */}
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <MaterialCommunityIcons name="passport" size={18} color="#1A1A1A" />
+            <Text style={styles.cardTitleText}>Visitor Type</Text>
+          </View>
+          <View style={styles.nationalityRow}>
+            <TouchableOpacity
+              style={[styles.nationalityBtn, !isForeigner && styles.nationalityBtnSelected]}
+              onPress={() => setIsForeigner(false)}
+            >
+              <Text style={[styles.nationalityBtnText, !isForeigner && styles.nationalityBtnTextSelected]}>Egyptian</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.nationalityBtn, isForeigner && styles.nationalityBtnSelected]}
+              onPress={() => setIsForeigner(true)}
+            >
+              <Text style={[styles.nationalityBtnText, isForeigner && styles.nationalityBtnTextSelected]}>Foreigner</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* ── Starting Location ── */}
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
@@ -590,7 +614,7 @@ export default function PlanScreen() {
             <Text style={styles.cardTitleText}>Budget</Text>
           </View>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetCurrency}>$</Text>
+            <Text style={styles.budgetCurrency}>EGP</Text>
             <TextInput
               style={styles.budgetInput}
               placeholder="Enter your budget"
@@ -667,38 +691,57 @@ export default function PlanScreen() {
               );
             })}
 
-            {/* 🔥 SINGLE shared picker */}
-            {activeIndex !== null && pickerType && (
-              <DateTimePicker
-                value={
-                  pickerType === 'start'
-                    ? daySchedules[activeIndex].start
-                    : daySchedules[activeIndex].end
-                }
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={(event, selectedDate) => {
-                  if (!selectedDate) {
-                    setActiveIndex(null);
-                    setPickerType(null);
-                    return;
-                  }
-
-                  setDaySchedules(prev => {
-                    const next = [...prev];
-                    next[activeIndex] = {
-                      ...next[activeIndex],
-                      [pickerType]: selectedDate,
-                    };
-                    return next;
-                  });
-
-                  setActiveIndex(null);
-                  setPickerType(null);
-                }}
-              />
-            )}
+            {/* Time picker modal */}
+            <Modal
+              visible={activeIndex !== null && pickerType !== null}
+              transparent
+              animationType="fade"
+              onRequestClose={() => { setActiveIndex(null); setPickerType(null); }}
+            >
+              <TouchableOpacity
+                style={styles.timePickerOverlay}
+                activeOpacity={1}
+                onPress={() => { setActiveIndex(null); setPickerType(null); }}
+              >
+                <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                <View style={styles.timePickerSheet}>
+                  <View style={styles.timePickerHeader}>
+                    <Text style={styles.timePickerTitle}>
+                      {pickerType === 'start' ? 'Start Time' : 'End Time'}
+                    </Text>
+                    <TouchableOpacity onPress={() => { setActiveIndex(null); setPickerType(null); }}>
+                      <Text style={styles.timePickerDone}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {activeIndex !== null && pickerType && (
+                    <DateTimePicker
+                      value={
+                        pickerType === 'start'
+                          ? daySchedules[activeIndex].start
+                          : daySchedules[activeIndex].end
+                      }
+                      mode="time"
+                      is24Hour={false}
+                      display="spinner"
+                      themeVariant="light"
+                      onChange={(event, selectedDate) => {
+                        if (!selectedDate) return;
+                        setDaySchedules(prev => {
+                          const next = [...prev];
+                          next[activeIndex!] = {
+                            ...next[activeIndex!],
+                            [pickerType!]: selectedDate,
+                          };
+                          return next;
+                        });
+                      }}
+                      style={{ width: '100%' }}
+                    />
+                  )}
+                </View>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </Modal>
           </View>
         )}
 
@@ -1126,7 +1169,7 @@ header: {
   },
 
   budgetCurrency: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: Theme.colors.text,
     marginRight: 8,
@@ -1380,6 +1423,74 @@ header: {
 
   cityOptionCheck: {
     fontSize: 16,
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
+
+  // ── Time Picker Modal ────────────────────────────────────────────
+  timePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+
+  timePickerSheet: {
+    backgroundColor: Theme.colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 34,
+  },
+
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+
+  timePickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  timePickerDone: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+
+  // ── Nationality ───────────────────────────────────────────────
+  nationalityRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  nationalityBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+
+  nationalityBtnSelected: {
+    backgroundColor: Theme.colors.primary + '22',
+    borderColor: Theme.colors.primary,
+  },
+
+  nationalityBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.colors.muted,
+  },
+
+  nationalityBtnTextSelected: {
     color: Theme.colors.primary,
     fontWeight: '700',
   },

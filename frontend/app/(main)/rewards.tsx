@@ -119,9 +119,14 @@ const RewardCard: React.FC<{
           backgroundColor: canAfford ? '#27AE60' : '#E67E22',
         }]} />
       </View>
-      <Text style={styles.progressLabel}>
-        {canAfford ? '✓ Ready to redeem!' : `${reward.points_required - userPoints} more points needed`}
-      </Text>
+      {canAfford ? (
+        <View style={{flexDirection:'row', alignItems:'center', gap:4}}>
+          <MaterialCommunityIcons name="check" size={11} color="#27AE60" />
+          <Text style={styles.progressLabel}>Ready to redeem!</Text>
+        </View>
+      ) : (
+        <Text style={styles.progressLabel}>{reward.points_required - userPoints} more points needed</Text>
+      )}
 
       <TouchableOpacity
         style={[styles.redeemBtn, !canAfford && styles.redeemBtnDisabled]}

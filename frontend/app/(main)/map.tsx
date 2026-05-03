@@ -133,7 +133,7 @@ const WalkableBannerModal: React.FC<{
           </View>
         </View>
         <TouchableOpacity onPress={onDismiss} style={styles.walkBannerClose}>
-          <Text style={styles.walkBannerCloseText}>✕</Text>
+          <MaterialCommunityIcons name="close" size={14} color="#999" />
         </TouchableOpacity>
       </View>
 
@@ -1824,7 +1824,7 @@ export default function MapScreen() {
       {walkingInProgress && walkTarget && (
         <View style={[styles.walkingProgressPanel, { paddingBottom: insets.bottom + 22 }]}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚶</Text>
+            <MaterialCommunityIcons name="walk" size={36} color="#27AE60" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Walking in progress…</Text>
               <Text style={styles.walkingProgressDest} numberOfLines={1}>{walkTarget.name}</Text>
@@ -1843,7 +1843,10 @@ export default function MapScreen() {
               width: `${Math.max(0, Math.min(100, 100 - (walkDistanceLeft / walkInitialDistRef.current) * 100))}%`,
             }]} />
           </View>
-          <Text style={styles.walkingProgressHint}>🏆 You'll earn 50 pts when you arrive!</Text>
+          <View style={{flexDirection:'row', alignItems:'center', gap:6, justifyContent:'center'}}>
+            <MaterialCommunityIcons name="trophy" size={13} color="#E67E22" />
+            <Text style={styles.walkingProgressHint}>You'll earn 50 pts when you arrive!</Text>
+          </View>
           <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
             <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
           </TouchableOpacity>
@@ -1853,7 +1856,7 @@ export default function MapScreen() {
       {vehicleDetected && (
         <View style={[styles.walkingProgressPanel, { paddingBottom: insets.bottom + 22 }]}>
           <View style={styles.walkingProgressHeader}>
-            <Text style={styles.walkingProgressEmoji}>🚗</Text>
+            <MaterialCommunityIcons name="car" size={36} color="#E74C3C" />
             <View style={{ flex: 1 }}>
               <Text style={styles.walkingProgressTitle}>Vehicle Detected!</Text>
               <Text style={styles.walkingProgressDest}>Walk cancelled</Text>

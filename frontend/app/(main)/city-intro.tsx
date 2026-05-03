@@ -200,7 +200,6 @@ export default function CityIntroScreen() {
   const total = hotelTotal + flightTotal;
 
   const handleDetermineplan = () => {
-    // Both selected
     if (selectedFlight && selectedHotel) {
       router.push({
         pathname: '/(main)/plan' as any,
@@ -211,8 +210,6 @@ export default function CityIntroScreen() {
       });
       return;
     }
-
-    // Only hotel
     if (!selectedFlight && selectedHotel) {
       router.push({
         pathname: '/(main)/plan' as any,
@@ -223,14 +220,10 @@ export default function CityIntroScreen() {
       });
       return;
     }
-
-    // Only flight
     if (selectedFlight && !selectedHotel) {
-      router.back(); // just go back, no location to fill
+      router.back();
       return;
     }
-
-    // Nothing selected — just go back
     router.back();
   };
 
