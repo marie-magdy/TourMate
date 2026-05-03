@@ -7,7 +7,13 @@ router.get('/attractions', async (req, res) => {
   try {
     const query    = new URLSearchParams(req.query).toString();
     const response = await fetch(`${RECOMMENDATION_SERVICE}/attractions?${query}`);
-    const data     = await response.json();
+    const rawBody  = await response.text();
+    let data;
+    try {
+      data = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      data = { error: 'Invalid response from recommendation service', raw: rawBody.slice(0, 200) };
+    }
     if (!response.ok) {
       return res.status(response.status).json({ success: false, error: data.error ?? 'Error' });
     }
@@ -36,8 +42,13 @@ router.post('/itinerary', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
     });
-
-    const data = await response.json();
+    const rawBody = await response.text();
+    let data;
+    try {
+      data = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      data = { error: 'Invalid response from recommendation service', raw: rawBody.slice(0, 300) };
+    }
 
     if (!response.ok) {
       return res.status(response.status).json({
