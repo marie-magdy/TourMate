@@ -14,6 +14,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 import DesertTriangles from '../../components/DesertTriangles';
 import { Theme } from '../../constants/theme';
+import { useBookingStore } from '@/store/bookingStore';
+
 
 const { width } = Dimensions.get('window');
 
@@ -157,6 +159,46 @@ export default function PlanScreen() {
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [weatherLoading, setWeatherLoading] = useState(false);
 
+  const { selectedHotel } = useBookingStore();
+
+useEffect(() => {
+  const applyBookedHotel = async () => {
+    if (!selectedHotel) return;
+
+    try {
+      const query = `${selectedHotel.name}, ${selectedHotel.city}, Egypt`;
+
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+
+      const res = await fetch(url, {
+        headers: { 'Accept-Language': 'en' },
+      });
+
+      const data = await res.json();
+
+      if (data.length) {
+        const { lat, lon } = data[0];
+
+        setLocationCoords({
+          lat: parseFloat(lat),
+          lon: parseFloat(lon),
+        });
+
+        setLocationLabel(selectedHotel.name);
+        setLocationInput(selectedHotel.name);
+      }
+    } catch (err) {
+      console.error('Hotel geocode failed:', err);
+    }
+
+    useBookingStore.setState({
+      selectedHotel: null,
+    });
+  };
+
+  applyBookedHotel();
+}, [selectedHotel]);
+
   useEffect(() => {
     fetchForecast(selectedCity);
   }, [selectedCity]);
@@ -234,6 +276,13 @@ export default function PlanScreen() {
   // ── Calendar logic ────────────────────────────────────────────────
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
+
+  const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
   const isPastDay = (day: number) => {
     const today = new Date();
@@ -378,6 +427,17 @@ export default function PlanScreen() {
         }),
       },
     });
+    // RESET AFTER sending
+  setTimeout(() => {
+    useBookingStore.setState({
+      selectedHotel: null,
+      selectedFlight: null,
+    });
+
+    setLocationLabel('');
+    setLocationInput('');
+    setLocationCoords(null);
+  }, 100);
   };
 
   const calendarCells: (number | null)[] = [
@@ -547,8 +607,8 @@ export default function PlanScreen() {
               pathname: '/(main)/city-intro' as any,
               params: {
                 city: selectedCity.name,
-                startDate: startDate ? `${currentYear}-${currentMonth + 1}-${startDate}` : '',
-                endDate: endDate ? `${currentYear}-${currentMonth + 1}-${endDate}` : '',
+                startDate: startDate ? formatLocalDate(startDate) : '',
+                endDate: endDate ? formatLocalDate(endDate) : '',
                 budget,
               },
             })}

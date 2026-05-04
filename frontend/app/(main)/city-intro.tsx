@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Image, ActivityIndicator, SafeAreaView, Modal,
-  Dimensions,
+  Dimensions,Linking,Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
@@ -11,6 +11,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import DesertTriangles from '../../components/DesertTriangles';
 import { Theme } from '../../constants/theme';
+
+import { useBookingStore } from '@/store/bookingStore';
 
 type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -72,7 +74,7 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     arrivalTime: '08:15 AM',
     duration: '2h 15m',
     class: 'Economy',
-    price: 199,
+    price: Math.floor(9000 + Math.random() * 5000),
   },
   {
     airline: 'Air Arabia',
@@ -83,7 +85,7 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     arrivalTime: '01:45 PM',
     duration: '2h 15m',
     class: 'Economy',
-    price: 149,
+    price: Math.floor(9000 + Math.random() * 5000),
   },
   {
     airline: 'EgyptAir',
@@ -94,7 +96,7 @@ const getSampleFlights = (fromCode: string, toCode: string): Flight[] => [
     arrivalTime: '06:15 PM',
     duration: '2h 15m',
     class: 'Business',
-    price: 349,
+    price: Math.floor(9000 + Math.random() * 5000),
   },
 ];
 
@@ -129,6 +131,39 @@ export default function CityIntroScreen() {
   const [showDepartureModal, setShowDepartureModal] = useState(false);
   const [selectedDeparture, setSelectedDeparture] = useState(DEPARTURE_CITIES[0]);
 
+  const formatDate = (date: string | undefined) => {
+  if (!date) return '';
+
+  return new Date(date).toISOString().split('T')[0];
+};
+
+const openFlightBooking = async () => {
+  if (!selectedFlight) return;
+
+  const from = selectedDeparture.code;
+  const to = CITY_AIRPORTS[city]?.code;
+
+  const depart = formatDate(params.startDate);
+  const ret = formatDate(params.endDate);
+
+  const url = `https://www.google.com/travel/flights?q=Flights%20from%20${from}%20to%20${to}%20departing%20${depart}%20returning%20${ret}`;
+
+  await Linking.openURL(url);
+};
+
+const openHotelBooking = async () => {
+  if (!selectedHotel) return;
+
+  const checkin = formatDate(params.startDate);
+  const checkout = formatDate(params.endDate);
+
+  const url = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(
+    selectedHotel.name
+  )}&checkin=${checkin}&checkout=${checkout}&group_adults=2`;
+
+  await Linking.openURL(url);
+};
+
   useEffect(() => {
     fetchFlights(selectedDeparture.code);
     fetchHotels();
@@ -158,7 +193,7 @@ export default function CityIntroScreen() {
             : '10:15 AM',
           duration: '2h 15m',
           class: i === 2 ? 'Business' : 'Economy',
-          price: i === 2 ? 349 : 149 + (i * 50),
+          price: Math.floor(10000 + Math.random() * 15000),
         }));
         setFlights(mapped);
       } else {
@@ -199,33 +234,17 @@ export default function CityIntroScreen() {
   const flightTotal = selectedFlight ? selectedFlight.price * 2 : 0; // return trip
   const total = hotelTotal + flightTotal;
 
-  const handleDetermineplan = () => {
-    if (selectedFlight && selectedHotel) {
-      router.push({
-        pathname: '/(main)/plan' as any,
-        params: {
-          autoFillLocation: selectedHotel.name,
-          autoFillCity: selectedHotel.city,
-        },
-      });
-      return;
-    }
-    if (!selectedFlight && selectedHotel) {
-      router.push({
-        pathname: '/(main)/plan' as any,
-        params: {
-          autoFillLocation: selectedHotel.name,
-          autoFillCity: selectedHotel.city,
-        },
-      });
-      return;
-    }
-    if (selectedFlight && !selectedHotel) {
-      router.back();
-      return;
-    }
-    router.back();
-  };
+const handleDetermineplan = () => {
+  if (selectedHotel) {
+    useBookingStore.getState().setSelectedHotel(selectedHotel);
+  }
+
+  if (selectedFlight) {
+    useBookingStore.getState().setSelectedFlight(selectedFlight);
+  }
+
+  router.back();
+};
 
   const changeDeparture = (dep: typeof DEPARTURE_CITIES[0]) => {
     setSelectedDeparture(dep);
@@ -282,7 +301,7 @@ export default function CityIntroScreen() {
           <View style={styles.sectionHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <MaterialCommunityIcons name="airplane" size={18} color="#1A1A1A" />
-              <Text style={styles.sectionTitle}>{t('flights')}</Text>
+              <Text style={styles.sectionTitle}>{t('Flights Demo')}</Text>
             </View>
             <Text style={styles.sectionSubtitle}>{selectedDeparture.code} → {CITY_AIRPORTS[city]?.code ?? 'HRG'}</Text>
           </View>
@@ -339,7 +358,6 @@ export default function CityIntroScreen() {
                 {selectedFlight === flight && (
                   <View style={styles.selectedBadge}>
                     <MaterialCommunityIcons name="check" size={12} color="#FFF" />
-                    <Text style={styles.selectedBadgeText}> Selected</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -352,7 +370,7 @@ export default function CityIntroScreen() {
           <View style={styles.sectionHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <MaterialCommunityIcons name="bed" size={18} color="#1A1A1A" />
-              <Text style={styles.sectionTitle}>{t('hotels')}</Text>
+              <Text style={styles.sectionTitle}>{t('Hotels Demo')}</Text>
             </View>
             <Text style={styles.sectionSubtitle}>{nights} nights</Text>
           </View>
@@ -396,7 +414,7 @@ export default function CityIntroScreen() {
         {/* ── Cost Summary ── */}
         {(selectedFlight || selectedHotel) && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Cost Summary</Text>
+            <Text style={styles.summaryTitle}>Estimated Cost Summary</Text>
             {selectedFlight && (
               <View style={styles.summaryRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -418,7 +436,7 @@ export default function CityIntroScreen() {
             <View style={styles.summaryDivider} />
             <View style={styles.summaryRow}>
               <Text style={styles.summaryTotalLabel}>Total</Text>
-              <Text style={styles.summaryTotal}>{convertPrice(total)}</Text>
+              <Text style={styles.summaryTotal}> ~ {convertPrice(total)}</Text>
             </View>
           </View>
         )}
@@ -426,26 +444,50 @@ export default function CityIntroScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* ── Determine Plan Button ── */}
+        {/* ── Bottom Bar ── */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.determineBtn}
-          onPress={handleDetermineplan}
-          activeOpacity={0.85}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <MaterialCommunityIcons name="check-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.determineBtnText}>
-              {selectedFlight && selectedHotel
-                ? 'Confirm Flight + Hotel →'
-                : selectedHotel
-                ? 'Continue with Hotel →'
-                : selectedFlight
-                ? 'Continue with Flight →'
-                : 'Skip — Add location manually'}
-            </Text>
-          </View>
-        </TouchableOpacity>
+
+        {/* FLIGHT BOOK BUTTON */}
+        {selectedFlight && (
+          <TouchableOpacity
+            style={styles.bookNowBtn}
+            onPress={() => openFlightBooking()}
+          >
+            <MaterialCommunityIcons name="airplane" size={18} color="#FFF" />
+            <Text style={styles.bookNowBtnText}>Book Flight</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* HOTEL BOOK BUTTON */}
+        {selectedHotel && (
+          <TouchableOpacity
+            style={[styles.bookNowBtn, { marginTop: 10 }]}
+            onPress={() => openHotelBooking()}
+          >
+            <MaterialCommunityIcons name="bed" size={18} color="#FFF" />
+            <Text style={styles.bookNowBtnText}>Book Hotel</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* PLAN BUTTON */}
+  <TouchableOpacity
+    style={styles.determineBtn}
+    onPress={handleDetermineplan}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <MaterialCommunityIcons name="check-circle-outline" size={20} color="#FFF" />
+      <Text style={styles.determineBtnText}>
+        {selectedFlight && selectedHotel
+          ? 'Confirm Flight + Hotel →'
+          : selectedHotel
+          ? 'Continue with Hotel →'
+          : selectedFlight
+          ? 'Continue with Flight →'
+          : 'Skip — Add location manually'}
+      </Text>
+    </View>
+  </TouchableOpacity>
+
       </View>
 
       {/* ── Departure Modal ── */}
@@ -483,7 +525,7 @@ export default function CityIntroScreen() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────
+
 // ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safeArea: {
@@ -978,4 +1020,21 @@ header: {
     color: Theme.colors.muted,
     marginTop: 2,
   },
+
+  bookNowBtn: {
+  backgroundColor: '#27AE60',
+  borderRadius: 30,
+  paddingVertical: 14,
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexDirection: 'row',
+  gap: 8,
+  marginBottom: 12,
+},
+
+bookNowBtnText: {
+  color: '#FFF',
+  fontSize: 16,
+  fontWeight: '700',
+},
 });
