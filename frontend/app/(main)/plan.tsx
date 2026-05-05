@@ -610,6 +610,7 @@ useEffect(() => {
                 startDate: startDate ? formatLocalDate(startDate) : '',
                 endDate: endDate ? formatLocalDate(endDate) : '',
                 budget,
+                
               },
             })}
             activeOpacity={0.85}

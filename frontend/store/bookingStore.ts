@@ -6,6 +6,8 @@ export type Hotel = {
   city: string;
   image_url?: string;
   price_per_night?: number;
+  stars?: number; // ⭐ keep both rating + stars if needed
+  rating?: number;
 };
 
 type BookingStore = {
