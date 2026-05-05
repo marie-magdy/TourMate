@@ -16,6 +16,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../../constants/AppContext';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 import { API_BASE } from '../../constants/api';
+import ScreenWrapper from '../../components/ScreenWrapper';
+import BottomTab from '@/components/BottomTab';
+import { Keyboard } from 'react-native';
+
+
+import DesertTriangles from '../../components/DesertTriangles';
+import { Theme } from '../../constants/theme';
+
+const BOTTOM_TAB_HEIGHT = 60; // adjust to match your BottomTab height
 
 const { width } = Dimensions.get('window');
 const API_KEY  = process.env.EXPO_PUBLIC_API_KEY ?? '';
@@ -87,6 +96,7 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
   };
 
   return (
+    
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
       {!isUser && (
         <View style={styles.aiAvatar}>
@@ -420,6 +430,7 @@ const VoiceModeOverlay: React.FC<{
 
 // ── Main Screen ───────────────────────────────────────────────────────
 export default function TourMateAIScreen() {
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const router = useRouter();
   const { t, userId } = useApp();
   const scrollRef = useRef<ScrollView>(null);
@@ -453,12 +464,33 @@ export default function TourMateAIScreen() {
     } catch {}
     finally { setLoadingPoints(false); }
   };
+    // Add this effect — scrolls to bottom whenever messages change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [messages, loading]);
 
   useEffect(() => { loadPoints(); }, [userId]);
   useFocusEffect(React.useCallback(() => { loadPoints(); }, [userId]));
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [messages]);
+  useEffect(() => {
+  const show = Keyboard.addListener('keyboardDidShow', () => {
+    setKeyboardVisible(true);
+  });
+
+  const hide = Keyboard.addListener('keyboardDidHide', () => {
+    setKeyboardVisible(false);
+  });
+
+  return () => {
+    show.remove();
+    hide.remove();
+  };
+}, []);
 
   // ── Open voice mode (points-gated) ───────────────────────────────
   const handleOpenVoiceMode = async () => {
@@ -692,47 +724,74 @@ export default function TourMateAIScreen() {
   }
 
   // ── Chat screen ───────────────────────────────────────────────────
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>{t('aiTitle')}</Text>
-          <View style={styles.onlineBadge}>
-            <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>Online</Text>
-          </View>
-        </View>
-        <TouchableOpacity
-          style={styles.clearBtn}
-          onPress={() => setMessages([{
-            id: '0', role: 'assistant',
-            content: "👋 Hello again! How can I help you with your Egyptian adventure?",
-            timestamp: new Date(),
-          }])}
-        >
-          <Text style={styles.clearBtnText}>Clear</Text>
-        </TouchableOpacity>
-      </View>
+return (
+  <View style={{ flex: 1, backgroundColor: Theme.colors.background }}>
 
+    {/* Background decoration — touches pass through */}
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <DesertTriangles />
+    </View>
+
+    <View style={{ flex: 1 }}>
+
+      {/* ── HEADER ── */}
+      <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>{t('aiTitle')}</Text>
+            <View style={styles.onlineBadge}>
+              <View style={styles.onlineDot} />
+              <Text style={styles.onlineText}>Online</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.clearBtn}
+            onPress={() =>
+              setMessages([
+                {
+                  id: '0',
+                  role: 'assistant',
+                  content: "👋 Hello again! How can I help you with your Egyptian adventure?",
+                  timestamp: new Date(),
+                },
+              ])
+            }
+          >
+            <Text style={styles.clearBtnText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      {/* ── KEYBOARD AVOIDING — only wraps scroll + input ── */}
       <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        style={{ flex: 1 }}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
+
+        {/* ── CHAT AREA ── */}
         <ScrollView
           ref={scrollRef}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16, flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
-          {messages.map(message => <MessageBubble key={message.id} message={message} />)}
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} />
+          ))}
 
           {(loading || recognizing) && (
             <View style={styles.bubbleRow}>
-              <View style={styles.aiAvatar}><Text style={styles.aiAvatarIcon}>🧳</Text></View>
+              <View style={styles.aiAvatar}>
+                <Text style={styles.aiAvatarIcon}>🧳</Text>
+              </View>
               <View style={styles.typingBubble}>
                 <ActivityIndicator size="small" color="#E67E22" />
                 <Text style={styles.typingText}>
@@ -750,7 +809,9 @@ export default function TourMateAIScreen() {
                   <TouchableOpacity
                     key={index}
                     style={styles.suggestionChip}
-                    onPress={() => sendMessage(suggestion.replace(/^[\p{Emoji}\s]+/u, '').trim())}
+                    onPress={() =>
+                      sendMessage(suggestion.replace(/^[\p{Emoji}\s]+/u, '').trim())
+                    }
                   >
                     <Text style={styles.suggestionText}>{suggestion}</Text>
                   </TouchableOpacity>
@@ -760,8 +821,8 @@ export default function TourMateAIScreen() {
           )}
         </ScrollView>
 
-        {/* Input bar: camera | text input | mic (gated) | send */}
-        <View style={styles.inputBar}>
+        {/* ── INPUT BAR ── */}
+        <View style={[styles.inputBar, { marginBottom: keyboardVisible ? 0 : 90 }]}>
           <TouchableOpacity
             style={[styles.actionBtn, (recognizing || loading) && styles.actionBtnDisabled]}
             onPress={showImageOptions}
@@ -772,7 +833,7 @@ export default function TourMateAIScreen() {
 
           <TextInput
             style={styles.input}
-            {...{ placeholder: t('aiPlaceholder') }}
+            placeholder={t('aiPlaceholder')}
             placeholderTextColor="#AAA"
             value={input}
             onChangeText={setInput}
@@ -781,12 +842,17 @@ export default function TourMateAIScreen() {
           />
 
           <TouchableOpacity
-            style={[styles.voiceToggleBtn, !premiumUnlocked && styles.voiceToggleBtnLocked, loading && styles.actionBtnDisabled]}
+            style={[
+              styles.voiceToggleBtn,
+              !premiumUnlocked && styles.voiceToggleBtnLocked,
+              loading && styles.actionBtnDisabled,
+            ]}
             onPress={handleOpenVoiceMode}
             disabled={loading || recognizing}
-            activeOpacity={0.8}
           >
-            <Text style={styles.voiceToggleIcon}>{premiumUnlocked ? '🎤' : '🔒'}</Text>
+            <Text style={styles.voiceToggleIcon}>
+              {premiumUnlocked ? '🎤' : '🔒'}
+            </Text>
             {!premiumUnlocked && (
               <Text style={styles.voiceToggleSub}>
                 {loadingPoints ? '...' : `${points ?? 0}/${PREMIUM_POINTS_REQUIRED}`}
@@ -799,89 +865,473 @@ export default function TourMateAIScreen() {
             onPress={() => sendMessage()}
             disabled={!input.trim() || loading}
           >
-            {loading
-              ? <ActivityIndicator size="small" color="#FFF" />
-              : <Text style={styles.sendIcon}>→</Text>
-            }
+            {loading ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.sendIcon}>→</Text>
+            )}
           </TouchableOpacity>
         </View>
+
       </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+
+    </View>
+
+    <BottomTab active="Tour Mate" />
+  </View>
+);
 }
 
 // ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safeArea:             { flex: 1, backgroundColor: '#F5F5F5' },
-  flex:                 { flex: 1 },
-  header:               { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  backBtn:              { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  backIcon:             { fontSize: 22, fontWeight: '700', color: '#333' },
-  headerCenter:         { alignItems: 'center' },
-  headerTitle:          { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  onlineBadge:          { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  onlineDot:            { width: 6, height: 6, borderRadius: 3, backgroundColor: '#27AE60' },
-  onlineText:           { fontSize: 11, color: '#27AE60', fontWeight: '600' },
-  clearBtn:             { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F5F5F5' },
-  clearBtnText:         { fontSize: 13, color: '#999', fontWeight: '600' },
-  messagesContainer:    { flex: 1 },
-  messagesContent:      { padding: 16, paddingBottom: 20 },
-  bubbleRow:            { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 12, gap: 8 },
-  bubbleRowUser:        { flexDirection: 'row-reverse' },
-  aiAvatar:             { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
-  aiAvatarIcon:         { fontSize: 18 },
-  bubble:               { borderRadius: 20, padding: 12, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  bubbleAI:             { backgroundColor: '#FFF', borderBottomLeftRadius: 4 },
-  bubbleUser:           { backgroundColor: '#E67E22', borderBottomRightRadius: 4 },
-  bubbleText:           { fontSize: 14, color: '#1A1A1A', lineHeight: 20 },
-  bubbleTextUser:       { color: '#FFF' },
-  bubbleTime:           { fontSize: 10, color: '#BBB', marginTop: 4, textAlign: 'right' },
-  bubbleTimeUser:       { color: 'rgba(255,255,255,0.7)' },
-  messageImage:         { width: width * 0.65, height: 180, borderRadius: 16, marginBottom: 4, borderBottomLeftRadius: 4 },
-  messageImageUser:     { borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  speakBtn:             { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#FFF3E0', borderWidth: 1, borderColor: '#FDDCB5' },
-  speakBtnActive:       { backgroundColor: '#FFE5E5', borderColor: '#FFAAAA' },
-  speakBtnPaused:       { backgroundColor: '#E8F5E9', borderColor: '#A5D6A7' },
-  speakBtnText:         { fontSize: 11, color: '#E67E22', fontWeight: '700' },
-  speakBtnTextActive:   { color: '#E74C3C' },
-  speakBtnTextPaused:   { color: '#27AE60' },
-  typingBubble:         { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderRadius: 20, borderBottomLeftRadius: 4, padding: 12 },
-  typingText:           { fontSize: 13, color: '#999' },
-  suggestionsContainer: { marginTop: 8 },
-  suggestionsTitle:     { fontSize: 13, color: '#999', fontWeight: '600', marginBottom: 10 },
-  suggestionsGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  suggestionChip:       { backgroundColor: '#FFF', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#EEE', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  suggestionText:       { fontSize: 13, color: '#555', fontWeight: '500' },
+  safeArea: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
 
-  // Input bar
-  inputBar:             { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 28, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#F0F0F0', gap: 10 },
-  actionBtn:            { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FDDCB5' },
-  actionBtnDisabled:    { opacity: 0.5 },
-  voiceToggleBtn:       { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FDDCB5' },
-  voiceToggleIcon:      { fontSize: 20 },
-  voiceToggleBtnLocked: { backgroundColor: '#F5F5F5', borderColor: '#EEE' },
-  voiceToggleSub:       { position: 'absolute', bottom: -14, fontSize: 10, color: '#999', fontWeight: '700' },
-  input:                { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#333', maxHeight: 100, borderWidth: 1, borderColor: '#EEE' },
-  sendBtn:              { width: 44, height: 44, borderRadius: 22, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center', shadowColor: '#E67E22', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-  sendBtnDisabled:      { backgroundColor: '#DDD', shadowOpacity: 0 },
-  sendIcon:             { color: '#FFF', fontSize: 18, fontWeight: '700' },
+  flex: { flex: 1 },
 
-  // Voice mode overlay (full screen dark)
-  voiceOverlay:         { flex: 1, backgroundColor: '#1A1A1A' },
-  voiceHeader:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16 },
-  voiceTitle:           { fontSize: 18, fontWeight: '700', color: '#FFF' },
-  voiceCloseBtn:        { backgroundColor: '#333', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
-  voiceCloseBtnText:    { color: '#FFF', fontSize: 13, fontWeight: '600' },
-  voiceStatusArea:      { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
-  voiceStatusText:      { fontSize: 15, color: '#CCC', textAlign: 'center', lineHeight: 24 },
-  voiceMicContainer:    { alignItems: 'center', justifyContent: 'center', marginBottom: 24, height: 130 },
-  voiceMicPulse:        { position: 'absolute', width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(230,126,34,0.15)' },
-  voiceMicBtn:          { width: 84, height: 84, borderRadius: 42, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center', shadowColor: '#E67E22', shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 },
-  voiceMicBtnActive:    { backgroundColor: '#E74C3C', shadowColor: '#E74C3C' },
-  voiceMicIcon:         { fontSize: 34 },
-  voiceHint:            { textAlign: 'center', color: '#555', fontSize: 13, marginBottom: 8 },
-  voiceHeadphonesTip:   { textAlign: 'center', color: '#444', fontSize: 12, marginBottom: 48 },
-  genderSwitch:         { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginTop: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
-  genderSwitchText:     { color: '#FFF', fontSize: 14, fontWeight: '700' },
-  genderSwitchArrow:    { color: '#E67E22', fontSize: 16, fontWeight: '900' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0E2C8',
+  },
+
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+headerCenter: {
+  flexDirection: 'column',
+  alignItems: 'center',
+},
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#2C1810',
+  },
+
+  backIcon: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Theme.colors.hero,
+  },
+
+
+  onlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#2ECC71',
+  },
+
+  onlineText: {
+    fontSize: 11,
+    color: '#2ECC71',
+    fontWeight: '600',
+  },
+
+  clearBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#FFF',
+  },
+
+  clearBtnText: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+  },
+// Make sure these styles are set:
+messagesContainer: {
+  flex: 1,        // ← must have this
+},
+messagesContent: {
+  flexGrow: 1,    // ← must have this
+  paddingHorizontal: 16,
+  paddingTop: 10,
+},
+
+  bubbleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 12,
+    gap: 8,
+  },
+
+  bubbleRowUser: {
+    flexDirection: 'row-reverse',
+  },
+
+  aiAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+  },
+
+  aiAvatarIcon: {
+    fontSize: 18,
+  },
+
+  bubble: {
+    borderRadius: 20,
+    padding: 12,
+    elevation: 1,
+  },
+
+  bubbleAI: {
+    backgroundColor: '#FFF',
+    borderBottomLeftRadius: 4,
+  },
+
+  bubbleUser: {
+    backgroundColor: Theme.colors.primary,
+    borderBottomRightRadius: 4,
+  },
+
+  bubbleText: {
+    fontSize: 14,
+    color: Theme.colors.hero,
+    lineHeight: 20,
+  },
+
+  bubbleTextUser: {
+    color: '#FFF',
+  },
+
+  bubbleTime: {
+    fontSize: 10,
+    color: Theme.colors.muted,
+    marginTop: 4,
+    textAlign: 'right',
+  },
+
+  bubbleTimeUser: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+
+  messageImage: {
+    width: '65%',
+    height: 180,
+    borderRadius: 16,
+    marginBottom: 4,
+    borderBottomLeftRadius: 4,
+  },
+
+  messageImageUser: {
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 4,
+  },
+
+  speakBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#F3E0C7',
+  },
+
+  speakBtnActive: {
+    backgroundColor: Theme.colors.primary + '15',
+    borderColor: Theme.colors.primary,
+  },
+
+  speakBtnPaused: {
+    backgroundColor: '#FFF7ED',
+    borderColor: Theme.colors.primary,
+  },
+
+  speakBtnText: {
+    fontSize: 11,
+    color: Theme.colors.primary,
+    fontWeight: '700',
+  },
+
+  speakBtnTextActive: {
+    color: Theme.colors.primary,
+  },
+
+  speakBtnTextPaused: {
+    color: Theme.colors.hero,
+  },
+
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    borderBottomLeftRadius: 4,
+    padding: 12,
+  },
+
+  typingText: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+  },
+
+  suggestionsContainer: {
+    marginTop: 8,
+  },
+
+  suggestionsTitle: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+
+  suggestionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  suggestionChip: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+
+  suggestionText: {
+    fontSize: 13,
+    color: Theme.colors.hero,
+    fontWeight: '500',
+  },
+
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFF',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    gap: 10,
+  },
+
+  actionBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFF7ED',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  actionBtnDisabled: {
+    opacity: 0.5,
+  },
+
+  voiceToggleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFF7ED',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  voiceToggleIcon: {
+    fontSize: 20,
+  },
+
+  voiceToggleBtnLocked: {
+    backgroundColor: '#F5F5F5',
+  },
+
+  voiceToggleSub: {
+    position: 'absolute',
+    bottom: -14,
+    fontSize: 10,
+    color: Theme.colors.muted,
+    fontWeight: '700',
+  },
+
+  input: {
+    flex: 1,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: Theme.colors.hero,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: Theme.colors.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  sendBtnDisabled: {
+    backgroundColor: '#DDD',
+    shadowOpacity: 0,
+  },
+
+  sendIcon: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+
+  voiceOverlay: {
+    flex: 1,
+    backgroundColor: Theme.colors.hero,
+  },
+
+  voiceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+
+  voiceTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+
+  voiceCloseBtn: {
+    backgroundColor: '#333',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+
+  voiceCloseBtnText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  voiceStatusArea: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+
+  voiceStatusText: {
+    fontSize: 15,
+    color: '#CCC',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+
+  voiceMicContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    height: 130,
+  },
+
+  voiceMicPulse: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: Theme.colors.primary + '20',
+  },
+
+  voiceMicBtn: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: Theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: Theme.colors.primary,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+
+  voiceMicBtnActive: {
+    backgroundColor: '#E74C3C',
+  },
+
+  voiceMicIcon: {
+    fontSize: 34,
+  },
+
+  voiceHint: {
+    textAlign: 'center',
+    color: Theme.colors.muted,
+    fontSize: 13,
+    marginBottom: 8,
+  },
+
+  voiceHeadphonesTip: {
+    textAlign: 'center',
+    color: Theme.colors.muted,
+    fontSize: 12,
+    marginBottom: 48,
+  },
+
+  genderSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+
+  genderSwitchText: {
+    color: Theme.colors.hero,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  genderSwitchArrow: {
+    color: Theme.colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
 });
