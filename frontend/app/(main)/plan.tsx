@@ -15,6 +15,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import DesertTriangles from '../../components/DesertTriangles';
 import { Theme } from '../../constants/theme';
 import { useBookingStore } from '@/store/bookingStore';
+import BottomTab from '@/components/BottomTab';
 
 
 const { width } = Dimensions.get('window');
@@ -831,7 +832,7 @@ useEffect(() => {
           </View>
         </View>
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 140 }} />
       </ScrollView>
 
       {/* ── Next Step ── */}
@@ -840,6 +841,8 @@ useEffect(() => {
           <Text style={styles.nextBtnText}>{t('Generate Plan')} →</Text>
         </TouchableOpacity>
       </View>
+      {/* Navigation */}
+      <BottomTab active="Plan" />
 
       {/* ── City Modal ── */}
       <Modal visible={showCityModal} animationType="slide" transparent>
@@ -870,6 +873,7 @@ useEffect(() => {
           </View>
         </View>
       </Modal>
+
     </SafeAreaView>
     </View>
   );
@@ -881,35 +885,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
-
-header: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingHorizontal: 20,
-  paddingVertical: 14,
-
-  backgroundColor: 'rgba(255,255,255,0.85)',
-  borderBottomWidth: 0,
-},
-
+ header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0E2C8',
+  },
   backBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: Theme.colors.card,
   },
-
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#2C1810',
+  },
   backIcon: {
     fontSize: 22,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  headerTitle: {
-    fontSize: 18,
     fontWeight: '700',
     color: Theme.colors.text,
   },
@@ -1393,7 +1397,7 @@ header: {
     backgroundColor: Theme.colors.card,
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingBottom: 30,
+    paddingBottom: 100,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 10,

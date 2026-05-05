@@ -13,6 +13,8 @@ import * as Location from 'expo-location';
 import { Attraction } from '../../constants/types';
 import { useApp } from '../../constants/AppContext';
 import AttractionSheet from '../../components/AttractionSheet';
+import BottomTab from '@/components/BottomTab';
+import { Theme } from '../../constants/theme';
 
 const { width, height } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -109,33 +111,6 @@ const TABS: TabItem[] = [
   { name: 'View Map',  label: 'Map',    iconDefault: 'map-marker-outline',         iconActive: 'map-marker',            route: '/(main)/map' },
 ];
 
-const BottomTab: React.FC<{ active: string }> = ({ active }) => {
-  const router = useRouter();
-  return (
-    <View style={styles.bottomTabWrap}>
-      <View style={styles.bottomTab}>
-        {TABS.map(tab => {
-          const isActive = tab.name === active;
-          return (
-            <TouchableOpacity
-              key={tab.name}
-              style={[styles.tabItem, isActive && styles.tabItemActive]}
-              onPress={() => { if (!isActive) router.push(tab.route as any); }}
-              activeOpacity={0.75}
-            >
-              <MaterialCommunityIcons
-                name={isActive ? tab.iconActive : tab.iconDefault}
-                size={22}
-                color={isActive ? '#FFF' : 'rgba(255,255,255,0.45)'}
-              />
-              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-};
 
 // ── FAVORITES SCREEN ──────────────────────────────────────────────────
 export default function FavoritesScreen() {
@@ -208,7 +183,10 @@ export default function FavoritesScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>{t('favoritesTitle')}</Text>
+                  <View style={styles.headerCenter}>
+                     <Text style={styles.headerTitle}>{t('favoritesTitle')}</Text>
+                  </View>
+                  <View style={{ width: 40 }} />
           <Text style={styles.headerSubtitle}>
             {favorites.length > 0 ? `${favorites.length} saved place${favorites.length > 1 ? 's' : ''}` : 'Your saved places'}
           </Text>
@@ -261,8 +239,27 @@ const styles = StyleSheet.create({
   safeArea:         { flex: 1, backgroundColor: '#F9F5F0' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  headerTitle:    { fontSize: 26, fontWeight: '800', color: '#1A1A1A' },
+    header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0E2C8',
+  },
+    headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#2C1810',
+
+  },
+    headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   headerSubtitle: { fontSize: 13, color: '#999', marginTop: 2 },
   countBadge:     { backgroundColor: '#E67E22', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
   countBadgeText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
@@ -270,62 +267,121 @@ const styles = StyleSheet.create({
   grid:    { paddingHorizontal: 16, paddingBottom: 140, paddingTop: 4 },
   gridRow: { justifyContent: 'space-between', marginBottom: 16 },
 
-  card:             { width: CARD_WIDTH, backgroundColor: '#FFF', borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, elevation: 4 },
-  cardImage:        { width: '100%', height: 130 },
-  categoryBadgeCard:{ position: 'absolute', top: 10, left: 10, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  categoryBadgeText:{ color: '#FFF', fontSize: 10, fontWeight: '700', textTransform: 'capitalize' },
-  cardContent:      { padding: 10 },
-  cardName:         { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  cardLocationRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  cardLocationIcon: { fontSize: 10, marginRight: 3 },
-  cardLocationText: { fontSize: 11, color: '#999' },
-  cardFooter:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardPrice:        { fontSize: 11, fontWeight: '700', color: '#E67E22' },
+  card: {
+    width: CARD_WIDTH,
+    backgroundColor: Theme.colors.card,
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: Theme.colors.hero,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
+  },
 
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingBottom: 80 },
-  emptyEmoji:     { fontSize: 64, marginBottom: 16 },
-  emptyTitle:     { fontSize: 22, fontWeight: '800', color: '#1A1A1A', marginBottom: 8 },
-  emptySubtitle:  { fontSize: 14, color: '#999', textAlign: 'center', lineHeight: 21, marginBottom: 28 },
-  exploreBtn:     { backgroundColor: '#E67E22', borderRadius: 30, paddingHorizontal: 28, paddingVertical: 14 },
-  exploreBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  cardImage: {
+    width: '100%',
+    height: 130,
+  },
 
-  bottomTabWrap:  { position: 'absolute', bottom: 20, left: 16, right: 16, alignItems: 'center' },
-  bottomTab:      { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A0A00', borderRadius: 28, paddingVertical: 10, paddingHorizontal: 6, shadowColor: '#1A0A00', shadowOpacity: 0.4, shadowRadius: 24, elevation: 16, width: '100%', justifyContent: 'space-around' },
-  tabItem:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, paddingHorizontal: 4, borderRadius: 20, gap: 3 },
-  tabItemActive:  { backgroundColor: '#C4873A' },
-  tabLabel:       { fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: 0.2 },
-  tabLabelActive: { color: '#FFF', fontWeight: '800' },
+  categoryBadgeCard: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: Theme.colors.primary,
+  },
 
-  // Bottom Sheet
-  sheetBackdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
-  sheetContainer:   { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: height * 0.88, overflow: 'hidden' },
-  sheetHandle:      { width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD', alignSelf: 'center', marginTop: 12, marginBottom: 4 },
-  galleryContainer: { width, height: 240 },
-  galleryImage:     { width, height: 240 },
-  imageDots:        { position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 },
-  imageDot:         { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
-  imageDotActive:   { backgroundColor: '#FFF', width: 18 },
-  sheetCloseBtn:    { position: 'absolute', top: 14, left: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  sheetCloseBtnText:{ color: '#FFF', fontSize: 14, fontWeight: '700' },
-  sheetFavBtn:      { position: 'absolute', top: 14, right: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  sheetFavIcon:     { fontSize: 18 },
-  categoryBadge:    { position: 'absolute', bottom: 14, left: 14, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
-  sheetContent:     { paddingHorizontal: 20, paddingTop: 16 },
-  sheetName:        { fontSize: 22, fontWeight: '800', color: '#1A1A1A', marginBottom: 6 },
-  sheetLocationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  sheetLocationIcon:{ fontSize: 13, marginRight: 4 },
-  sheetLocationText:{ fontSize: 13, color: '#888', fontWeight: '500' },
-  sheetRatingRow:   { marginBottom: 14 },
-  infoPillsRow:     { marginBottom: 16 },
-  infoPill:         { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F8F8', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, marginRight: 10, gap: 8, borderWidth: 1, borderColor: '#F0F0F0' },
-  infoPillIcon:     { fontSize: 18 },
-  infoPillLabel:    { fontSize: 10, color: '#AAA', fontWeight: '600' },
-  infoPillValue:    { fontSize: 13, fontWeight: '700', color: '#1A1A1A', maxWidth: 100 },
-  sheetAboutTitle:  { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
-  sheetAboutText:   { fontSize: 14, color: '#666', lineHeight: 22 },
-  sheetActions:         { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 32, gap: 12, borderTopWidth: 1, borderTopColor: '#F5F5F5' },
-  sheetFavoritesBtn:    { flex: 1, borderWidth: 2, borderColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  sheetFavoritesBtnText:{ color: '#E67E22', fontSize: 15, fontWeight: '700' },
-  sheetPlanBtn:         { flex: 2, backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  sheetPlanBtnText:     { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  categoryBadgeText: {
+    color: Theme.colors.card,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+
+  cardContent: {
+    padding: 10,
+  },
+
+  cardName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    marginBottom: 4,
+  },
+
+  cardLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+
+  cardLocationIcon: {
+    fontSize: 10,
+    marginRight: 3,
+    color: Theme.colors.muted,
+  },
+
+  cardLocationText: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+  },
+
+cardFooter: {
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
+  gap: 2,
+  marginTop: 6,
+},
+
+cardPrice: {
+  fontSize: 10,
+  fontWeight: '700',
+  color: Theme.colors.primary,
+  marginTop: 2,
+},
+  // ── Empty State (cinematic version) ──
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingBottom: 80,
+    backgroundColor: Theme.colors.background,
+  },
+
+  emptyEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: Theme.colors.hero,
+    marginBottom: 8,
+  },
+
+  emptySubtitle: {
+    fontSize: 14,
+    color: Theme.colors.muted,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 28,
+  },
+
+  exploreBtn: {
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 30,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+  },
+
+  exploreBtnText: {
+    color: Theme.colors.card,
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });
