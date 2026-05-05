@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
-  Alert, Dimensions, KeyboardAvoidingView, Platform, Keyboard,
+  Alert, Dimensions, KeyboardAvoidingView, Platform,Keyboard,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
@@ -32,10 +32,6 @@ interface Activity {
   rating?: number;
   address?: string;
   categories?: string[];
-  image_url?: string;
-  open_hour?: number;
-  close_hour?: number;
-  price_from?: number;
 }
 
 interface RecommendationStop {
@@ -54,10 +50,6 @@ interface RecommendationStop {
   rating?: number;
   address?: string;
   categories?: string[];
-  image_url?: string;
-  open?: number;
-  close?: number;
-  price_from?: number;
 }
 
 interface DayPlan {
@@ -104,14 +96,13 @@ const TravelConnector: React.FC<{ transport: any }> = ({ transport }) => {
   const dur      = transport?.duration_min ? `${Math.round(transport.duration_min)} min` : null;
   const mode     = transport?.mode ?? '';
   const costs    = transport?.costs;
-  const isWalk = mode === 'Walk';
-  const costText = isWalk
+  const costText = mode === 'Walk'
     ? 'Free · walking'
     : costs
       ? `${costs.taxi_low}–${costs.taxi_high} EGP · Taxi`
       : null;
   const parts = [dur, costText].filter(Boolean).join('  ·  ');
-  const travelIcon = isWalk
+  const travelIcon = mode === 'Walk'
     ? <MaterialCommunityIcons name="walk"     size={14} color="#A06020" />
     : <MaterialCommunityIcons name="car-side" size={14} color="#A06020" />;
 
@@ -207,15 +198,6 @@ const ActivityRow: React.FC<{
     </View>
     <TouchableOpacity style={styles.activityContent} onPress={onPress} activeOpacity={0.72}>
       <Text style={styles.activityTitle}>{activity.title}</Text>
-      {(activity.categories ?? []).length > 0 && (
-        <View style={styles.activityCatsRow}>
-          {(activity.categories ?? []).slice(0, 2).map(cat => (
-            <View key={cat} style={styles.activityCatPill}>
-              <Text style={styles.activityCatText}>{cat}</Text>
-            </View>
-          ))}
-        </View>
-      )}
       {(activity.duration_hrs != null || activity.cost_egp != null) && (
         <View style={styles.activityMeta}>
           {activity.duration_hrs != null && (
@@ -257,12 +239,14 @@ export default function ItineraryScreen() {
   const router = useRouter();
   const { t } = useApp();
   const params = useLocalSearchParams<{
-    planId?: string;
     city: string;
     startDate: string;
     endDate: string;
     daySchedules?: string;
     budget: string;
+    startTime?: string;  // ← ADD
+    endTime?: string;
+    dayHours: string;
     interests: string;
     spotIds: string;
     favoritedIds: string;
@@ -270,9 +254,7 @@ export default function ItineraryScreen() {
     startLat?: string;
     startLon?: string;
     startLabel?: string;
-    isForeigner?: string;
   }>();
-  const existingPlanId = params.planId ? String(params.planId) : undefined;
 
   const city = params.city ?? 'Hurghada';
   const interests = params.interests?.split(',') ?? [];
@@ -427,10 +409,6 @@ export default function ItineraryScreen() {
         rating: stop.rating,
         address: stop.address,
         categories: stop.categories,
-        image_url: stop.image_url,
-        open_hour: stop.open,
-        close_hour: stop.close,
-        price_from: stop.price_from,
         icon: (() => {
           if (stop.type.includes('Breakfast')) return 'breakfast';
           if (stop.type.includes('Lunch'))     return 'food';
@@ -525,7 +503,17 @@ export default function ItineraryScreen() {
       const addedIds0 = params.spotIds?.split(',').filter(Boolean) ?? [];
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
 
-      const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
+      // Also include attractions the user saved from the home screen
+      let savedFavIds: string[] = [];
+      try {
+        const favRes  = await fetch(`${API_BASE}/attractions/favorites/${userId ?? 1}`);
+        const favData = await favRes.json();
+        savedFavIds   = (favData.data ?? [])
+          .map((a: any) => a.attraction_id)
+          .filter(Boolean);
+      } catch { /* favorites fetch failure is non-fatal */ }
+
+      const likedIds0 = [...new Set([...addedIds0, ...favIds0, ...savedFavIds])];
 
       // Tracks liked attractions that have actually been placed in a day's itinerary.
       // Unscheduled liked IDs stay OUT of visited_ids so the backend can still place them.
@@ -579,11 +567,8 @@ export default function ItineraryScreen() {
             visited_ids: dayVisited,
             top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
             browse_n: 5,
-            start_hour: startHour,
-            end_hour: endHour,
-            is_foreigner: params.isForeigner === 'true',
-            day_index: d,
-            n_days: dayCount,
+            start_hour: startHour,   // ← from time range
+            end_hour: endHour,       // ← NEW
             ...(userLocationRef.current && {
               current_lat: userLocationRef.current.lat,
               current_lon: userLocationRef.current.lon,
@@ -826,7 +811,7 @@ export default function ItineraryScreen() {
           start_date: startDate,
           end_date: endDate,
           budget: params.budget,
-          day_hours: params.daySchedules,
+          day_hours: params.dayHours,
           interests,
           spot_ids: params.spotIds?.split(',').map(Number) ?? [],
           itinerary: days,
@@ -863,7 +848,7 @@ export default function ItineraryScreen() {
 
   const openMap = async (): Promise<void> => {
     setSaving(true);
-    const planId = existingPlanId ?? await persistPlan();
+    const planId = await persistPlan();
     setSaving(false);
 
     router.push({
@@ -878,7 +863,7 @@ export default function ItineraryScreen() {
 
   const openTravelOptions = async (): Promise<void> => {
     setSaving(true);
-    const planId = existingPlanId ?? await persistPlan();
+    const planId = await persistPlan();
     setSaving(false);
 
     router.push({
@@ -989,8 +974,10 @@ export default function ItineraryScreen() {
                 activity={activity}
                 onDelete={(id) => deleteActivity(activeDay, id)}
                 onPress={() => {
-                  const hasRealId = activity.id && !activity.id.startsWith('rec-') && activity.id !== 'start' && activity.id !== 'end';
-                  if (hasRealId) {
+                  const FOOD_CATS = new Set(['restaurant','cafe','food','seafood','grills','local','international','bakery','dessert']);
+                  const isFood = activity.categories?.some(c => FOOD_CATS.has(c.toLowerCase()));
+                  const isAttractionType = activity.icon === 'attraction' || (!isFood && activity.id !== 'start' && activity.id !== 'end' && activity.category !== 'transport');
+                  if (isAttractionType && activity.id && !activity.id.startsWith('rec-')) {
                     openAttractionSheet(activity);
                   } else {
                     setSelectedActivity(activity);
@@ -1026,14 +1013,6 @@ export default function ItineraryScreen() {
                   {Math.round(totalRemaining)} EGP
                 </Text>
               </View>
-              {totalRemaining < 0 && (
-                <View style={styles.budgetWarning}>
-                  <MaterialCommunityIcons name="alert" size={14} color="#92400E" />
-                  <Text style={styles.budgetWarningText}>
-                    You've gone over budget by {Math.abs(Math.round(totalRemaining))} EGP to keep your preferred stops. Increase the budget or remove an activity to stay within limits.
-                  </Text>
-                </View>
-              )}
               {totalRemaining >= 0 && (
                 <View style={styles.budgetBar}>
                   <View style={[styles.budgetBarFill, { width: `${pct}%` as any }]} />
@@ -1201,6 +1180,12 @@ export default function ItineraryScreen() {
         userLocation={userLocation}
       />
 
+      {/* Sheet loading overlay */}
+      {sheetLoading && (
+        <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#E67E22" />
+        </View>
+      )}
 
       {/* ── Activity Detail Modal ── */}
       <Modal
@@ -1412,9 +1397,6 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   activityTitle: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', marginBottom: 4 },
-  activityCatsRow: { flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginBottom: 5 },
-  activityCatPill: { backgroundColor: '#FFF3E0', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
-  activityCatText: { fontSize: 10, fontWeight: '600', color: '#A06020', textTransform: 'capitalize' },
   activityMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   activityMetaChip: {
     backgroundColor: '#F0F0F0', borderRadius: 8,
@@ -1445,13 +1427,6 @@ const styles = StyleSheet.create({
   budgetSpent:     { fontSize: 14, fontWeight: '700', color: '#333' },
   budgetRemaining: { fontSize: 14, fontWeight: '700', color: '#27AE60' },
   budgetOver:      { color: '#E74C3C' },
-  budgetWarning: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
-    backgroundColor: '#FEF3C7', borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 9, marginTop: 12,
-    borderWidth: 1, borderColor: '#FDE68A',
-  },
-  budgetWarningText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
   budgetDivider:   { height: 1, backgroundColor: '#F5F5F5', marginVertical: 10 },
   budgetBar:       { height: 6, backgroundColor: '#F0F0F0', borderRadius: 3, marginTop: 12, overflow: 'hidden' },
   budgetBarFill:   { height: 6, backgroundColor: '#E67E22', borderRadius: 3 },
