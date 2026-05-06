@@ -1,5 +1,5 @@
 // app/(main)/itinerary.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,6 +7,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
   Alert, Dimensions, KeyboardAvoidingView, Platform, Keyboard,
+  FlatList, Pressable,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
@@ -15,8 +16,41 @@ import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
 
-const { width } = Dimensions.get('window');
+
+const { height: screenHeight } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+
+const PLAN_COACH_SUGGESTIONS = [
+  'What can you do with my plan?',
+  'Start tomorrow at 11:00 instead of 9:00 — adjust the times',
+  'Remove the last stop for today',
+  'Add another full day using my interests (database only)',
+  'I spent 200 EGP on a taxi — update my budget',
+  'Remove one whole day from the trip',
+];
+
+function simplifyCoachWarning(w: string): string {
+  const t = String(w || '').trim();
+  if (!t) return '';
+
+  // Budget overage
+  // Example: "This day's stops cost about 281 EGP ... above the roughly 250 EGP day budget ..."
+  const mBudget = t.match(/cost about\s+(\d+)\s*EGP[\s\S]*above the roughly\s+(\d+)\s*EGP/i);
+  if (mBudget) return `Budget: ~${mBudget[1]} EGP (over ~${mBudget[2]} EGP/day).`;
+
+  // Dropped stops due to time window
+  // Example: "Day 1: 1 stop(s) could not fit your day hours and were removed in the preview: 123…"
+  const mDrop = t.match(/^Day\s+(\d+):\s+(\d+)\s+stop\(s\)[\s\S]*removed[\s\S]*:\s*(.+)$/i);
+  if (mDrop) return `Day ${mDrop[1]}: removed ${mDrop[2]} stop(s) that didn’t fit the time window (${mDrop[3]}).`;
+
+  // Route not optimized
+  if (t.toLowerCase().includes('not route-optimized') || t.toLowerCase().includes('more driving distance')) {
+    return 'Note: this change increases travel time compared to an optimized route.';
+  }
+
+  // Default: keep but shorten long text
+  return t.length > 120 ? `${t.slice(0, 117)}…` : t;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Activity {
@@ -268,7 +302,7 @@ export default function ItineraryScreen() {
     interests: string;
     spotIds: string;
     favoritedIds: string;
-    savedItinerary: string; // JSON-encoded DayPlan[] passed from saved-plans screen
+    savedItinerary: string;
     startLat?: string;
     startLon?: string;
     startLabel?: string;
@@ -277,9 +311,25 @@ export default function ItineraryScreen() {
   const existingPlanId = params.planId ? String(params.planId) : undefined;
 
   const city = params.city ?? 'Hurghada';
-  const interests = params.interests?.split(',') ?? [];
+  const [fetchedInterests, setFetchedInterests] = useState<string[] | null>(null);
+  const [fetchedSpotIds, setFetchedSpotIds] = useState<number[] | null>(null);
+  const interests = fetchedInterests ?? (params.interests?.split(',')?.filter(Boolean) ?? []);
+  const spotIdsForApi =
+    fetchedSpotIds ??
+    (params.spotIds?.split(',')
+      .map(s => parseInt(s, 10))
+      .filter(n => !Number.isNaN(n)) ?? []);
   const startDate = params.startDate ?? new Date().toISOString();
   const endDate = params.endDate ?? new Date().toISOString();
+
+  const baseDaySchedules = useMemo((): { start_hour: number; end_hour: number }[] => {
+    try {
+      const j = JSON.parse(params.daySchedules || '[]');
+      return Array.isArray(j) ? j : [];
+    } catch {
+      return [];
+    }
+  }, [params.daySchedules]);
 
   const userLocationRef = useRef<{ lat: number; lon: number } | null>(null);
 
@@ -288,12 +338,30 @@ export default function ItineraryScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
-  const [planSaved, setPlanSaved] = useState(false);
+  /** True once bookmark saved, or when opened from an existing saved plan */
+  const [planSaved, setPlanSaved] = useState(() => Boolean(existingPlanId));
+  const [serverPlanId, setServerPlanId] = useState<string | undefined>(existingPlanId);
   const [showAIChat, setShowAIChat] = useState(false);
-  const [aiMessage, setAiMessage] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [planCoachInput, setPlanCoachInput] = useState('');
+  const [planCoachMessages, setPlanCoachMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [planCoachLoading, setPlanCoachLoading] = useState(false);
+  const planCoachListRef = useRef<FlatList<{ role: 'user' | 'assistant'; content: string }>>(null);
+  const [planCoachPreview, setPlanCoachPreview] = useState<{
+    days: DayPlan[];
+    warnings: string[];
+    day_schedules?: { start_hour: number; end_hour: number }[] | null;
+    end_date?: string | null;
+    coach_extra_spend?: number | null;
+  } | null>(null);
+  const [coachDaySchedules, setCoachDaySchedules] = useState<
+    { start_hour: number; end_hour: number }[] | null
+  >(null);
+  const [coachEndDate, setCoachEndDate] = useState<string | null>(null);
+  const [coachExtraSpendEgp, setCoachExtraSpendEgp] = useState(0);
   const [userId, setUserId] = useState<number | null>(null);
+
+  const effectiveDaySchedules = coachDaySchedules ?? baseDaySchedules;
+  const effectiveEndDate = (coachEndDate ?? endDate).toString().split('T')[0];
 
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
@@ -328,7 +396,6 @@ export default function ItineraryScreen() {
         setSheetAttraction(data.data);
         setShowAttractionSheet(true);
       } else {
-        // Fallback: show simple detail modal
         setSelectedActivity(activity);
       }
     } catch {
@@ -358,44 +425,111 @@ export default function ItineraryScreen() {
     loadUserId();
   }, []);
 
+  // Load saved plan by id (no regeneration), else hydrate from params, else generate from recommender
   useEffect(() => {
-    // If a saved itinerary was passed in, load it directly — skip the API call
-    try {
-      if (params.savedItinerary) {
-        const saved = JSON.parse(params.savedItinerary) as DayPlan[];
-        // Only treat as a saved plan when it's a genuine non-empty array
-        if (Array.isArray(saved) && saved.length > 0) {
-          setDays(saved);
-          setPlanSaved(true);
-          const needsSummary = saved.some(
-            d => !d.summary && d.activities.some(a => a.id !== 'start' && a.id !== 'end')
-          );
-          if (needsSummary) generateDaySummaries(saved);
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {
-      // malformed JSON — fall through to generatePlan
-    }
-
+    let cancelled = false;
     (async () => {
-      // If the plan form already captured the user's location, use it directly
-      if (params.startLat && params.startLon) {
-        userLocationRef.current = { lat: parseFloat(params.startLat), lon: parseFloat(params.startLon) };
-      } else {
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === 'granted') {
-            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            userLocationRef.current = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+      const primeLocation = async (): Promise<void> => {
+        if (params.startLat && params.startLon) {
+          userLocationRef.current = { lat: parseFloat(params.startLat), lon: parseFloat(params.startLon) };
+        } else {
+          try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              userLocationRef.current = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+            }
+          } catch (_) {
+            /* GPS unavailable — recommender falls back to city centre */
           }
-        } catch (_) {
-          // GPS unavailable — recommender falls back to city centre
         }
+      };
+
+      try {
+        if (existingPlanId) {
+          const res = await fetch(`${API_BASE}/plans/item/${existingPlanId}`);
+          const ct = res.headers.get('content-type') ?? '';
+          if (res.ok && ct.includes('application/json')) {
+            const data = await res.json();
+            const row = data.success ? data.data : null;
+            const it = row?.itinerary;
+            const parsedIt =
+              typeof it === 'string'
+                ? JSON.parse(it)
+                : Array.isArray(it)
+                  ? it
+                  : null;
+            if (!cancelled && Array.isArray(parsedIt) && parsedIt.length > 0) {
+              setDays(parsedIt as DayPlan[]);
+              setServerPlanId(String(row.id));
+              setPlanSaved(true);
+              if (row.interests != null) {
+                const fi = Array.isArray(row.interests)
+                  ? row.interests.map(String)
+                  : typeof row.interests === 'string'
+                    ? JSON.parse(row.interests)
+                    : [];
+                if (Array.isArray(fi)) setFetchedInterests(fi.map(String));
+              }
+              if (row.spot_ids != null) {
+                const raw = row.spot_ids;
+                const arr = Array.isArray(raw)
+                  ? raw
+                  : typeof raw === 'string'
+                    ? JSON.parse(raw)
+                    : [];
+                if (Array.isArray(arr))
+                  setFetchedSpotIds(arr.map((x: unknown) => Number(x)).filter(n => !Number.isNaN(n)));
+              }
+              if (row.day_hours != null) {
+                try {
+                  const dh =
+                    typeof row.day_hours === 'string' ? JSON.parse(row.day_hours) : row.day_hours;
+                  if (Array.isArray(dh))
+                    setCoachDaySchedules(
+                      dh.map((s: { start_hour?: number; end_hour?: number }) => ({
+                        start_hour: Number(s?.start_hour ?? 9),
+                        end_hour: Number(s?.end_hour ?? 21),
+                      })),
+                    );
+                } catch (_) {}
+              }
+              if (row.end_date) {
+                const ed = String(row.end_date).split('T')[0];
+                setCoachEndDate(ed);
+              }
+              await primeLocation();
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (_) {
+        /* fall through to params / generate */
       }
-      generatePlan();
+
+      try {
+        const raw = params.savedItinerary;
+        if (raw && String(raw).trim() && String(raw) !== 'undefined') {
+          const parsed = JSON.parse(String(raw)) as DayPlan[];
+          if (Array.isArray(parsed) && parsed.length > 0 && !cancelled) {
+            setDays(parsed);
+            setPlanSaved(Boolean(existingPlanId));
+            await primeLocation();
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (_) {
+        /* generate */
+      }
+
+      await primeLocation();
+      if (!cancelled) await generatePlan();
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Convert one day's API stops → Activity[]
@@ -413,7 +547,6 @@ export default function ItineraryScreen() {
     const seenIds = new Set<string>();
     stops.forEach((stop, index) => {
       const rawId = stop.id ?? `rec-${index}`;
-      // Deduplicate: if the backend somehow returns the same stop twice, skip the second
       if (seenIds.has(rawId)) return;
       seenIds.add(rawId);
       activities.push({
@@ -449,7 +582,6 @@ export default function ItineraryScreen() {
       });
     });
 
-    // Compute end-of-day time: last stop's arrival + duration
     if (stops.length > 0) {
       const last = stops[stops.length - 1];
       let endTime = '';
@@ -504,8 +636,10 @@ export default function ItineraryScreen() {
 
   const generatePlan = async (): Promise<void> => {
     setLoading(true);
+    setCoachDaySchedules(null);
+    setCoachEndDate(null);
+    setCoachExtraSpendEgp(0);
     try {
-      // Parse dates safely — handles both "2025-04-05" and "2025-4-5" formats
       const parseDate = (str: string): Date => {
         const parts = str.split('-').map(Number);
         return new Date(parts[0], (parts[1] ?? 1) - 1, parts[2] ?? 1);
@@ -523,20 +657,13 @@ export default function ItineraryScreen() {
       const visitedIds: string[] = [];
       let cumulativeSpent = 0;
 
-      // Liked IDs are fixed for the entire trip — compute once outside the loop
-      const addedIds0 = params.spotIds?.split(',').filter(Boolean) ?? [];
+      const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
-
       const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
 
-      // Tracks liked attractions that have actually been placed in a day's itinerary.
-      // Unscheduled liked IDs stay OUT of visited_ids so the backend can still place them.
-      // Once scheduled they go IN so they don't repeat on subsequent days.
       const scheduledLikedIds = new Set<string>();
 
-      // Area hints built after Day 1 for subsequent days
       let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
-      // Cuisine categories already eaten — passed to each day so the backend avoids repeating them
       const eatenMealCategories: string[] = [];
 
       for (let d = 0; d < dayCount; d++) {
@@ -548,35 +675,30 @@ export default function ItineraryScreen() {
         const remainingDays   = dayCount - d;
         const budgetToday     = Math.floor(remainingBudget / remainingDays);
 
-        // Liked attractions that are already scheduled go into visited_ids (no repeats).
-        // Liked attractions not yet scheduled stay out (backend can still place them).
         const dayVisited = visitedIds.filter(id =>
           !likedIds0.includes(id) || scheduledLikedIds.has(id)
         );
 
         try {
-          // Parse start/end time from params e.g. "09:00" → 9.0
-          const parsedSchedules = JSON.parse(params.daySchedules || '[]');
-
-          const daySchedule = parsedSchedules[d];
+          const daySchedule =
+            effectiveDaySchedules[d] ??
+            effectiveDaySchedules[effectiveDaySchedules.length - 1];
 
           let startHour = daySchedule?.start_hour ?? 9;
           let endHour   = daySchedule?.end_hour ?? 21;
-
-          // ✅ handle overnight (e.g. 18 → 1 AM)
           let availableHoursToday = endHour - startHour;
 
           if (endHour <= startHour) {
             endHour += 24;
           }
-          
+
           const itineraryPayload: Record<string, any> = {
             user_id: 1,
             name: 'TourMate User',
             city,
             interests,
             budget_egp: budgetToday,
-            available_hours: availableHoursToday,  // ← from time range
+            available_hours: availableHoursToday,
             liked_ids: likedIds0,
             visited_ids: dayVisited,
             top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
@@ -594,7 +716,6 @@ export default function ItineraryScreen() {
             ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
           };
 
-          // DEBUG — confirm liked_ids reaches the API correctly
           console.log(`[ITINERARY] Day ${d + 1} API payload:`);
           console.log('  liked_ids (added):', addedIds0);
           console.log('  liked_ids (favorited):', favIds0);
@@ -628,13 +749,11 @@ export default function ItineraryScreen() {
             const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
             for (const stop of itinerary) {
               if (!stop.id) continue;
-              // Mark liked attractions as scheduled so they won't repeat on later days
               if (likedIds0.includes(stop.id)) {
                 scheduledLikedIds.add(stop.id);
-                console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id}) — removed from pending liked pool`);
+                console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id})`);
               }
               if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
-              // Collect cuisine categories from meal stops for cross-day diversity
               const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
               if (isMeal && stop.categories) {
                 stop.categories
@@ -644,7 +763,6 @@ export default function ItineraryScreen() {
               }
             }
 
-            // After Day 1: cluster the recommended attractions by proximity → area hint for Day 2+
             if (d === 0 && data.recommended_attractions?.length) {
               const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
               const withCoords = recs.filter(r => r.latitude && r.longitude);
@@ -668,7 +786,6 @@ export default function ItineraryScreen() {
         }
       }
 
-      // Post-generation: consolidate nearby liked attractions onto the same day
       const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
         const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
           const R = 6371;
@@ -688,7 +805,6 @@ export default function ItineraryScreen() {
               if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
               if (!lateAct.latitude || !lateAct.longitude) continue;
 
-              // Find nearest liked activity on early day
               const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
               if (!earlyLiked.length) continue;
 
@@ -700,15 +816,12 @@ export default function ItineraryScreen() {
               }
               if (!nearestAct || nearestDist > 2) continue;
 
-              // Don't move if this attraction is already on the early day (distance = 0)
               if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
 
-              // Check budget on early day
               const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
               const earlyBudget = result[earlyDay].budget_remaining ?? 0;
               if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
 
-              // Move lateAct to early day right after nearestAct
               lateActivities.splice(li, 1);
               const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
               result[earlyDay].activities.splice(insertIdx, 0, lateAct);
@@ -719,17 +832,12 @@ export default function ItineraryScreen() {
         return result;
       };
 
-      // Remove days with no real activities (catches failed/empty API responses)
-      // and deduplicate by day number (guards against concurrent generatePlan calls).
       const realDays = consolidateLikedAttractions(allDays, likedIds0)
         .filter(d => d.activities.some(a => a.id !== 'start' && a.id !== 'end'))
         .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
 
       setDays(realDays);
-      // Clamp activeDay in case the new plan has fewer days than before
       setActiveDay(prev => Math.min(prev, Math.max(0, realDays.length - 1)));
-
-      // Generate AI day summaries non-blocking — update each day as its response arrives
       generateDaySummaries(realDays);
     } catch (err) {
       console.error('Plan generation error:', err);
@@ -760,14 +868,10 @@ export default function ItineraryScreen() {
         .map(a => a.title);
       if (!stops.length) continue;
 
-      const totalCost = day.activities
-        .filter(a => a.id !== 'start' && a.id !== 'end')
-        .reduce((sum, a) => sum + (a.cost_egp ?? 0), 0);
-
-      const prompt = 
+      const prompt =
   `You are a local from ${city} who loves your city. ` +
   `Tell a story of this specific journey: ${stops.join(' -> ')}. ` +
-  `make it 60 words max`+
+  `make it 60 words max` +
   `Start with "On your ${getDayOrdinal(day.day)} day...", walk through every single location, and explain why the food choices (like seafood or traditional grills) are the heart of the experience here. ` +
   `End the day at ${stops[stops.length - 1]} with a reason why it's the perfect finish. ` +
   `Make it sound like a person talking, not a list. No emojis.`;
@@ -798,42 +902,153 @@ export default function ItineraryScreen() {
     ));
   };
 
-  // ── AI chat ───────────────────────────────────────────────────────
-  const sendAIMessage = async (): Promise<void> => {
-    if (!aiMessage.trim()) return;
-    setAiLoading(true);
-    setAiResponse('');
+  // ── Plan coach ────────────────────────────────────────────────────
+  const sendPlanCoachMessage = async (preset?: string): Promise<void> => {
+    const raw =
+      typeof preset === 'string' ? preset : planCoachInput;
+    const text = (typeof raw === 'string' ? raw : String(raw ?? '')).trim();
+    if (!text || planCoachLoading) return;
 
-    // Placeholder AI response — replace with real API call later
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const responses = [
-      `Great choice visiting ${city}! I recommend starting with the most popular spots early in the morning to avoid crowds.`,
-      `Based on your interests in ${interests.join(', ')}, I suggest adding a local food tour on Day 1!`,
-      `The best time to visit the beach in ${city} is early morning or late afternoon for perfect weather.`,
-      `I can help you optimize your route to save time between attractions. Would you like me to reorder your activities?`,
-    ];
-    setAiResponse(responses[Math.floor(Math.random() * responses.length)]);
-    setAiLoading(false);
-    setAiMessage('');
-  };
+    setPlanCoachPreview(null);
+    if (typeof preset === 'string') setPlanCoachInput('');
 
-  // ── Save plan to backend ──────────────────────────────────────────
-  const persistPlan = async (): Promise<string | undefined> => {
+    const startLat =
+      params.startLat != null ? parseFloat(String(params.startLat)) : userLocation?.latitude;
+    const startLon =
+      params.startLon != null ? parseFloat(String(params.startLon)) : userLocation?.longitude;
+
+    const nextMessages = [...planCoachMessages, { role: 'user' as const, content: text }];
+    setPlanCoachMessages(nextMessages);
+    setPlanCoachInput('');
+    setPlanCoachLoading(true);
+
     try {
-      const res = await fetch(`${API_BASE}/plans`, {
+      const res = await fetch(`${API_BASE}/ai/plan-coach`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          messages: nextMessages,
+          plan_days: days,
           city,
-          start_date: startDate,
-          end_date: endDate,
-          budget: params.budget,
-          day_hours: params.daySchedules,
           interests,
-          spot_ids: params.spotIds?.split(',').map(Number) ?? [],
-          itinerary: days,
-          user_id: userId ?? 1,
+          day_schedules: effectiveDaySchedules,
+          is_foreigner: params.isForeigner === 'true',
+          start_lat: Number.isFinite(startLat) ? startLat : undefined,
+          start_lon: Number.isFinite(startLon) ? startLon : undefined,
+          budget: Number(params.budget ?? 0),
+          start_date: startDate.toString().split('T')[0],
+          existing_coach_extra_spend_egp: coachExtraSpendEgp,
         }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setPlanCoachMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: data.error || 'Something went wrong. Try again.' },
+        ]);
+        return;
+      }
+      setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: String(data.reply || '') }]);
+      if (Array.isArray(data.plan_days_preview) && data.plan_days_preview.length > 0) {
+        setPlanCoachPreview({
+          days: data.plan_days_preview as DayPlan[],
+          warnings: Array.isArray(data.optimization_warnings) ? data.optimization_warnings : [],
+          day_schedules: Array.isArray(data.day_schedules_preview) ? data.day_schedules_preview : null,
+          end_date: data.end_date_preview != null ? String(data.end_date_preview) : null,
+          coach_extra_spend:
+            typeof data.coach_extra_spend_total_preview === 'number'
+              ? data.coach_extra_spend_total_preview
+              : null,
+        });
+      }
+    } catch {
+      setPlanCoachMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: 'Network error. Check your connection and try again.' },
+      ]);
+    } finally {
+      setPlanCoachLoading(false);
+    }
+  };
+
+  const applyPlanCoachPreview = (): void => {
+    if (!planCoachPreview) return;
+    const appliedDaysSnapshot = planCoachPreview.days;
+    setDays(appliedDaysSnapshot);
+    if (
+      Array.isArray(planCoachPreview.day_schedules) &&
+      planCoachPreview.day_schedules.length === planCoachPreview.days.length
+    ) {
+      setCoachDaySchedules(planCoachPreview.day_schedules);
+    }
+    if (planCoachPreview.end_date) {
+      setCoachEndDate(planCoachPreview.end_date);
+    }
+    if (planCoachPreview.coach_extra_spend != null) {
+      setCoachExtraSpendEgp(planCoachPreview.coach_extra_spend);
+    }
+    setActiveDay(prev =>
+      Math.min(prev, Math.max(0, planCoachPreview.days.length - 1)),
+    );
+    setPlanCoachPreview(null);
+    setPlanCoachMessages(prev => [
+      ...prev,
+      { role: 'assistant', content: 'Changes applied to your plan.' },
+    ]);
+    void (async () => {
+      setPlanSaving(true);
+      const id = await upsertPlanToServer(appliedDaysSnapshot);
+      setPlanSaving(false);
+      if (id) {
+        setServerPlanId(id);
+        setPlanSaved(true);
+      }
+    })();
+  };
+
+  useEffect(() => {
+    if (showAIChat && planCoachMessages.length > 0) {
+      requestAnimationFrame(() => {
+        planCoachListRef.current?.scrollToEnd({ animated: true });
+      });
+    }
+  }, [planCoachMessages, showAIChat]);
+
+  // ── Save / update plan on server (POST new or PUT when plan already exists) ──
+  const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string | undefined> => {
+    const targetId = serverPlanId ?? existingPlanId;
+    const itineraryPayload = itineraryOverride ?? days;
+    const payload = {
+      city,
+      start_date: startDate.toString().split('T')[0],
+      end_date: effectiveEndDate,
+      budget: params.budget,
+      day_hours: JSON.stringify(effectiveDaySchedules),
+      interests,
+      spot_ids: spotIdsForApi,
+      itinerary: itineraryPayload,
+      user_id: userId ?? 1,
+    };
+    try {
+      if (targetId) {
+        const res = await fetch(`${API_BASE}/plans/item/${targetId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const contentType = res.headers.get('content-type') ?? '';
+        if (!contentType.includes('application/json')) {
+          const t = await res.text();
+          throw new Error(`Unexpected response (${res.status}): ${t.slice(0, 120)}`);
+        }
+        const data = await res.json();
+        if (data.success) return String(targetId);
+        throw new Error(data.message);
+      }
+      const res = await fetch(`${API_BASE}/plans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
@@ -841,8 +1056,10 @@ export default function ItineraryScreen() {
         throw new Error(`Unexpected response (${res.status}): ${text.slice(0, 120)}`);
       }
       const data = await res.json();
-      if (data.success) {
-        return data.data?.id ? String(data.data.id) : undefined;
+      if (data.success && data.data?.id) {
+        const nid = String(data.data.id);
+        setServerPlanId(nid);
+        return nid;
       }
       throw new Error(data.message);
     } catch (err) {
@@ -852,9 +1069,9 @@ export default function ItineraryScreen() {
   };
 
   const savePlan = async (): Promise<void> => {
-    if (planSaved || planSaving) return;
+    if (planSaving) return;
     setPlanSaving(true);
-    const planId = await persistPlan();
+    const planId = await upsertPlanToServer();
     setPlanSaving(false);
     if (planId) {
       setPlanSaved(true);
@@ -865,7 +1082,7 @@ export default function ItineraryScreen() {
 
   const openMap = async (): Promise<void> => {
     setSaving(true);
-    const planId = existingPlanId ?? await persistPlan();
+    const planId = serverPlanId ?? existingPlanId ?? (await upsertPlanToServer());
     setSaving(false);
 
     router.push({
@@ -880,7 +1097,7 @@ export default function ItineraryScreen() {
 
   const openTravelOptions = async (): Promise<void> => {
     setSaving(true);
-    const planId = existingPlanId ?? await persistPlan();
+    const planId = serverPlanId ?? existingPlanId ?? (await upsertPlanToServer());
     setSaving(false);
 
     router.push({
@@ -888,8 +1105,8 @@ export default function ItineraryScreen() {
       params: {
         city,
         planId,
-        startDate,
-        endDate,
+        startDate: startDate.toString().split('T')[0],
+        endDate: effectiveEndDate,
         budget: params.budget,
       },
     });
@@ -921,7 +1138,7 @@ export default function ItineraryScreen() {
         <TouchableOpacity
           style={styles.saveBtn}
           onPress={savePlan}
-          disabled={planSaving || planSaved}
+          disabled={planSaving}
           activeOpacity={0.7}
         >
           {planSaving
@@ -962,7 +1179,6 @@ export default function ItineraryScreen() {
       {/* ── Activities list ── */}
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Day summary generated by AI */}
         {currentDay?.summary ? (
           <View style={styles.daySummaryCard}>
             <MaterialCommunityIcons name="shimmer" size={18} color="#E67E22" />
@@ -1003,7 +1219,6 @@ export default function ItineraryScreen() {
           );
         })}
 
-        {/* Budget summary — day spent vs total remaining */}
         {currentDay && (() => {
           const activityCost = (d: DayPlan) =>
             d.activities
@@ -1045,7 +1260,6 @@ export default function ItineraryScreen() {
           );
         })()}
 
-        {/* AI assistant bubble */}
         <TouchableOpacity
           style={styles.aiBubble}
           onPress={() => setShowAIChat(true)}
@@ -1076,7 +1290,6 @@ export default function ItineraryScreen() {
           }
         </TouchableOpacity>
 
-        {/* Back to Home — pops all screens back to home (swipes left/back) */}
         <TouchableOpacity
           style={styles.homeBtn}
           onPress={() => router.dismissAll()}
@@ -1098,7 +1311,6 @@ export default function ItineraryScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* GPS option */}
             <TouchableOpacity style={locStyles.gpsBtn} onPress={applyGPS}>
               <MaterialCommunityIcons name="crosshairs-gps" size={26} color="#E67E22" />
               <View>
@@ -1132,77 +1344,150 @@ export default function ItineraryScreen() {
         </View>
       </Modal>
 
-
-      {/* ── AI Chat Modal ── */}
+      {/* ── Plan coach modal ── */}
       <Modal visible={showAIChat} animationType="slide" transparent onRequestClose={() => setShowAIChat(false)}>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
-          {/* Outer wrapper: Catches background taps, closes keyboard and modal */}
-          <TouchableOpacity 
-            style={StyleSheet.absoluteFill} 
-            activeOpacity={1} 
+          <Pressable
+            style={StyleSheet.absoluteFill}
             onPress={() => {
               Keyboard.dismiss();
               setShowAIChat(false);
-            }} 
+            }}
           />
-          
-          {/* Inner wrapper: Catches taps inside the card to dismiss keyboard without closing modal */}
-          <TouchableOpacity activeOpacity={1} style={styles.modalSheet} onPress={Keyboard.dismiss}>
+          <View style={styles.planCoachSheet}>
+            <View style={styles.planCoachGrabber} />
             <View style={styles.modalHeader}>
               <View style={styles.aiModalTitle}>
-                <MaterialCommunityIcons name="robot-outline" size={22} color="#E67E22" />
-                <Text style={styles.modalTitle}>Tour Mate AI</Text>
+                <MaterialCommunityIcons name="map-search-outline" size={22} color="#E67E22" />
+                <Text style={styles.modalTitle}>Plan coach</Text>
               </View>
-              <TouchableOpacity onPress={() => setShowAIChat(false)}>
+              <TouchableOpacity
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowAIChat(false);
+                }}
+              >
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
+            <Text style={styles.planCoachSubtitle}>
+              Change stops, hours, or whole days; add a day from our list; log extra taxi spend; or ask local tips — only places we have in {city}.
+            </Text>
 
-            {aiResponse ? (
-              <View style={styles.aiResponseBox}>
-                <Text style={styles.aiResponseText}>{aiResponse}</Text>
+            {planCoachPreview && (
+              <View style={styles.planCoachPreviewBanner}>
+                <MaterialCommunityIcons name="clipboard-check-outline" size={20} color="#B45309" />
+                <View style={styles.planCoachPreviewMid}>
+                  <Text style={styles.planCoachPreviewTitle}>Proposed changes</Text>
+                  {planCoachPreview.warnings.length > 0 && (
+                    <View style={styles.planCoachWarnList}>
+                      {planCoachPreview.warnings
+                        .map(simplifyCoachWarning)
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .map((w, i) => (
+                          <Text key={i} style={styles.planCoachWarnItem}>
+                            {w}
+                          </Text>
+                        ))}
+                    </View>
+                  )}
+                  <Text style={styles.planCoachPreviewHint}>
+                    Your plan will not change until you press Apply.
+                  </Text>
+                </View>
+                <View style={styles.planCoachPreviewActions}>
+                  <TouchableOpacity style={styles.planCoachApplyBtn} onPress={applyPlanCoachPreview} activeOpacity={0.85}>
+                    <Text style={styles.planCoachApplyBtnText}>Apply</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.planCoachDiscardBtn}
+                    onPress={() => setPlanCoachPreview(null)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.planCoachDiscardBtnText}>Discard</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            ) : (
-              <Text style={styles.aiPlaceholder}>
-                Ask me anything about your {city} trip! I can suggest activities, restaurants, or help optimize your schedule.
-              </Text>
             )}
+
+            <FlatList
+              ref={planCoachListRef}
+              data={planCoachMessages}
+              keyExtractor={(_, i) => `m-${i}`}
+              style={styles.planCoachList}
+              contentContainerStyle={styles.planCoachListContent}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <View
+                  style={[
+                    styles.planCoachBubble,
+                    item.role === 'user' ? styles.planCoachBubbleUser : styles.planCoachBubbleAssistant,
+                  ]}
+                >
+                  <Text style={styles.planCoachBubbleText}>{item.content}</Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.planCoachEmptyWrap}>
+                  <Text style={styles.aiPlaceholder}>
+                    Tap a suggestion below or type your own — edits stay on database places for {city}.
+                  </Text>
+                  <Text style={styles.planCoachSuggestionsTitle}>Try:</Text>
+                  <View style={styles.planCoachSuggestionsGrid}>
+                    {PLAN_COACH_SUGGESTIONS.map((label, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.planCoachSuggestionChip}
+                        onPress={() => sendPlanCoachMessage(label)}
+                        activeOpacity={0.85}
+                        disabled={planCoachLoading}
+                      >
+                        <Text style={styles.planCoachSuggestionChipText}>{label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              }
+            />
 
             <View style={styles.aiInputRow}>
               <TextInput
                 style={styles.aiInput}
-                placeholder="Ask Tour Mate AI..."
+                placeholder="Message plan coach..."
                 placeholderTextColor="#AAA"
-                value={aiMessage}
-                onChangeText={setAiMessage}
+                value={planCoachInput}
+                onChangeText={setPlanCoachInput}
                 multiline
+                editable={!planCoachLoading}
               />
               <TouchableOpacity
-                style={[styles.aiSendBtn, aiLoading && { opacity: 0.6 }]}
-                onPress={sendAIMessage}
-                disabled={aiLoading}
+                style={[styles.aiSendBtn, planCoachLoading && { opacity: 0.6 }]}
+                onPress={() => void sendPlanCoachMessage()}
+                disabled={planCoachLoading}
               >
-                {aiLoading
-                  ? <ActivityIndicator size="small" color="#FFF" />
-                  : <Text style={styles.aiSendIcon}>→</Text>
-                }
+                {planCoachLoading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.aiSendIcon}>→</Text>
+                )}
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Full Attraction Sheet (photo gallery, audio guide, etc.) ── */}
+      {/* ── Full Attraction Sheet ── */}
       <AttractionSheet
         attraction={sheetAttraction}
         visible={showAttractionSheet}
         onClose={() => setShowAttractionSheet(false)}
         userLocation={userLocation}
       />
-
 
       {/* ── Activity Detail Modal ── */}
       <Modal
@@ -1211,13 +1496,8 @@ export default function ItineraryScreen() {
         transparent
         onRequestClose={() => setSelectedActivity(null)}
       >
-        {/* Outer Wrapper: Closes modal when background is tapped */}
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedActivity(null)}>
-          
-          {/* Inner Wrapper: Holds the UI and stops the tap from closing the modal */}
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={detailStyles.sheet}>
-            
-            {/* Header row: icon + name + rating + close */}
             <View style={detailStyles.header}>
               <View style={detailStyles.iconBox}>
                 {getCategoryIcon(selectedActivity?.icon ?? 'default', 26)}
@@ -1236,7 +1516,6 @@ export default function ItineraryScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Cost / duration chips */}
             <View style={detailStyles.chipsRow}>
               {selectedActivity?.duration_hrs != null && (
                 <View style={[styles.activityMetaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
@@ -1263,7 +1542,6 @@ export default function ItineraryScreen() {
               )}
             </View>
 
-            {/* Category tags */}
             {selectedActivity?.categories && selectedActivity.categories.length > 0 && (
               <View style={detailStyles.tagsRow}>
                 {selectedActivity.categories.map((cat, i) => (
@@ -1274,7 +1552,6 @@ export default function ItineraryScreen() {
               </View>
             )}
 
-            {/* Description */}
             <ScrollView style={detailStyles.descScroll} showsVerticalScrollIndicator={false}>
               {selectedActivity?.description ? (
                 <Text style={detailStyles.description}>{selectedActivity.description}</Text>
@@ -1283,7 +1560,6 @@ export default function ItineraryScreen() {
               )}
             </ScrollView>
 
-            {/* Address */}
             {!!selectedActivity?.address && (
               <View style={detailStyles.addressRow}>
                 <MaterialCommunityIcons name="map-marker" size={16} color="#888" />
@@ -1292,7 +1568,6 @@ export default function ItineraryScreen() {
                 </Text>
               </View>
             )}
-
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -1305,20 +1580,20 @@ export default function ItineraryScreen() {
 const detailStyles = StyleSheet.create({
   sheet: {
     backgroundColor: '#FFF',
-    borderTopLeftRadius: 28, 
+    borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderBottomLeftRadius: 0, // Enforce sharp bottom corners
-    borderBottomRightRadius: 0, // Enforce sharp bottom corners
-    paddingHorizontal: 20, 
-    paddingTop: 20, 
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20, // Avoid home indicator
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     maxHeight: '85%',
-    width: '100%', // Kills the weird horizontal gaps
-    marginBottom: 0, // Forces it to the absolute bottom
+    width: '100%',
+    marginBottom: 0,
   },
   header:    { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
   iconBox:   { width: 52, height: 52, borderRadius: 14, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  iconEmoji: {},  // kept for layout; content replaced by vector icon
+  iconEmoji: {},
   headerMid: { flex: 1 },
   name:      { fontSize: 17, fontWeight: '700', color: '#1A1A1A', lineHeight: 22 },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
@@ -1349,7 +1624,6 @@ const locStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Theme.colors.background },
 
-  // Loading
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1446,7 +1720,6 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
 
-  // Day summary card
   daySummaryCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1467,7 +1740,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // Activities
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
 
   activityRow: {
@@ -1584,7 +1856,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     marginTop: 4,
   },
-
+activityIcon: {},
   activityTapHint: {
     fontSize: 11,
     color: Theme.colors.primary,
@@ -1595,7 +1867,6 @@ const styles = StyleSheet.create({
   deleteBtn: { padding: 8, marginTop: 4 },
   deleteIcon: { fontSize: 12, color: Theme.colors.muted },
 
-  // Budget card
   budgetCard: {
     backgroundColor: Theme.colors.card,
     borderRadius: 16,
@@ -1672,7 +1943,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
-  // AI bubble
   aiBubble: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1705,7 +1975,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -1830,12 +2099,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // AI modal
-  aiModalTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  aiModalTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  //aiModalIcon: { fontSize: 22 },
+  //aiPlaceholder: { fontSize: 14, color: '#999', lineHeight: 22, marginBottom: 12 },
+  planCoachEmptyWrap: { paddingBottom: 4 },
+  planCoachSuggestionsTitle: { fontSize: 13, color: '#999', fontWeight: '600', marginBottom: 10 },
+  planCoachSuggestionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  planCoachSuggestionChip: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#EEE',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
+  planCoachSuggestionChipText: { fontSize: 13, color: '#555', fontWeight: '500', maxWidth: 280 },
+  // aiResponseBox: {
+  //   backgroundColor: '#FFF3E0', borderRadius: 16, padding: 14, marginBottom: 16,
+  // },
 
   aiModalIcon: { fontSize: 22 },
 
@@ -1885,17 +2170,101 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  aiSendIcon: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  saveBtn: {
+  aiSendIcon: { color: '#FFF', fontSize: 18, fontWeight: '700' },
+    saveBtn: {
   width: 40,
   height: 40,
   borderRadius: 20,
   justifyContent: 'center',
   alignItems: 'center',
 },
+
+  planCoachSheet: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    width: '100%',
+    maxHeight: Math.round(screenHeight * 0.9),
+  },
+  planCoachGrabber: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#DEDEDE',
+    marginBottom: 10,
+  },
+  planCoachSubtitle: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 10,
+    lineHeight: 17,
+  },
+  planCoachList: {
+    maxHeight: Math.round(screenHeight * 0.42),
+    minHeight: 120,
+    marginBottom: 8,
+  },
+  planCoachListContent: {
+    paddingBottom: 8,
+    gap: 10,
+  },
+  planCoachBubble: {
+    maxWidth: '92%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  planCoachBubbleUser: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#FFF3E0',
+  },
+  planCoachBubbleAssistant: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F5F5F5',
+  },
+  planCoachBubbleText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 21,
+  },
+
+  planCoachPreviewBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 10,
+    marginBottom: 8,
+  },
+  planCoachPreviewMid: { flex: 1 },
+  planCoachPreviewTitle: { fontSize: 13, fontWeight: '800', color: '#92400E', marginBottom: 4 },
+  planCoachWarnList: { marginBottom: 4, gap: 4 },
+  planCoachWarnItem: { fontSize: 11, color: '#78350F', lineHeight: 16 },
+  planCoachPreviewHint: { fontSize: 10, color: '#A16207', fontStyle: 'italic' },
+  planCoachPreviewActions: { justifyContent: 'center', gap: 8 },
+  planCoachApplyBtn: {
+    backgroundColor: '#E67E22',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  planCoachApplyBtnText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
+  planCoachDiscardBtn: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  planCoachDiscardBtnText: { color: '#666', fontSize: 12, fontWeight: '700' },
 });

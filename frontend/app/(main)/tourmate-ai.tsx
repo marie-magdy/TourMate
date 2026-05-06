@@ -5,7 +5,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator,
   KeyboardAvoidingView, Platform, Dimensions, Image, Alert,
-  Animated,
+  Animated,Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -450,6 +450,8 @@ export default function TourMateAIScreen() {
   const { t, userId, voiceChatEnabled, refreshFeatures } = useApp();
   const scrollRef = useRef<ScrollView>(null);
 
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
+
   const [messages, setMessages] = useState<Message[]>([{
     id: '0',
     role: 'assistant',
@@ -760,38 +762,46 @@ return (
 
     <View style={{ flex: 1 }}>
 
-      {/* ── HEADER ── */}
-      <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
+ {/* ── HEADER ── */}
+<SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
+  <View style={styles.header}>
+    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+      <Text style={styles.backIcon}>←</Text>
+    </TouchableOpacity>
 
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>{t('aiTitle')}</Text>
-            <View style={styles.onlineBadge}>
-              <View style={styles.onlineDot} />
-              <Text style={styles.onlineText}>Online</Text>
-            </View>
-          </View>
+    <View style={styles.headerCenter}>
+      {/* Glasses icon — left of title */}
+      <TouchableOpacity
+        onPress={() => setShowPremiumModal(true)}
+        style={{ marginRight: 8 }}
+      >
+        <MaterialCommunityIcons name="glasses" size={24} color="#E67E22" />
+      </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.clearBtn}
-            onPress={() =>
-              setMessages([
-                {
-                  id: '0',
-                  role: 'assistant',
-                  content: "👋 Hello again! How can I help you with your Egyptian adventure?",
-                  timestamp: new Date(),
-                },
-              ])
-            }
-          >
-            <Text style={styles.clearBtnText}>Clear</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <Text style={styles.headerTitle}>{t('aiTitle')}</Text>
+      <View style={styles.onlineBadge}>
+        <View style={styles.onlineDot} />
+        <Text style={styles.onlineText}>Online</Text>
+      </View>
+    </View>
+
+    <TouchableOpacity
+      style={styles.clearBtn}
+      onPress={() =>
+        setMessages([
+          {
+            id: '0',
+            role: 'assistant',
+            content: "👋 Hello again! How can I help you with your Egyptian adventure?",
+            timestamp: new Date(),
+          },
+        ])
+      }
+    >
+      <Text style={styles.clearBtnText}>Clear</Text>
+    </TouchableOpacity>
+  </View>
+</SafeAreaView>
 
       {/* ── KEYBOARD AVOIDING — only wraps scroll + input ── */}
       <KeyboardAvoidingView
@@ -904,6 +914,35 @@ return (
     </View>
 
     <BottomTab active="Tour Mate" />
+<Modal visible={showPremiumModal} transparent animationType="fade">
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalSheet}>
+
+      <MaterialCommunityIcons name="glasses" size={48} color="#E67E22" />
+      <Text style={styles.modalTitle}>Smart Glasses Mode</Text>
+      <Text style={styles.modalDescription}>
+        Experience Egypt like never before — wear your smart glasses and let TourMate guide you hands-free.
+        Get real-time info on landmarks, restaurants, and hidden gems right in your field of view.
+      </Text>
+
+      <View style={styles.modalPremiumBox}>
+        <Text style={styles.modalPremiumLabel}>✨ Premium Feature</Text>
+        <Text style={styles.modalPremiumText}>
+          Pair your wearable smart glasses with TourMate to enjoy a fully immersive,
+          seamless travel experience — no phone needed while exploring.
+        </Text>
+        <Text style={styles.modalPointsText}>
+          Your points: {points ?? 0}/{PREMIUM_POINTS_REQUIRED}
+        </Text>
+      </View>
+
+      <TouchableOpacity style={styles.modalBtn} onPress={() => setShowPremiumModal(false)}>
+        <Text style={styles.modalBtnText}>Got it</Text>
+      </TouchableOpacity>
+
+    </View>
+  </View>
+</Modal>
   </View>
 );
 }
@@ -984,6 +1023,82 @@ headerCenter: {
     color: Theme.colors.muted,
     fontWeight: '600',
   },
+// Smart Glasses Modal
+modalOverlay: {
+  flex: 1,
+  backgroundColor: 'rgba(26,10,0,0.55)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  padding: 24,
+},
+
+modalSheet: {
+  backgroundColor: Theme.colors.card,
+  borderRadius: 24,
+  padding: 24,
+  alignItems: 'center',
+  width: '100%',
+},
+
+modalTitle: {
+  fontSize: 20,
+  fontWeight: '800',
+  color: Theme.colors.hero,
+  marginTop: 12,
+},
+
+modalDescription: {
+  fontSize: 14,
+  color: Theme.colors.muted,
+  textAlign: 'center',
+  marginTop: 8,
+  lineHeight: 20,
+},
+
+modalPremiumBox: {
+  backgroundColor: Theme.colors.background,
+  borderRadius: 16,
+  padding: 16,
+  marginTop: 16,
+  width: '100%',
+  borderWidth: 1,
+  borderColor: 'rgba(245,217,139,0.45)',
+},
+
+modalPremiumLabel: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: Theme.colors.primary,
+  marginBottom: 8,
+},
+
+modalPremiumText: {
+  fontSize: 12,
+  color: Theme.colors.text,
+  lineHeight: 18,
+},
+
+modalPointsText: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: Theme.colors.hero,
+  marginTop: 8,
+},
+
+modalBtn: {
+  backgroundColor: Theme.colors.primary,
+  borderRadius: 30,
+  paddingVertical: 14,
+  paddingHorizontal: 32,
+  marginTop: 20,
+},
+
+modalBtnText: {
+  color: Theme.colors.card,
+  fontWeight: '700',
+  fontSize: 15,
+},
+
 // Make sure these styles are set:
 messagesContainer: {
   flex: 1,        // ← must have this

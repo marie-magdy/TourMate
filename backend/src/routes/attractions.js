@@ -79,18 +79,55 @@ router.get('/popular', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-//  GET /api/attractions/nearest?city=Alexandria
+//  GET /api/attractions/nearest?lat=..&lon=..&city=Alexandria
 // ─────────────────────────────────────────────────────────────────────
 router.get('/nearest', async (req, res) => {
   try {
-    const { city } = req.query;
+    const { city, lat, lon, limit } = req.query;
+    const n = Math.max(1, Math.min(50, parseInt(String(limit ?? '20'), 10) || 20));
+    const latNum = lat != null ? Number(lat) : null;
+    const lonNum = lon != null ? Number(lon) : null;
+    const hasCoords = Number.isFinite(latNum) && Number.isFinite(lonNum);
+
+    if (hasCoords) {
+      // Great-circle distance (km). Note: uses DB lat/lon columns; rows missing coords are excluded.
+      const params = [latNum, lonNum];
+      let where = `WHERE a.latitude IS NOT NULL AND a.longitude IS NOT NULL`;
+      if (city) {
+        where += ` AND LOWER(ci.name) = LOWER($3)`;
+        params.push(city);
+      }
+
+      const result = await pool.query(
+        `${BASE_SELECT}
+         ${where}
+         ${GROUP_BY}
+         ORDER BY
+           (6371 * acos(
+             LEAST(
+               1,
+               GREATEST(
+                 -1,
+                 cos(radians($1)) * cos(radians(a.latitude)) * cos(radians(a.longitude) - radians($2)) +
+                 sin(radians($1)) * sin(radians(a.latitude))
+               )
+             )
+           )) ASC,
+           a.rating DESC
+         LIMIT ${n}`,
+        params,
+      );
+      return res.json({ success: true, data: result.rows });
+    }
+
+    // Fallback: city-based list ordered by rating (legacy behavior)
     const result = await pool.query(
       `${BASE_SELECT}
        WHERE LOWER(ci.name) = LOWER($1)
        ${GROUP_BY}
        ORDER BY a.rating DESC
-       LIMIT 20`,
-      [city ?? 'Alexandria']
+       LIMIT ${n}`,
+      [city ?? 'Alexandria'],
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {

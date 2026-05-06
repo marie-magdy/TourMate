@@ -17,8 +17,10 @@ import { Theme } from '../../constants/theme';
 import { useBookingStore } from '@/store/bookingStore';
 import BottomTab from '@/components/BottomTab';
 
+import { CurrencyCode } from '../../constants/AppContext';
 
 const { width } = Dimensions.get('window');
+const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 
 // ── Egyptian Cities ───────────────────────────────────────────────────
 const EGYPTIAN_CITIES = [
@@ -149,6 +151,10 @@ export default function PlanScreen() {
  const [daySchedules, setDaySchedules] = useState<{ start: Date; end: Date }[]>([]);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [isForeigner, setIsForeigner] = useState(false);
+  const [budgetCurrency, setBudgetCurrency] = useState<CurrencyCode>('EGP');
+  const [budgetRateToEgp, setBudgetRateToEgp] = useState(1);
+  const [budgetRateLoading, setBudgetRateLoading] = useState(false);
+  const [budgetRateError, setBudgetRateError] = useState<string | null>(null);
 
   // Starting location
   const [locationLabel, setLocationLabel] = useState('');
@@ -408,13 +414,22 @@ useEffect(() => {
       end_hour: d.end.getHours(),
     }));
 
+    const rawBudget = Number(String(budget).replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(rawBudget) || rawBudget <= 0) {
+      alert('Please enter a valid budget amount.');
+      return;
+    }
+    const egpBudget = Math.max(0, Math.round(rawBudget * (budgetRateToEgp || 1)));
+
     router.push({
       pathname: '/(main)/pick-spots' as any,
       params: {
         city: selectedCity.name,
         startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
         endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
-        budget,
+        budget: String(egpBudget),
+        budgetCurrency,
+        budgetOriginal: String(rawBudget),
 
         daySchedules: JSON.stringify(formattedSchedules),
 
@@ -440,6 +455,58 @@ useEffect(() => {
     setLocationCoords(null);
   }, 100);
   };
+
+  const pickBudgetCurrency = () => {
+    Alert.alert('Select currency', 'Your budget will be converted to EGP before generating the plan.', [
+      { text: 'EGP (ج.م)', onPress: () => setBudgetCurrency('EGP') },
+      { text: 'USD ($)', onPress: () => setBudgetCurrency('USD') },
+      { text: 'EUR (€)', onPress: () => setBudgetCurrency('EUR') },
+      { text: 'GBP (£)', onPress: () => setBudgetCurrency('GBP') },
+      { text: 'SAR (ر.س)', onPress: () => setBudgetCurrency('SAR') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRate = async () => {
+      setBudgetRateError(null);
+      if (budgetCurrency === 'EGP') {
+        setBudgetRateToEgp(1);
+        return;
+      }
+      if (!EXCHANGE_KEY) {
+        setBudgetRateError('Exchange API key is missing.');
+        setBudgetRateToEgp(1);
+        return;
+      }
+      setBudgetRateLoading(true);
+      try {
+        const res = await fetch(
+          `https://v6.exchangerate-api.com/v6/${EXCHANGE_KEY}/pair/${budgetCurrency}/EGP`,
+        );
+        const data = await res.json();
+        const rate = Number(data?.conversion_rate);
+        if (!cancelled && data?.result === 'success' && Number.isFinite(rate) && rate > 0) {
+          setBudgetRateToEgp(rate);
+        } else if (!cancelled) {
+          setBudgetRateError('Could not load exchange rate.');
+          setBudgetRateToEgp(1);
+        }
+      } catch {
+        if (!cancelled) {
+          setBudgetRateError('Could not load exchange rate.');
+          setBudgetRateToEgp(1);
+        }
+      } finally {
+        if (!cancelled) setBudgetRateLoading(false);
+      }
+    };
+    fetchRate();
+    return () => {
+      cancelled = true;
+    };
+  }, [budgetCurrency]);
 
   const calendarCells: (number | null)[] = [
     ...Array(firstDay).fill(null),
@@ -676,7 +743,10 @@ useEffect(() => {
             <Text style={styles.cardTitleText}>Budget</Text>
           </View>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetCurrency}>EGP</Text>
+            <TouchableOpacity style={styles.budgetCurrencyPill} onPress={pickBudgetCurrency} activeOpacity={0.85}>
+              <Text style={styles.budgetCurrency}>{budgetCurrency}</Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color="#A08060" />
+            </TouchableOpacity>
             <TextInput
               style={styles.budgetInput}
               placeholder="Enter your budget"
@@ -686,6 +756,22 @@ useEffect(() => {
               onChangeText={setBudget}
             />
           </View>
+          <Text style={styles.budgetHint}>
+            {budgetRateLoading
+              ? 'Converting…'
+              : budgetRateError
+                ? budgetRateError
+                : (() => {
+                    const raw = Number(String(budget).replace(/[^0-9.]/g, ''));
+                    if (!Number.isFinite(raw) || raw <= 0) return 'Converted budget will be shown here (in EGP).';
+                    const egp = Math.round(raw * (budgetRateToEgp || 1));
+                    const rateLine =
+                      budgetCurrency === 'EGP'
+                        ? ''
+                        : ` · 1 ${budgetCurrency} = ${budgetRateToEgp.toFixed(2)} EGP`;
+                    return `≈ ${egp.toLocaleString()} EGP${rateLine}`;
+                  })()}
+          </Text>
         </View>
 
         {startDate && endDate && daySchedules.length > 0 && (
@@ -1233,17 +1319,36 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
 
-  budgetCurrency: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Theme.colors.text,
+  budgetCurrencyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#FBF5EB',
+    borderWidth: 1,
+    borderColor: '#F0E2C8',
     marginRight: 8,
+  },
+
+  budgetCurrency: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Theme.colors.text,
   },
 
   budgetInput: {
     flex: 1,
     fontSize: 16,
     color: Theme.colors.text,
+  },
+
+  budgetHint: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 10,
+    lineHeight: 16,
   },
 
   helperText: {

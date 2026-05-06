@@ -323,7 +323,7 @@ def _get_pool(db_url: str = DB_URL) -> psycopg2.pool.ThreadedConnectionPool:
         with _DB_POOL_LOCK:
             if _DB_POOL is None:
                 _DB_POOL = psycopg2.pool.ThreadedConnectionPool(
-                    minconn=1, maxconn=4, dsn=db_url
+                    minconn=1, maxconn=2, dsn=db_url
                 )
                 print("[DB] connection pool created (min=1 max=4)")
     return _DB_POOL

@@ -550,7 +550,8 @@ export default function HomeScreen() {
         }
 
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        const coordsNow = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setUserLocation(coordsNow);
 
         const res = await axios.get('https://nominatim.openstreetmap.org/reverse', {
           params: { format: 'json', lat: loc.coords.latitude, lon: loc.coords.longitude },
@@ -561,29 +562,44 @@ export default function HomeScreen() {
         const city = res.data.address.city || res.data.address.town || res.data.address.village || '';
         const country = res.data.address.country || '';
         setLocationText(`${city}${city && country ? ', ' : ''}${country}` || 'Unknown');
-        fetchData(city);
+        fetchData(city, coordsNow);
 
       } catch {
           setLocationText('Location unavailable');
           setNearest([]); // clear nearest
           setShowLocationError(true); // show a small banner
-          fetchData('Alexandria'); // still load something
+          fetchData('Alexandria', null); // still load something
       }
     })();
   }, []);
 
   // useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async (city: string ) => {
+  const fetchData = async (
+    city: string,
+    coordsOverride?: { latitude: number; longitude: number } | null,
+  ) => {
     try {
       const raw = await AsyncStorage.getItem('user');
       const storedUser = raw ? JSON.parse(raw) : null;
       const loadedUserId = storedUser?.id ?? 1;
       setUserId(loadedUserId);
 
+      const loc = coordsOverride ?? userLocation;
+      const nearUrl = (() => {
+        const base = `${API_BASE}/attractions/nearest`;
+        const u = new URL(base);
+        if (city) u.searchParams.set('city', city);
+        if (loc?.latitude != null && loc?.longitude != null) {
+          u.searchParams.set('lat', String(loc.latitude));
+          u.searchParams.set('lon', String(loc.longitude));
+        }
+        return u.toString();
+      })();
+
       const [popResult, nearResult, pointsResult] = await Promise.allSettled([
         fetch(`${API_BASE}/attractions/popular`).then(r => r.json()),
-        fetch(`${API_BASE}/attractions/nearest?city=${encodeURIComponent(city)}`).then(r => r.json()),
+        fetch(nearUrl).then(r => r.json()),
         fetch(`${API_BASE}/points/${loadedUserId}`).then(r => r.json()),
       ]);
 

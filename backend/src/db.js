@@ -5,21 +5,23 @@ dotenv.config();
 
 const { Pool } = pg;
 
+
+const dbUrl = process.env.DATABASE_URL || '';
+const needsSsl =
+  /neon\.tech|supabase\.co|railway\.app|render\.com|aiven\.io|azure\.com/i.test(dbUrl) ||
+  process.env.DATABASE_SSL === 'true';
+
+const poolMax = Math.min(
+  Math.max(1, parseInt(process.env.DATABASE_POOL_MAX || '8', 10)),
+  32,
+);
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('supabase')
-    ? { rejectUnauthorized: false }
-    : false,
-
-  max: 3,                        // ← lower this, session mode can't handle 8
-  min: 1,                        // ← don't keep idle connections open
-   idleTimeoutMillis: 30_000,      // ← 30s so it doesn't drop too fast
-  connectionTimeoutMillis: 10_000, // ← 10s to survive cold start
-});
-
-// ← Add this: log when pool is struggling
-pool.on('error', (err) => {
-  console.error('Unexpected pool error:', err.message);
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
+  max: poolMax,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 export default pool;
