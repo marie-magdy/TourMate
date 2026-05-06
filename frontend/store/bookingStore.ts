@@ -6,16 +6,33 @@ export type Hotel = {
   city: string;
   image_url?: string;
   price_per_night?: number;
-  stars?: number; // ⭐ keep both rating + stars if needed
+  stars?: number;
   rating?: number;
+  bookingUrl?: string;
+};
+
+export type Flight = {
+  airline: string;
+  flightNumber: string;
+  departure: string;
+  arrival: string;
+  departureTime: string;
+  arrivalTime: string;
+  duration: string;
+  class: string;
+  price: number;
+  bookingUrl?: string;  // ← add
 };
 
 type BookingStore = {
   selectedHotel: Hotel | null;
-  selectedFlight: any | null;
+  selectedFlight: Flight | null;  // ← typed now
 
   setSelectedHotel: (hotel: Hotel) => void;
-  setSelectedFlight: (flight: any) => void;
+  setSelectedFlight: (flight: Flight) => void;
+
+  updateHotelBookingUrl: (url: string) => void;   // ← add for editable
+  updateFlightBookingUrl: (url: string) => void;  // ← add for editable
 };
 
 export const useBookingStore = create<BookingStore>((set) => ({
@@ -24,4 +41,14 @@ export const useBookingStore = create<BookingStore>((set) => ({
 
   setSelectedHotel: (hotel) => set({ selectedHotel: hotel }),
   setSelectedFlight: (flight) => set({ selectedFlight: flight }),
+
+  updateHotelBookingUrl: (url) =>
+    set((state) => ({
+      selectedHotel: state.selectedHotel ? { ...state.selectedHotel, bookingUrl: url } : null,
+    })),
+
+  updateFlightBookingUrl: (url) =>
+    set((state) => ({
+      selectedFlight: state.selectedFlight ? { ...state.selectedFlight, bookingUrl: url } : null,
+    })),
 }));

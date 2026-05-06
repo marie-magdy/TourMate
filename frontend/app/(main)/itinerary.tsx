@@ -15,6 +15,7 @@ import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
 
+
 const { width } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 

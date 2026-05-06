@@ -16,6 +16,8 @@ type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 const { width } = Dimensions.get('window');
 
+
+
 // ── Airport codes per city ────────────────────────────────────────────
 const CITY_AIRPORTS: Record<string, { code: string; name: string }> = {
   'Hurghada':        { code: 'HRG', name: 'Hurghada International' },
@@ -191,6 +193,7 @@ interface BookedFlightDetails {
   departureTime: string;
   arrivalTime: string;
   price: string;
+  bookingUrl: string;
 }
 
 interface BookedHotelDetails {
@@ -198,6 +201,7 @@ interface BookedHotelDetails {
   checkIn: string;
   checkOut: string;
   pricePerNight: string;
+  bookingUrl: string;
 }
 
 // ── Stars component ───────────────────────────────────────────────────
@@ -232,12 +236,13 @@ export default function CityIntroScreen() {
   const [hotelBooked, setHotelBooked] = useState<boolean | null>(null);
 
   // Booked detail forms
-  const [flightDetails, setFlightDetails] = useState<BookedFlightDetails>({
-    airline: '', flightNumber: '', departureTime: '', arrivalTime: '', price: '',
-  });
-  const [hotelDetails, setHotelDetails] = useState<BookedHotelDetails>({
-    name: '', checkIn: formatDate(params.startDate), checkOut: formatDate(params.endDate), pricePerNight: '',
-  });
+const [flightDetails, setFlightDetails] = useState<BookedFlightDetails>({
+  airline: '', flightNumber: '', departureTime: '', arrivalTime: '', price: '', bookingUrl: '',
+});
+
+const [hotelDetails, setHotelDetails] = useState<BookedHotelDetails>({
+  name: '', checkIn: formatDate(params.startDate), checkOut: formatDate(params.endDate), pricePerNight: '', bookingUrl: '',
+});
 
   // Which platform was tapped (for highlight)
   const [selectedFlightPlatform, setSelectedFlightPlatform] = useState<string | null>(null);
@@ -288,6 +293,7 @@ export default function CityIntroScreen() {
         duration: '',
         class: 'Economy',
         price: parseFloat(flightDetails.price) || 0,
+        bookingUrl: flightDetails.bookingUrl,
       });
     }
     if (hotelBooked && hotelDetailsComplete) {
@@ -299,6 +305,7 @@ export default function CityIntroScreen() {
         price_per_night: parseFloat(hotelDetails.pricePerNight) || 0,
         image_url: '',
         rating: 4.5,
+        bookingUrl: hotelDetails.bookingUrl,
       });
     }
     router.back();
@@ -521,6 +528,17 @@ export default function CityIntroScreen() {
                       onChangeText={v => setFlightDetails(p => ({ ...p, price: v }))}
                     />
                   </View>
+                  <View style={styles.inputGroup}>
+  <Text style={styles.inputLabel}>Booking URL</Text>
+  <TextInput
+    style={styles.input}
+    placeholder="e.g. https://www.booking.com/..."
+    value={flightDetails.bookingUrl}
+    onChangeText={v => setFlightDetails(p => ({ ...p, bookingUrl: v }))}
+    autoCapitalize="none"
+    keyboardType="url"
+  />
+</View>
 
                   {flightDetailsComplete && (
                     <View style={styles.confirmedBadge}>
@@ -681,6 +699,18 @@ export default function CityIntroScreen() {
                       onChangeText={v => setHotelDetails(p => ({ ...p, pricePerNight: v }))}
                     />
                   </View>
+
+                  <View style={styles.inputGroup}>
+  <Text style={styles.inputLabel}>Booking URL</Text>
+  <TextInput
+    style={styles.input}
+    placeholder="e.g. https://www.booking.com/..."
+    value={hotelDetails.bookingUrl}
+    onChangeText={v => setHotelDetails(p => ({ ...p, bookingUrl: v }))}
+    autoCapitalize="none"
+    keyboardType="url"
+  />
+</View>
 
                   {hotelDetailsComplete && (
                     <View style={styles.confirmedBadge}>
