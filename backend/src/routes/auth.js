@@ -198,19 +198,22 @@ router.get('/user/:id', async (req, res) => {
 router.get('/user/:id/features', async (req, res) => {
   try {
     const { id } = req.params;
-    await ensureFeatureFlagsTable();
+    // await ensureFeatureFlagsTable();
+    // const result = await pool.query(
+    //   `SELECT voice_chat_enabled
+    //    FROM user_feature_flags
+    //    WHERE user_id = $1`,
+    //   [id]
+    // );
     const result = await pool.query(
       `SELECT voice_chat_enabled
-       FROM user_feature_flags
-       WHERE user_id = $1`,
+       FROM users
+       WHERE id = $1`,
       [id]
     );
-    res.json({
-      success: true,
-      data: {
-        voice_chat_enabled: result.rows[0]?.voice_chat_enabled ?? false,
-      },
-    });
+    if (!result.rows[0])
+       return res.status(404).json({ success: false });
+    res.json({ success: true, data: { voice_chat_enabled: result.rows[0].voice_chat_enabled } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -408,20 +411,41 @@ router.put('/admin/users/:id/voice-access', async (req, res) => {
     if (typeof enabled !== 'boolean') {
       return res.status(400).json({ success: false, message: 'enabled must be boolean' });
     }
-    await ensureFeatureFlagsTable();
+    // await ensureFeatureFlagsTable();
+    // await pool.query(
+    //   `INSERT INTO user_feature_flags (user_id, voice_chat_enabled, updated_at)
+    //    VALUES ($1, $2, CURRENT_TIMESTAMP)
+    //    ON CONFLICT (user_id) DO UPDATE
+    //    SET voice_chat_enabled = EXCLUDED.voice_chat_enabled,
+    //        updated_at = CURRENT_TIMESTAMP`,
+    //   [id, enabled]
+    // );
     await pool.query(
-      `INSERT INTO user_feature_flags (user_id, voice_chat_enabled, updated_at)
-       VALUES ($1, $2, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) DO UPDATE
-       SET voice_chat_enabled = EXCLUDED.voice_chat_enabled,
-           updated_at = CURRENT_TIMESTAMP`,
-      [id, enabled]
+      'update users set voice_chat_enabled = $1 where id = $2',
+      [enabled, id]
     );
     res.json({ success: true, message: `Voice access ${enabled ? 'enabled' : 'disabled'}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
+});
+
+// POST /api/auth/user/:id/unlock-voice
+router.post('/user/:id/unlock-voice', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    'SELECT points, voice_chat_enabled FROM users WHERE id = $1', [id]
+  );
+  const user = result.rows[0];
+  if (!user) return res.status(404).json({ success: false });
+  if (user.voice_chat_enabled) 
+    return res.json({ success: true, message: 'Already unlocked' });
+  if (user.points < 500)
+    return res.status(403).json({ success: false, message: 'Need 500 points to unlock voice' });
+
+  await pool.query('UPDATE users SET voice_chat_enabled = TRUE WHERE id = $1', [id]);
+  res.json({ success: true, message: 'Voice chat unlocked!' });
 });
 
 export default router;

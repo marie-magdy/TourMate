@@ -432,10 +432,14 @@ export default function SettingsScreen() {
       {
         text: 'Logout', style: 'destructive',
         onPress: async () => {
-          await AsyncStorage.removeItem('token');
-          await AsyncStorage.removeItem('user');
-          router.replace('/(auth)/login' as any);
-        },
+          try {
+            await AsyncStorage.multiRemove(['token', 'user']);
+            setUser(null);
+            router.replace('/(auth)/login');
+          } catch (e) {
+            Alert.alert('Error', 'Logout failed. Please try again.');
+          }
+        }
       },
     ]);
   };
