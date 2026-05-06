@@ -1,5 +1,5 @@
 // app/(auth)/login.tsx
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,7 +18,7 @@ WebBrowser.maybeCompleteAuthSession();
 const GOOGLE_WEB_ID = '1091318160461-6gaei76c5f9c7ktsm0crab5le3um6nt7.apps.googleusercontent.com';
 
 export default function Login() {
-  const { setUser } = useApp();
+  const { setUser, refreshFeatures } = useApp();
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -81,6 +81,8 @@ export default function Login() {
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
       await setUser(data.user);
 
+      await refreshFeatures(data.user.id);
+
       router.replace('/(main)/home' as any);
     } catch (err) {
       console.error('Google login error:', err);
@@ -120,7 +122,6 @@ export default function Login() {
       const data = await res.json();
 
       if (!res.ok) {
-        // ✅ server errors show inline instead of Alert
         setErrors(prev => ({ ...prev, general: data.error ?? 'Invalid credentials.' }));
         return;
       }
@@ -128,6 +129,8 @@ export default function Login() {
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
       await setUser(data.user);
+
+      await refreshFeatures(data.user.id);
 
       if (data.user.role === 'admin') {
         router.replace('/(admin)/dashboard' as any);

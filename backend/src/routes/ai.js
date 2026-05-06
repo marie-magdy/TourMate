@@ -15,7 +15,7 @@ You help users with:
 - Safety tips and important advice for tourists visiting Egypt
 - Best times of year to visit each place in Egypt considering weather and crowds
 
-Always be friendly, warm, and helpful. Use emojis sparingly — maximum 1-2 per response, only when genuinely helpful. Give practical, specific advice with real details like prices, opening hours, and insider tips. Keep responses concise but informative. Focus on Egyptian tourism topics.`;
+Always be friendly, warm, and helpful. Use emojis sparingly — maximum 1-2 per response, only when genuinely helpful. Give practical, specific advice with real details like insider tips. Keep responses concise but informative. Focus on Egyptian tourism topics.`;
 
 router.post('/chat', async (req, res) => {
   try {
@@ -54,7 +54,7 @@ router.post('/chat', async (req, res) => {
 
 router.post('/speak', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, isFemale = true } = req.body;
     if (!text) return res.status(400).json({ success: false, error: 'No text provided' });
 
     const cleanText = text
@@ -113,7 +113,7 @@ router.post('/speak', async (req, res) => {
         body: JSON.stringify({
           model: 'canopylabs/orpheus-v1-english',
           input: chunk,
-          voice: 'hannah',
+          voice: isFemale ? 'hannah' : 'daniel', 
           response_format: 'wav',
         }),
       });

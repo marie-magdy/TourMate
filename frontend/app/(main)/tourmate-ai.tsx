@@ -19,7 +19,7 @@ import { API_BASE } from '../../constants/api';
 
 const { width } = Dimensions.get('window');
 const API_KEY  = process.env.EXPO_PUBLIC_API_KEY ?? '';
-const PREMIUM_POINTS_REQUIRED = 500;
+const PREMIUM_POINTS_REQUIRED = 200;
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Message {
@@ -48,6 +48,12 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
   const [paused, setPaused] = useState(false);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const soundRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
 
   const handleSpeak = async () => {
     if (paused && soundRef.current) {
@@ -144,7 +150,7 @@ const TourMateAvatar: React.FC<{
 
   const skinColor  = isFemale ? '#FADADD' : '#F5CBA7';
   const skinDark   = isFemale ? '#F0B8BE' : '#E8A87C';
-  const hairColor  = isFemale ? '#8B4513' : '#1C1C1C';
+  const hairColor  = isFemale ? '#8B4513' : '#501a04';
   const shirtColor = isFemale ? '#C0392B' : '#2471A3';
 
   // Blink every 3.5s
@@ -203,14 +209,22 @@ const TourMateAvatar: React.FC<{
   return (
     <Animated.View style={{ transform: [{ translateY: bobAnim }], alignItems: 'center' }}>
       <Svg width={160} height={200} viewBox="0 0 160 200">
-        <Ellipse cx="80" cy="30" rx="58" ry="10" fill="#8B6914" />
-        <Rect x="38" y="4" width="84" height="28" rx="6" fill="#C49A22" />
-        <Rect x="38" y="24" width="84" height="7" fill="#7B5200" />
-        <Path d="M44 8 Q60 5 76 8" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none" strokeLinecap="round" />
+        {/* Brim - wider and higher */}
+        <Ellipse cx="80" cy="44" rx="62" ry="11" fill="#8B6914" />
+
+        {/* Hat body */}
+        <Rect x="36" y="18" width="88" height="28" rx="6" fill="#C49A22" />
+
+        {/* Hat band */}
+        <Rect x="36" y="40" width="88" height="7" fill="#7B5200" />
+
+        {/* Hat highlight */}
+        <Path d="M42 22 Q60 19 76 22" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none" strokeLinecap="round" />
         <Rect x="66" y="148" width="28" height="26" rx="8" fill={skinColor} />
         <Path d="M10 198 Q30 162 66 154 L94 154 Q120 162 150 198 Z" fill={shirtColor} />
         <Path d="M72 154 L80 172 L88 154" fill="rgba(255,255,255,0.3)" />
         <Ellipse cx="80" cy="100" rx="50" ry="55" fill={skinColor} />
+        {/* //hair  */}
         {isFemale && (
           <>
             <Path d="M30 90 Q20 130 28 160 Q40 145 42 118" fill={hairColor} />
@@ -218,11 +232,12 @@ const TourMateAvatar: React.FC<{
           </>
         )}
         {isFemale
-          ? <Path d="M30 85 Q32 38 80 34 Q128 38 130 85 Q115 55 80 52 Q45 55 30 85 Z" fill={hairColor} />
-          : <Path d="M30 88 Q32 42 80 40 Q128 42 130 88 Q115 62 80 60 Q45 62 30 88 Z" fill={hairColor} />
+          ? <Path d="M30 85 Q32 48 80 46 Q128 48 130 85 Q115 60 80 58 Q45 60 30 85 Z" fill={hairColor} />
+          : <Path d="M30 88 Q32 52 80 45 Q128 52 130 88 Q115 66 80 64 Q45 66 30 85 Z" fill={hairColor} />
         }
+        {/* ears */}
         <Ellipse cx="30" cy="104" rx="8" ry="10" fill={skinDark} />
-        <Ellipse cx="130" cy="104" rx="8" ry="10" fill={skinDark} />
+      <Ellipse cx="130" cy="104" rx="8" ry="10" fill={skinDark} />
         <Ellipse cx="60" cy="98" rx="12" ry="11" fill="#FFF" />
         <Ellipse cx="100" cy="98" rx="12" ry="11" fill="#FFF" />
         <Animated.View style={{ position: 'absolute', left: 44, top: 83, transform: [{ scaleY: blinkAnim }] }}>
@@ -421,7 +436,7 @@ const VoiceModeOverlay: React.FC<{
 // ── Main Screen ───────────────────────────────────────────────────────
 export default function TourMateAIScreen() {
   const router = useRouter();
-  const { t, userId } = useApp();
+  const { t, userId, voiceChatEnabled, refreshFeatures } = useApp();
   const scrollRef = useRef<ScrollView>(null);
 
   const [messages, setMessages] = useState<Message[]>([{
@@ -440,7 +455,7 @@ export default function TourMateAIScreen() {
   const [loadingPoints, setLoadingPoints]           = useState(false);
   const activeSoundRef = useRef<any>(null);
 
-  const premiumUnlocked = (points ?? 0) >= PREMIUM_POINTS_REQUIRED;
+  const premiumUnlocked = (points ?? 0) >= PREMIUM_POINTS_REQUIRED || voiceChatEnabled;
 
   // ── Points ────────────────────────────────────────────────────────
   const loadPoints = async () => {
@@ -455,7 +470,11 @@ export default function TourMateAIScreen() {
   };
 
   useEffect(() => { loadPoints(); }, [userId]);
-  useFocusEffect(React.useCallback(() => { loadPoints(); }, [userId]));
+  useFocusEffect(React.useCallback(() => { 
+    loadPoints(); 
+    refreshFeatures(); // re-check voice flag every time screen opens
+  }, [userId]));
+
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [messages]);
@@ -463,8 +482,13 @@ export default function TourMateAIScreen() {
   // ── Open voice mode (points-gated) ───────────────────────────────
   const handleOpenVoiceMode = async () => {
     await loadPoints();
+    await refreshFeatures(); //  get latest flag before checking
+
     const current = points ?? 0;
-    if (current >= PREMIUM_POINTS_REQUIRED) { setVoiceMode(true); return; }
+    const hasAccess = current >= PREMIUM_POINTS_REQUIRED || voiceChatEnabled;
+
+    if (hasAccess) { setVoiceMode(true); return; }
+
     const remaining = Math.max(0, PREMIUM_POINTS_REQUIRED - current);
     Alert.alert(
       '🔒 Voice Mode Locked',
@@ -477,7 +501,7 @@ export default function TourMateAIScreen() {
   };
 
   // ── Speak voice response (chunked audio) ─────────────────────────
-  const speakResponse = async (text: string) => {
+  const speakResponse = async (text: string, isFemale: boolean) => {
     setIsSpeakingResponse(true);
     try {
       await Audio.setAudioModeAsync({
@@ -488,7 +512,7 @@ export default function TourMateAIScreen() {
       const res = await fetch(`${API_BASE}/ai/speak`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text,isFemale }),
       });
       const data = await res.json();
       if (!data.success || !data.audioChunks?.length) throw new Error('TTS failed');
@@ -550,7 +574,7 @@ export default function TourMateAIScreen() {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, aiMessage]);
-        if (isVoice) await speakResponse(data.message);
+        if (isVoice) await speakResponse(data.message, isFemaleAvatar);
       } else {
         throw new Error(data.error ?? 'No response');
       }
@@ -559,7 +583,7 @@ export default function TourMateAIScreen() {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "I'm sorry, I couldn't process your request. Please make sure your backend is running and try again! 🙏",
+        content: "I'm sorry, I couldn't process your request. Please make sure your backend is running and try again!",
         timestamp: new Date(),
       }]);
     } finally {
@@ -664,14 +688,16 @@ export default function TourMateAIScreen() {
 
   // ── Close voice mode ──────────────────────────────────────────────
   const handleCloseVoice = async () => {
-    if (activeSoundRef.current) {
-      try { await activeSoundRef.current.stopAsync(); await activeSoundRef.current.unloadAsync(); } catch {}
-      activeSoundRef.current = null;
-    }
+    try {                                          // ← wrap in try/catch
+      if (activeSoundRef.current) {
+        await activeSoundRef.current.stopAsync();
+        await activeSoundRef.current.unloadAsync();
+        activeSoundRef.current = null;
+      }
+    } catch {}                                     // ← swallow any error silently
     setIsSpeakingResponse(false);
     setVoiceMode(false);
   };
-
   const lastAIMessage = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content ?? '';
 
   // ── Voice mode full-screen ────────────────────────────────────────
