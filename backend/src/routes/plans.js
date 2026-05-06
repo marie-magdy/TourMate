@@ -54,6 +54,65 @@ router.post('/', async (req, res) => {
   }
 });
 
+// GET /api/plans/item/:planId — one saved plan (open from "Saved plans" without regenerating)
+router.get('/item/:planId', async (req, res) => {
+  await ensureTable();
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      `SELECT id, user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary, created_at
+       FROM saved_plans WHERE id = $1`,
+      [planId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('[plans] get item error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// PUT /api/plans/item/:planId — update an existing saved plan (coach edits, date changes, etc.)
+router.put('/item/:planId', async (req, res) => {
+  await ensureTable();
+  try {
+    const { planId } = req.params;
+    const {
+      city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary,
+    } = req.body;
+    if (itinerary === undefined) {
+      return res.status(400).json({ success: false, message: 'itinerary is required' });
+    }
+    const result = await pool.query(
+      `UPDATE saved_plans SET
+        city = $1, start_date = $2, end_date = $3, budget = $4, day_hours = $5,
+        interests = $6::jsonb, spot_ids = $7::jsonb, itinerary = $8::jsonb
+      WHERE id = $9
+      RETURNING id, created_at`,
+      [
+        city ?? null,
+        start_date ?? null,
+        end_date ?? null,
+        budget ?? null,
+        typeof day_hours === 'string' ? day_hours : JSON.stringify(day_hours ?? []),
+        JSON.stringify(interests ?? []),
+        JSON.stringify(spot_ids ?? []),
+        JSON.stringify(itinerary),
+        planId,
+      ]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('[plans] update error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // GET /api/plans/:user_id  — list saved plans for a user
 router.get('/:user_id', async (req, res) => {
   await ensureTable();

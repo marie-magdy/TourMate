@@ -44,10 +44,9 @@ app.get('/', (req, res) => {
   res.json({ message: 'TourMate API is running' });
 });
 
-// 👇 replace your app.listen at the bottom with this
 async function start() {
   try {
-    await pool.query('SELECT 1'); // warms up DB connection
+    await pool.query('SELECT 1');
     console.log('✅ DB connected');
 
     app.listen(port, () => {
@@ -55,6 +54,13 @@ async function start() {
     });
   } catch (err) {
     console.error('❌ DB connection failed:', err);
+    const msg = String(err?.message || err);
+    if (msg.includes('EMAXCONNSESSION') || msg.includes('max clients reached')) {
+      console.error(`
+Neon "session" connection limit is full. Close other DB clients (Flask, SQL editor, extra terminals),
+or use Neon's pooled connection URL (host often contains "-pooler").
+`);
+    }
     process.exit(1);
   }
 }

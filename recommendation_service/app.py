@@ -1,3 +1,5 @@
+import math
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -6,29 +8,78 @@ from reccomender_v2 import (
     build_attraction_matrix, generate_itinerary_from_payload,
     load_attractions, split_budget_across_days,
 )
+from plan_coach_retime import retime_ordered_ids_for_coach
 
 app = Flask(__name__)
 CORS(app)
 
+# Lazy load: don't load attractions on startup to avoid connection saturation
+# They'll be loaded on first request
+df = None
+att_matrix = None
+
+def ensure_attractions_loaded():
+    """Load attractions on first request, not on startup."""
+    global df, att_matrix
+    if df is None or df.empty:
+        try:
+            df = load_attractions()
+            att_matrix = build_attraction_matrix(df)
+            print(f"[FLASK] Loaded {len(df)} attractions from PostgreSQL")
+            print(f"[FLASK] Cities: {df['city'].value_counts().to_dict()}")
+        except Exception as e:
+            print(f"[FLASK] ERROR loading attractions: {e}")
+            import traceback; traceback.print_exc()
+            import pandas as pd, numpy as np
+            df = pd.DataFrame()
+            att_matrix = np.zeros((0, 30))
+    return df, att_matrix
+
+# Test connection on startup (lightweight — just SELECT 1)
 try:
-    df = load_attractions()
-    att_matrix = build_attraction_matrix(df)
-    print(f"[FLASK] Loaded {len(df)} attractions from PostgreSQL")
-    print(f"[FLASK] Cities: {df['city'].value_counts().to_dict()}")
+    from reccomender_v2 import _get_pool
+    pool = _get_pool()
+    if pool:
+        conn = pool.getconn()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        pool.putconn(conn)
+        print("[FLASK] Database connection OK (attractions will load on first request)")
+    else:
+        print("[FLASK] WARNING: Could not test DB connection")
 except Exception as e:
-    print(f"[FLASK] STARTUP ERROR loading attractions: {e}")
-    import traceback; traceback.print_exc()
-    import pandas as pd, numpy as np
-    df = pd.DataFrame()
-    att_matrix = np.zeros((0, 30))
+    print(f"[FLASK] WARNING: DB connection test failed: {e}")
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
 @app.get("/attractions")
 def attractions():
+    global df
+    df, att_matrix = ensure_attractions_loaded()
+    
     city     = request.args.get("city", "").strip().lower()
     category = request.args.get("category", "").strip().lower()
+    try:
+        limit = int(request.args.get("limit", "50"))
+    except ValueError:
+        limit = 50
+    limit = max(1, min(limit, 150))
+    near_lat = request.args.get("near_lat", type=float)
+    near_lon = request.args.get("near_lon", type=float)
 
     print(f"[FLASK /attractions] city='{city}' category='{category}' total_rows={len(df)}")
+
+    if df.empty:
+        return jsonify({"success": False, "error": "No attractions loaded"}), 503
 
     filtered = df.copy()
     if city:
@@ -41,8 +92,24 @@ def attractions():
             )
         ]
 
+    if near_lat is not None and near_lon is not None and not filtered.empty:
+        def _near_key(row):
+            la, lo = row["latitude"], row["longitude"]
+            try:
+                if float(la) == 0 or float(lo) == 0:
+                    return 9e9
+                return _haversine_km(float(near_lat), float(near_lon), float(la), float(lo))
+            except Exception:
+                return 9e9
+
+        filtered = filtered.copy()
+        filtered["_near_km"] = filtered.apply(_near_key, axis=1)
+        filtered = filtered.sort_values(["_near_km", "avg_rating"], ascending=[True, False])
+    else:
+        filtered = filtered.sort_values("avg_rating", ascending=False)
+
     spots = []
-    for _, row in filtered.sort_values("avg_rating", ascending=False).head(50).iterrows():
+    for _, row in filtered.head(limit).iterrows():
         # Convert every value to a plain Python type so Flask's JSON encoder
         # doesn't choke on numpy.int64 / numpy.float64.
         lat = row["latitude"]
@@ -65,8 +132,67 @@ def attractions():
     return jsonify({"success": True, "data": spots}), 200
 
 
+@app.post("/coach/retime-day")
+def coach_retime_day():
+    """
+    Plan-coach only: retime a fixed ordered id list using the same OSRM transport
+    stack as the recommender (no scoring / knapsack changes).
+    """
+    global df
+    df, att_matrix = ensure_attractions_loaded()
+    
+    payload = request.get_json(silent=True) or {}
+    if df.empty:
+        return jsonify({"success": False, "error": "Attractions not loaded"}), 503
+
+    city = str(payload.get("city", "")).strip()
+    ordered_ids = [str(x) for x in (payload.get("ordered_ids") or [])]
+    if not city or not ordered_ids:
+        return jsonify({"success": False, "error": "city and ordered_ids are required"}), 400
+
+    start_hour = float(payload.get("start_hour", 9))
+    end_hour = float(payload.get("end_hour", 21))
+    cur_lat = payload.get("current_lat")
+    cur_lon = payload.get("current_lon")
+    try:
+        cur_lat = float(cur_lat) if cur_lat is not None else None
+        cur_lon = float(cur_lon) if cur_lon is not None else None
+    except (TypeError, ValueError):
+        cur_lat, cur_lon = None, None
+
+    is_foreigner = bool(payload.get("is_foreigner", False))
+    try:
+        budget_egp = float(payload.get("budget_egp")) if payload.get("budget_egp") is not None else None
+    except (TypeError, ValueError):
+        budget_egp = None
+
+    try:
+        result = retime_ordered_ids_for_coach(
+            df,
+            city=city,
+            ordered_ids=ordered_ids,
+            start_hour=start_hour,
+            end_hour=end_hour,
+            current_lat=cur_lat,
+            current_lon=cur_lon,
+            is_foreigner=is_foreigner,
+            budget_egp=budget_egp,
+        )
+        if not result.get("success"):
+            return jsonify(result), 400
+        return jsonify(result), 200
+    except Exception as exc:
+        import traceback
+        print("[FLASK /coach/retime-day] error:", exc)
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
 @app.get("/health")
 def health():
+    global df
+    df, att_matrix = ensure_attractions_loaded()
+    
     return jsonify({
         "status": "running",
         "data_source": "postgresql",
@@ -76,6 +202,9 @@ def health():
 
 @app.post("/itinerary")
 def itinerary():
+    global df, att_matrix
+    df, att_matrix = ensure_attractions_loaded()
+    
     payload = request.get_json(silent=True) or {}
 
     day_index = int(payload.get("day_index", 0) or 0)
@@ -118,6 +247,9 @@ def budget_split():
     giving genuinely non-uniform fractions even for same-city trips.
     Fallback: city-median price when no liked spots are available.
     """
+    global df
+    df, att_matrix = ensure_attractions_loaded()
+    
     payload     = request.get_json(silent=True) or {}
     daily_hours = payload.get("daily_hours", [])
     city        = str(payload.get("city", "")).strip().lower()

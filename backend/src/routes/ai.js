@@ -1,5 +1,6 @@
 // backend/src/routes/ai.js
 import express from 'express';
+import { runPlanCoach } from '../services/planCoach.js';
 
 const router = express.Router();
 
@@ -16,6 +17,63 @@ You help users with:
 - Best times of year to visit each place in Egypt considering weather and crowds
 
 Always be friendly, warm, and helpful. Use emojis sparingly — maximum 1-2 per response, only when genuinely helpful. Give practical, specific advice with real details like prices, opening hours, and insider tips. Keep responses concise but informative. Focus on Egyptian tourism topics.`;
+
+router.post('/plan-coach', async (req, res) => {
+  try {
+    const {
+      messages,
+      plan_days,
+      city,
+      interests,
+      day_schedules,
+      is_foreigner,
+      start_lat,
+      start_lon,
+      budget,
+      start_date,
+      existing_coach_extra_spend_egp,
+    } = req.body;
+
+    if (!Array.isArray(messages) || !messages.length) {
+      return res.status(400).json({ success: false, error: 'messages array required' });
+    }
+    if (!city || !Array.isArray(plan_days)) {
+      return res.status(400).json({ success: false, error: 'city and plan_days required' });
+    }
+
+    const result = await runPlanCoach({
+      messages,
+      plan_days,
+      city,
+      interests: Array.isArray(interests) ? interests : [],
+      day_schedules,
+      is_foreigner: Boolean(is_foreigner),
+      start_lat: start_lat != null ? Number(start_lat) : null,
+      start_lon: start_lon != null ? Number(start_lon) : null,
+      budget: budget != null ? Number(budget) : 0,
+      start_date: start_date != null ? String(start_date) : '',
+      existing_coach_extra_spend_egp:
+        existing_coach_extra_spend_egp != null ? Number(existing_coach_extra_spend_egp) : 0,
+    });
+
+    if (!result.success) {
+      return res.status(503).json({ success: false, error: result.error || 'Plan coach failed' });
+    }
+
+    res.json({
+      success: true,
+      reply: result.reply,
+      plan_days_preview: result.plan_days_preview,
+      optimization_warnings: result.optimization_warnings ?? [],
+      day_schedules_preview: result.day_schedules_preview ?? null,
+      end_date_preview: result.end_date_preview ?? null,
+      coach_extra_spend_total_preview: result.coach_extra_spend_total_preview ?? 0,
+    });
+  } catch (err) {
+    console.error('Plan coach route error:', err);
+    res.status(500).json({ success: false, error: 'Plan coach service error' });
+  }
+});
 
 router.post('/chat', async (req, res) => {
   try {
