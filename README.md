@@ -315,7 +315,7 @@ Runs on **port 5002**. Loads attraction data from PostgreSQL on startup and buil
 ```bash
 cd cv_service
 pip install -r requirements.txt
-python app.py
+py -3.9 app.py
 ```
 
 Runs on **port 5001**. Loads both TFLite models into memory on startup. Requires an `API_KEY` header on all recognition requests.
