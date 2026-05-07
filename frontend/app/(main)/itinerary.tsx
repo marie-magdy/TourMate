@@ -3,6 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { startTrackingPlan, stopTrackingPlan } from '../../utils/planNotifications';
+import { storeActivePlanForBackground, clearActivePlanFromBackground } from '../../utils/planNotificationsBackground';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
@@ -322,6 +324,7 @@ export default function ItineraryScreen() {
   const [locationLabel, setLocationLabel] = useState(params.startLabel ?? 'Your Location');
   const [locationInput, setLocationInput] = useState('');
   const [locationSearching, setLocationSearching] = useState(false);
+  const [planTrackingId, setPlanTrackingId] = useState<string>('');
 
   // Load userId from AsyncStorage on mount
   useEffect(() => {
@@ -377,6 +380,46 @@ export default function ItineraryScreen() {
       generatePlan();
     })();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!days.length) return;
+
+    const activities = days[activeDay]?.activities ?? [];
+    if (!activities.length) return;
+
+    const planDate = new Date(startDate);
+    planDate.setDate(planDate.getDate() + activeDay);
+    const planId = `${city}-${startDate}-${activeDay}`;
+
+    const plan = {
+      id: planId,
+      userId: userId?.toString() ?? '1',
+      startDate: planDate,
+      activities: activities.map(activity => ({
+        id: activity.id,
+        name: activity.title,
+        type: activity.category ?? 'Attraction',
+        time: activity.time,
+        duration_hrs: activity.duration_hrs ?? 0.5,
+      })),
+    };
+
+    stopTrackingPlan();
+    startTrackingPlan(plan);
+    storeActivePlanForBackground({
+      id: plan.id,
+      userId: plan.userId,
+      startDate: planDate.toISOString(),
+      activities: plan.activities,
+    });
+    setPlanTrackingId(planId);
+
+    return () => {
+      stopTrackingPlan();
+      clearActivePlanFromBackground(planId).catch(() => {});
+    };
+  }, [loading, days, activeDay, startDate, city, userId]);
 
   // Convert one day's API stops → Activity[]
   const stopsToActivities = (stops: RecommendationStop[]): Activity[] => {

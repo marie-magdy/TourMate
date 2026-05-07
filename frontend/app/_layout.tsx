@@ -1,9 +1,17 @@
 // app/_layout.tsx
+import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../constants/AppContext";
+import { configurePlanNotifications } from "../utils/planNotifications";
+import { registerPlanNotificationsBackgroundTask } from "../utils/planNotificationsBackground";
 
 export default function RootLayout() {
+  useEffect(() => {
+    configurePlanNotifications();
+    registerPlanNotificationsBackgroundTask().catch((err) => console.warn('Plan notification background task failed:', err));
+  }, []);
+
   return (
     <SafeAreaProvider>
     <AppProvider>
