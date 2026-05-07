@@ -281,35 +281,37 @@ const [hotelDetails, setHotelDetails] = useState<BookedHotelDetails>({
     flightDetails.airline.trim() && flightDetails.flightNumber.trim();
   const hotelDetailsComplete = hotelDetails.name.trim();
 
-  const handleConfirm = () => {
-    if (flightBooked && flightDetailsComplete) {
-      useBookingStore.getState().setSelectedFlight({
-        airline: flightDetails.airline,
-        flightNumber: flightDetails.flightNumber,
-        departure: selectedDeparture.code,
-        arrival: toCode,
-        departureTime: flightDetails.departureTime,
-        arrivalTime: flightDetails.arrivalTime,
-        duration: '',
-        class: 'Economy',
-        price: parseFloat(flightDetails.price) || 0,
-        bookingUrl: flightDetails.bookingUrl,
-      });
-    }
-    if (hotelBooked && hotelDetailsComplete) {
-      useBookingStore.getState().setSelectedHotel({
-        id: Date.now(),
-        name: hotelDetails.name,
-        city,
-        stars: 4,
-        price_per_night: parseFloat(hotelDetails.pricePerNight) || 0,
-        image_url: '',
-        rating: 4.5,
-        bookingUrl: hotelDetails.bookingUrl,
-      });
-    }
-    router.back();
-  };
+const handleConfirm = () => {
+  if (flightBooked && flightDetailsComplete) {
+    useBookingStore.getState().setSelectedFlight({
+      airline: flightDetails.airline,
+      flightNumber: flightDetails.flightNumber,
+      departure: selectedDeparture.code,
+      arrival: toCode,
+      departureTime: flightDetails.departureTime,
+      arrivalTime: flightDetails.arrivalTime,
+      duration: '',
+      class: 'Economy',
+      price: parseFloat(flightDetails.price) || 0,
+      bookingUrl: flightDetails.bookingUrl,
+    });
+  }
+  if (hotelBooked && hotelDetailsComplete) {
+    useBookingStore.getState().setSelectedHotel({
+      id: Date.now(),
+      name: hotelDetails.name,
+      city,
+      stars: 4,
+      price_per_night: parseFloat(hotelDetails.pricePerNight) || 0,
+      image_url: '',
+      rating: 4.5,
+      bookingUrl: hotelDetails.bookingUrl,
+      checkIn: hotelDetails.checkIn,
+      checkOut: hotelDetails.checkOut,
+    });
+  }
+  router.back();
+};
 
   const changeDeparture = (dep: typeof DEPARTURE_CITIES[0]) => {
     setSelectedDeparture(dep);

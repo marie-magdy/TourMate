@@ -7,7 +7,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
   Alert, Dimensions, KeyboardAvoidingView, Platform, Keyboard,
-  FlatList, Pressable,
+  FlatList, Pressable,Linking
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
@@ -15,6 +15,7 @@ import { Attraction } from '../../constants/types';
 import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
+import { useBookingStore, Hotel, Flight } from '@/store/bookingStore';
 
 
 const { height: screenHeight } = Dimensions.get('window');
@@ -310,6 +311,14 @@ export default function ItineraryScreen() {
   }>();
   const existingPlanId = params.planId ? String(params.planId) : undefined;
 
+  const {
+  selectedHotel,
+  selectedFlight,
+  setSelectedHotel,
+  setSelectedFlight,
+} = useBookingStore();
+
+
   const city = params.city ?? 'Hurghada';
   const [fetchedInterests, setFetchedInterests] = useState<string[] | null>(null);
   const [fetchedSpotIds, setFetchedSpotIds] = useState<number[] | null>(null);
@@ -370,6 +379,45 @@ export default function ItineraryScreen() {
   const [showAttractionSheet, setShowAttractionSheet] = useState(false);
   const [sheetLoading, setSheetLoading]         = useState(false);
   const [userLocation, setUserLocation]         = useState<{ latitude: number; longitude: number } | null>(null);
+
+// ── State ──────────────────────────────────────────────────────────
+const [flightExpanded, setFlightExpanded] = useState(false);
+const [hotelExpanded, setHotelExpanded] = useState(false);
+const [editingFlight, setEditingFlight] = useState(false);
+const [editingHotel, setEditingHotel] = useState(false);
+const [flightForm, setFlightForm] = useState({
+  airline: '', flightNumber: '', departureTime: '',
+  arrivalTime: '', price: '', bookingUrl: '',
+});
+const [hotelForm, setHotelForm] = useState({
+  name: '', checkIn: '', checkOut: '', pricePerNight: '', bookingUrl: '',
+});
+
+// ── Read store ONCE on mount ────────────────────────────────────────
+useEffect(() => {
+  const f = useBookingStore.getState().selectedFlight;
+  const h = useBookingStore.getState().selectedHotel;
+  if (f) setFlightForm({
+    airline: f.airline ?? '',
+    flightNumber: f.flightNumber ?? '',
+    departureTime: f.departureTime ?? '',
+    arrivalTime: f.arrivalTime ?? '',
+    price: String(f.price ?? ''),
+    bookingUrl: f.bookingUrl ?? '',
+  });
+  if (h) setHotelForm({
+    name: h.name ?? '',
+    checkIn: h.checkIn ?? '',
+    checkOut: h.checkOut ?? '',
+    pricePerNight: String(h.price_per_night ?? ''),
+    bookingUrl: h.bookingUrl ?? '',
+  });
+
+  // Clean up store when leaving so it doesn't bleed into other plans
+  return () => {
+    useBookingStore.setState({ selectedFlight: null, selectedHotel: null });
+  };
+}, []);
 
   // Capture userLocation once for "Get There"
   useEffect(() => {
@@ -463,6 +511,20 @@ export default function ItineraryScreen() {
               setDays(parsedIt as DayPlan[]);
               setServerPlanId(String(row.id));
               setPlanSaved(true);
+                // ← Add this block here
+if (row.flight_details) {
+  const fd = typeof row.flight_details === 'string'
+    ? JSON.parse(row.flight_details)
+    : row.flight_details;
+  useBookingStore.getState().setSelectedFlight(fd);
+}
+if (row.hotel_details) {
+  const hd = typeof row.hotel_details === 'string'
+    ? JSON.parse(row.hotel_details)
+    : row.hotel_details;
+  useBookingStore.getState().setSelectedHotel(hd);
+}
+
               if (row.interests != null) {
                 const fi = Array.isArray(row.interests)
                   ? row.interests.map(String)
@@ -1015,58 +1077,65 @@ export default function ItineraryScreen() {
   }, [planCoachMessages, showAIChat]);
 
   // ── Save / update plan on server (POST new or PUT when plan already exists) ──
-  const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string | undefined> => {
-    const targetId = serverPlanId ?? existingPlanId;
-    const itineraryPayload = itineraryOverride ?? days;
-    const payload = {
-      city,
-      start_date: startDate.toString().split('T')[0],
-      end_date: effectiveEndDate,
-      budget: params.budget,
-      day_hours: JSON.stringify(effectiveDaySchedules),
-      interests,
-      spot_ids: spotIdsForApi,
-      itinerary: itineraryPayload,
-      user_id: userId ?? 1,
-    };
-    try {
-      if (targetId) {
-        const res = await fetch(`${API_BASE}/plans/item/${targetId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const contentType = res.headers.get('content-type') ?? '';
-        if (!contentType.includes('application/json')) {
-          const t = await res.text();
-          throw new Error(`Unexpected response (${res.status}): ${t.slice(0, 120)}`);
-        }
-        const data = await res.json();
-        if (data.success) return String(targetId);
-        throw new Error(data.message);
-      }
-      const res = await fetch(`${API_BASE}/plans`, {
-        method: 'POST',
+const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string | undefined> => {
+  const targetId = serverPlanId ?? existingPlanId;
+  const itineraryPayload = itineraryOverride ?? days;
+  const selectedFlight = useBookingStore.getState().selectedFlight;
+  const selectedHotel = useBookingStore.getState().selectedHotel;
+
+  const payload = {
+    city,
+    start_date: startDate.toString().split('T')[0],
+    end_date: effectiveEndDate,
+    budget: params.budget,
+    day_hours: JSON.stringify(effectiveDaySchedules),
+    interests,
+    spot_ids: spotIdsForApi,
+    itinerary: itineraryPayload,
+    user_id: userId ?? 1,
+    flight_details: selectedFlight ?? null,
+    hotel_details: selectedHotel ?? null,
+  };
+
+  try {
+    if (targetId) {
+      const res = await fetch(`${API_BASE}/plans/item/${targetId}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Unexpected response (${res.status}): ${text.slice(0, 120)}`);
+        const t = await res.text();
+        throw new Error(`Unexpected response (${res.status}): ${t.slice(0, 120)}`);
       }
       const data = await res.json();
-      if (data.success && data.data?.id) {
-        const nid = String(data.data.id);
-        setServerPlanId(nid);
-        return nid;
-      }
+      if (data.success) return String(targetId);
       throw new Error(data.message);
-    } catch (err) {
-      console.error('Save plan error:', err);
-      return undefined;
     }
-  };
+
+    const res = await fetch(`${API_BASE}/plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      throw new Error(`Unexpected response (${res.status}): ${text.slice(0, 120)}`);
+    }
+    const data = await res.json();
+    if (data.success && data.data?.id) {
+      const nid = String(data.data.id);
+      setServerPlanId(nid);
+      return nid;
+    }
+    throw new Error(data.message);
+  } catch (err) {
+    console.error('Save plan error:', err);
+    return undefined;
+  }
+};
 
   const savePlan = async (): Promise<void> => {
     if (planSaving) return;
@@ -1259,7 +1328,376 @@ export default function ItineraryScreen() {
             </View>
           );
         })()}
+{/* ── Booking Details ── */}
+<View style={bookingStyles.container}>
 
+  {/* ── FLIGHT CARD ── */}
+  <TouchableOpacity
+    style={bookingStyles.dropdownHeader}
+    onPress={() => setFlightExpanded(p => !p)}
+    activeOpacity={0.8}
+  >
+    <View style={bookingStyles.dropdownLeft}>
+      <MaterialCommunityIcons name="airplane" size={18} color="#E67E22" />
+      <Text style={bookingStyles.dropdownTitle}>Flight Details</Text>
+      {selectedFlight && !flightExpanded && (
+        <View style={bookingStyles.filledBadge}>
+          <Text style={bookingStyles.filledBadgeText}>✓ Saved</Text>
+        </View>
+      )}
+    </View>
+    <MaterialCommunityIcons
+      name={flightExpanded ? 'chevron-up' : 'chevron-down'}
+      size={20}
+      color="#999"
+    />
+  </TouchableOpacity>
+
+  {flightExpanded && (
+    <View style={bookingStyles.dropdownBody}>
+      {selectedFlight && !editingFlight ? (
+        // ── Display mode ──
+        <View>
+          <View style={bookingStyles.detailRow}>
+            <Text style={bookingStyles.detailLabel}>Airline</Text>
+            <Text style={bookingStyles.detailValue}>{selectedFlight.airline}</Text>
+          </View>
+          <View style={bookingStyles.detailRow}>
+            <Text style={bookingStyles.detailLabel}>Flight No.</Text>
+            <Text style={bookingStyles.detailValue}>{selectedFlight.flightNumber}</Text>
+          </View>
+          {!!selectedFlight.departureTime && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Departure</Text>
+              <Text style={bookingStyles.detailValue}>{selectedFlight.departureTime}</Text>
+            </View>
+          )}
+          {!!selectedFlight.arrivalTime && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Arrival</Text>
+              <Text style={bookingStyles.detailValue}>{selectedFlight.arrivalTime}</Text>
+            </View>
+          )}
+          {!!selectedFlight.price && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Price</Text>
+              <Text style={bookingStyles.detailValue}>{selectedFlight.price} EGP</Text>
+            </View>
+          )}
+          {!!selectedFlight.bookingUrl && (
+            <TouchableOpacity
+              style={bookingStyles.linkRow}
+              onPress={() => Linking.openURL(selectedFlight.bookingUrl!)}
+            >
+              <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
+              <Text style={bookingStyles.linkText} numberOfLines={1}>
+                {selectedFlight.bookingUrl}
+              </Text>
+              <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={bookingStyles.editBtn}
+            onPress={() => {
+              setFlightForm({
+                airline: selectedFlight.airline ?? '',
+                flightNumber: selectedFlight.flightNumber ?? '',
+                departureTime: selectedFlight.departureTime ?? '',
+                arrivalTime: selectedFlight.arrivalTime ?? '',
+                price: String(selectedFlight.price ?? ''),
+                bookingUrl: selectedFlight.bookingUrl ?? '',
+              });
+              setEditingFlight(true);
+            }}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
+            <Text style={bookingStyles.editBtnText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        // ── Edit / Empty form ──
+        <View>
+          <View style={bookingStyles.inputRow}>
+            <View style={[bookingStyles.inputGroup, { flex: 1.5 }]}>
+              <Text style={bookingStyles.inputLabel}>Airline *</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="e.g. EgyptAir"
+                value={flightForm.airline}
+                onChangeText={v => setFlightForm(p => ({ ...p, airline: v }))}
+              />
+            </View>
+            <View style={[bookingStyles.inputGroup, { flex: 1 }]}>
+              <Text style={bookingStyles.inputLabel}>Flight No. *</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="e.g. MS302"
+                value={flightForm.flightNumber}
+                onChangeText={v => setFlightForm(p => ({ ...p, flightNumber: v }))}
+              />
+            </View>
+          </View>
+
+          <View style={bookingStyles.inputRow}>
+            <View style={bookingStyles.inputGroup}>
+              <Text style={bookingStyles.inputLabel}>Departure Time</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="e.g. 08:00 AM"
+                value={flightForm.departureTime}
+                onChangeText={v => setFlightForm(p => ({ ...p, departureTime: v }))}
+              />
+            </View>
+            <View style={bookingStyles.inputGroup}>
+              <Text style={bookingStyles.inputLabel}>Arrival Time</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="e.g. 10:30 AM"
+                value={flightForm.arrivalTime}
+                onChangeText={v => setFlightForm(p => ({ ...p, arrivalTime: v }))}
+              />
+            </View>
+          </View>
+
+          <View style={bookingStyles.inputGroup}>
+            <Text style={bookingStyles.inputLabel}>Total Price (EGP)</Text>
+            <TextInput
+              style={bookingStyles.input}
+              placeholder="e.g. 12000"
+              keyboardType="numeric"
+              value={flightForm.price}
+              onChangeText={v => setFlightForm(p => ({ ...p, price: v }))}
+            />
+          </View>
+
+          <View style={bookingStyles.inputGroup}>
+            <Text style={bookingStyles.inputLabel}>Booking URL</Text>
+            <TextInput
+              style={bookingStyles.input}
+              placeholder="e.g. https://www.google.com/flights/..."
+              value={flightForm.bookingUrl}
+              onChangeText={v => setFlightForm(p => ({ ...p, bookingUrl: v }))}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </View>
+
+          <View style={bookingStyles.formActions}>
+            <TouchableOpacity
+              style={bookingStyles.saveFormBtn}
+              onPress={async () => {
+                const updatedFlight: Flight = {
+                  airline: flightForm.airline,
+                  flightNumber: flightForm.flightNumber,
+                  departure: '',
+                  arrival: '',
+                  departureTime: flightForm.departureTime,
+                  arrivalTime: flightForm.arrivalTime,
+                  duration: '',
+                  class: 'Economy',
+                  price: parseFloat(flightForm.price) || 0,
+                  bookingUrl: flightForm.bookingUrl,
+                };
+                setEditingFlight(false);
+                setSelectedFlight(updatedFlight);
+                await upsertPlanToServer();
+              }}
+              disabled={!flightForm.airline.trim() || !flightForm.flightNumber.trim()}
+            >
+              <Text style={bookingStyles.saveFormBtnText}>Save Flight</Text>
+            </TouchableOpacity>
+            {selectedFlight && (
+              <TouchableOpacity
+                style={bookingStyles.cancelBtn}
+                onPress={() => setEditingFlight(false)}
+              >
+                <Text style={bookingStyles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  )}
+
+  <View style={bookingStyles.divider} />
+
+  {/* ── HOTEL CARD ── */}
+  <TouchableOpacity
+    style={bookingStyles.dropdownHeader}
+    onPress={() => setHotelExpanded(p => !p)}
+    activeOpacity={0.8}
+  >
+    <View style={bookingStyles.dropdownLeft}>
+      <MaterialCommunityIcons name="bed" size={18} color="#E67E22" />
+      <Text style={bookingStyles.dropdownTitle}>Hotel Details</Text>
+      {selectedHotel && !hotelExpanded && (
+        <View style={bookingStyles.filledBadge}>
+          <Text style={bookingStyles.filledBadgeText}>✓ Saved</Text>
+        </View>
+      )}
+    </View>
+    <MaterialCommunityIcons
+      name={hotelExpanded ? 'chevron-up' : 'chevron-down'}
+      size={20}
+      color="#999"
+    />
+  </TouchableOpacity>
+
+  {hotelExpanded && (
+    <View style={bookingStyles.dropdownBody}>
+      {selectedHotel && !editingHotel ? (
+        // ── Display mode ──
+        <View>
+          <View style={bookingStyles.detailRow}>
+            <Text style={bookingStyles.detailLabel}>Hotel</Text>
+            <Text style={bookingStyles.detailValue}>{selectedHotel.name}</Text>
+          </View>
+          {!!selectedHotel.checkIn && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Check-in</Text>
+              <Text style={bookingStyles.detailValue}>{selectedHotel.checkIn}</Text>
+            </View>
+          )}
+          {!!selectedHotel.checkOut && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Check-out</Text>
+              <Text style={bookingStyles.detailValue}>{selectedHotel.checkOut}</Text>
+            </View>
+          )}
+          {!!selectedHotel.price_per_night && (
+            <View style={bookingStyles.detailRow}>
+              <Text style={bookingStyles.detailLabel}>Per Night</Text>
+              <Text style={bookingStyles.detailValue}>{selectedHotel.price_per_night} EGP</Text>
+            </View>
+          )}
+          {!!selectedHotel.bookingUrl && (
+            <TouchableOpacity
+              style={bookingStyles.linkRow}
+              onPress={() => Linking.openURL(selectedHotel.bookingUrl!)}
+            >
+              <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
+              <Text style={bookingStyles.linkText} numberOfLines={1}>
+                {selectedHotel.bookingUrl}
+              </Text>
+              <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={bookingStyles.editBtn}
+            onPress={() => {
+              setHotelForm({
+                name: selectedHotel.name ?? '',
+                checkIn: selectedHotel.checkIn ?? '',
+                checkOut: selectedHotel.checkOut ?? '',
+                pricePerNight: String(selectedHotel.price_per_night ?? ''),
+                bookingUrl: selectedHotel.bookingUrl ?? '',
+              });
+              setEditingHotel(true);
+            }}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
+            <Text style={bookingStyles.editBtnText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        // ── Edit / Empty form ──
+        <View>
+          <View style={bookingStyles.inputGroup}>
+            <Text style={bookingStyles.inputLabel}>Hotel Name *</Text>
+            <TextInput
+              style={bookingStyles.input}
+              placeholder="e.g. Marriott Hurghada"
+              value={hotelForm.name}
+              onChangeText={v => setHotelForm(p => ({ ...p, name: v }))}
+            />
+          </View>
+
+          <View style={bookingStyles.inputRow}>
+            <View style={bookingStyles.inputGroup}>
+              <Text style={bookingStyles.inputLabel}>Check-in</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="YYYY-MM-DD"
+                value={hotelForm.checkIn}
+                onChangeText={v => setHotelForm(p => ({ ...p, checkIn: v }))}
+              />
+            </View>
+            <View style={bookingStyles.inputGroup}>
+              <Text style={bookingStyles.inputLabel}>Check-out</Text>
+              <TextInput
+                style={bookingStyles.input}
+                placeholder="YYYY-MM-DD"
+                value={hotelForm.checkOut}
+                onChangeText={v => setHotelForm(p => ({ ...p, checkOut: v }))}
+              />
+            </View>
+          </View>
+
+          <View style={bookingStyles.inputGroup}>
+            <Text style={bookingStyles.inputLabel}>Price Per Night (EGP)</Text>
+            <TextInput
+              style={bookingStyles.input}
+              placeholder="e.g. 1500"
+              keyboardType="numeric"
+              value={hotelForm.pricePerNight}
+              onChangeText={v => setHotelForm(p => ({ ...p, pricePerNight: v }))}
+            />
+          </View>
+
+          <View style={bookingStyles.inputGroup}>
+            <Text style={bookingStyles.inputLabel}>Booking URL</Text>
+            <TextInput
+              style={bookingStyles.input}
+              placeholder="e.g. https://www.booking.com/..."
+              value={hotelForm.bookingUrl}
+              onChangeText={v => setHotelForm(p => ({ ...p, bookingUrl: v }))}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </View>
+
+          <View style={bookingStyles.formActions}>
+            <TouchableOpacity
+              style={bookingStyles.saveFormBtn}
+              onPress={async () => {
+                const updatedHotel: Hotel = {
+                  id: selectedHotel?.id ?? Date.now(),
+                  name: hotelForm.name,
+                  city,
+                  stars: selectedHotel?.stars ?? 4,
+                  price_per_night: parseFloat(hotelForm.pricePerNight) || 0,
+                  image_url: selectedHotel?.image_url ?? '',
+                  rating: selectedHotel?.rating ?? 4.5,
+                  bookingUrl: hotelForm.bookingUrl,
+                  checkIn: hotelForm.checkIn,
+                  checkOut: hotelForm.checkOut,
+                };
+                setEditingHotel(false);
+                setSelectedHotel(updatedHotel);
+                await upsertPlanToServer();
+              }}
+              disabled={!hotelForm.name.trim()}
+            >
+              <Text style={bookingStyles.saveFormBtnText}>Save Hotel</Text>
+            </TouchableOpacity>
+            {selectedHotel && (
+              <TouchableOpacity
+                style={bookingStyles.cancelBtn}
+                onPress={() => setEditingHotel(false)}
+              >
+                <Text style={bookingStyles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  )}
+
+</View>
+
+{/* ── AI Plan Coach ── */}
         <TouchableOpacity
           style={styles.aiBubble}
           onPress={() => setShowAIChat(true)}
@@ -2267,4 +2705,181 @@ activityIcon: {},
     borderColor: '#E5E7EB',
   },
   planCoachDiscardBtnText: { color: '#666', fontSize: 12, fontWeight: '700' },
+});
+const bookingStyles = StyleSheet.create({
+  container: {
+    marginBottom: 20,
+    backgroundColor: Theme.colors.card,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+  },
+
+  dropdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+
+  dropdownTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  filledBadge: {
+    backgroundColor: '#F0FBF4',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+
+  filledBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#27AE60',
+  },
+
+  dropdownBody: {
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: Theme.colors.border,
+    marginVertical: 8,
+  },
+
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 10,
+  },
+
+  detailLabel: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+  },
+
+  detailValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Theme.colors.gold,
+    padding: 12,
+    borderRadius: 14,
+    marginBottom: 14,
+  },
+
+  linkText: {
+    flex: 1,
+    fontSize: 12,
+    color: Theme.colors.primary,
+    fontWeight: '600',
+  },
+
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FFF8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDDCB5',
+  },
+
+  editBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#E67E22',
+  },
+
+  inputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  inputGroup: {
+    flex: 1,
+    marginBottom: 14,
+  },
+
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.colors.muted,
+    marginBottom: 5,
+  },
+
+  input: {
+    backgroundColor: '#F8F8F8',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: Theme.colors.text,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+  },
+
+  formActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+
+  saveFormBtn: {
+    flex: 1,
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  saveFormBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  cancelBtnText: {
+    color: Theme.colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

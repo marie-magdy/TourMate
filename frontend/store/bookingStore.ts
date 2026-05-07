@@ -9,9 +9,12 @@ export type Hotel = {
   stars?: number;
   rating?: number;
   bookingUrl?: string;
+  checkIn?: string;
+  checkOut?: string;
 };
 
 export type Flight = {
+  
   airline: string;
   flightNumber: string;
   departure: string;
