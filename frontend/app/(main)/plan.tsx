@@ -19,6 +19,7 @@ import BottomTab from '@/components/BottomTab';
 
 import { CurrencyCode } from '../../constants/AppContext';
 
+
 const { width } = Dimensions.get('window');
 const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 
@@ -168,43 +169,43 @@ export default function PlanScreen() {
 
   const { selectedHotel } = useBookingStore();
 
-useEffect(() => {
-  const applyBookedHotel = async () => {
-    if (!selectedHotel) return;
+// useEffect(() => {
+//   const applyBookedHotel = async () => {
+//     if (!selectedHotel) return;
 
-    try {
-      const query = `${selectedHotel.name}, ${selectedHotel.city}, Egypt`;
+//     try {
+//       const query = `${selectedHotel.name}, ${selectedHotel.city}, Egypt`;
 
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+//       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
-      const res = await fetch(url, {
-        headers: { 'Accept-Language': 'en' },
-      });
+//       const res = await fetch(url, {
+//         headers: { 'Accept-Language': 'en' },
+//       });
 
-      const data = await res.json();
+//       const data = await res.json();
 
-      if (data.length) {
-        const { lat, lon } = data[0];
+//       if (data.length) {
+//         const { lat, lon } = data[0];
 
-        setLocationCoords({
-          lat: parseFloat(lat),
-          lon: parseFloat(lon),
-        });
+//         setLocationCoords({
+//           lat: parseFloat(lat),
+//           lon: parseFloat(lon),
+//         });
 
-        setLocationLabel(selectedHotel.name);
-        setLocationInput(selectedHotel.name);
-      }
-    } catch (err) {
-      console.error('Hotel geocode failed:', err);
-    }
+//         setLocationLabel(selectedHotel.name);
+//         setLocationInput(selectedHotel.name);
+//       }
+//     } catch (err) {
+//       console.error('Hotel geocode failed:', err);
+//     }
 
-    useBookingStore.setState({
-      selectedHotel: null,
-    });
-  };
+//     useBookingStore.setState({
+//       selectedHotel: null,
+//     });
+//   };
 
-  applyBookedHotel();
-}, [selectedHotel]);
+//   applyBookedHotel();
+// }, [selectedHotel]);
 
   useEffect(() => {
     fetchForecast(selectedCity);
@@ -397,65 +398,51 @@ useEffect(() => {
   };
 
   const handleNext = () => {
-    if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
-    if (!budget) { alert('Please enter your budget.'); return; }
-    if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
+  if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
+  if (!budget) { alert('Please enter your budget.'); return; }
+  if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
 
-    const isValid = daySchedules.every(s => {
-      const start = s.start?.getHours();
-      const end = s.end?.getHours();
-      return s.start && s.end && start !== end;
-    });
+  const isValid = daySchedules.every(s => {
+    const start = s.start?.getHours();
+    const end = s.end?.getHours();
+    return s.start && s.end && start !== end;
+  });
 
-    if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
+  if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
 
-    const formattedSchedules = daySchedules.map(d => ({
-      start_hour: d.start.getHours(),
-      end_hour: d.end.getHours(),
-    }));
+  const formattedSchedules = daySchedules.map(d => ({
+    start_hour: d.start.getHours(),
+    end_hour: d.end.getHours(),
+  }));
 
-    const rawBudget = Number(String(budget).replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(rawBudget) || rawBudget <= 0) {
-      alert('Please enter a valid budget amount.');
-      return;
-    }
-    const egpBudget = Math.max(0, Math.round(rawBudget * (budgetRateToEgp || 1)));
+  const rawBudget = Number(String(budget).replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(rawBudget) || rawBudget <= 0) {
+    alert('Please enter a valid budget amount.');
+    return;
+  }
+  const egpBudget = Math.max(0, Math.round(rawBudget * (budgetRateToEgp || 1)));
 
-    router.push({
-      pathname: '/(main)/pick-spots' as any,
-      params: {
-        city: selectedCity.name,
-        startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
-        endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
-        budget: String(egpBudget),
-        budgetCurrency,
-        budgetOriginal: String(rawBudget),
-
-        daySchedules: JSON.stringify(formattedSchedules),
-
-        interests: selectedInterests.join(','),
-        isForeigner: String(isForeigner),
-
-        ...(locationCoords && {
-          startLat: String(locationCoords.lat),
-          startLon: String(locationCoords.lon),
-          startLabel: locationLabel,
-        }),
-      },
-    });
-    // RESET AFTER sending
-  setTimeout(() => {
-    useBookingStore.setState({
-      selectedHotel: null,
-      selectedFlight: null,
-    });
-
-    setLocationLabel('');
-    setLocationInput('');
-    setLocationCoords(null);
-  }, 100);
-  };
-
+  router.push({
+    pathname: '/(main)/pick-spots' as any,
+    params: {
+      city: selectedCity.name,
+      startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
+      endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
+      budget: String(egpBudget),
+      budgetCurrency,
+      budgetOriginal: String(rawBudget),
+      daySchedules: JSON.stringify(formattedSchedules),
+      interests: selectedInterests.join(','),
+      isForeigner: String(isForeigner),
+      ...(locationCoords && {
+        startLat: String(locationCoords.lat),
+        startLon: String(locationCoords.lon),
+        startLabel: locationLabel,
+      }),
+    },
+  });
+  // ← DELETE the setTimeout block that was here
+};
   const pickBudgetCurrency = () => {
     Alert.alert('Select currency', 'Your budget will be converted to EGP before generating the plan.', [
       { text: 'EGP (ج.م)', onPress: () => setBudgetCurrency('EGP') },
