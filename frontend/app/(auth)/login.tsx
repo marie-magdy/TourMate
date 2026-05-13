@@ -228,7 +228,7 @@ export default function Login() {
             style={[styles.passwordInput, errors.password ? styles.inputError : null]}
             placeholderTextColor="#999"
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}  testID="toggle-password" >
             <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
           </TouchableOpacity>
         </View>

@@ -20,8 +20,9 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
   max: poolMax,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 5_000,
+  min: 1,   
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000,
 });
 
 export default pool;

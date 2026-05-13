@@ -4,10 +4,14 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "dev": "node --watch --env-file=.env src/index.js",
     "start": "node src/index.js",
     "init-db": "node --env-file=.env src/initDb.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+     "transform": {}
   },
   "author": "",
   "license": "ISC",
@@ -23,5 +27,9 @@
     "multer": "^2.1.1",
     "node-fetch": "^3.3.2",
     "pg": "^8.19.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2"
   }
 }
