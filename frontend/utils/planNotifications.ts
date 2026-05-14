@@ -79,17 +79,15 @@ class PlanNotificationManager {
 
     const now = new Date();
     const planStartDate = new Date(this.activePlan.startDate);
-    const elapsedMs = now.getTime() - planStartDate.getTime();
-    const elapsedHours = elapsedMs / (1000 * 60 * 60);
 
     for (const activity of this.activePlan.activities) {
-      const activityStartHour = this.timeStringToHour(activity.time);
+      const activityStartDate = this.getActivityStartDate(activity, planStartDate);
       const activityDuration = activity.duration_hrs || 0;
-      const activityEndHour = activityStartHour + activityDuration;
+      const activityEndDate = new Date(activityStartDate.getTime() + activityDuration * 60 * 60 * 1000);
+      const notificationDate = new Date(activityEndDate.getTime() - this.NOTIFICATION_ADVANCE_MIN * 60 * 1000);
 
-      // Only schedule if the activity hasn't started yet
-      if (elapsedHours < activityStartHour) {
-        await this.scheduleNotificationForActivity(activity, activityEndHour);
+      if (notificationDate > now) {
+        await this.scheduleNotificationForActivity(activity, notificationDate);
       }
     }
   }
@@ -127,23 +125,16 @@ class PlanNotificationManager {
 
     const now = new Date();
     const planStartDate = new Date(this.activePlan.startDate);
-    
-    // Get the elapsed time from plan start
-    const elapsedMs = now.getTime() - planStartDate.getTime();
-    const elapsedHours = elapsedMs / (1000 * 60 * 60);
 
     this.activePlan.activities.forEach((activity, index) => {
-      const activityStartHour = this.timeStringToHour(activity.time);
+      const activityStartDate = this.getActivityStartDate(activity, planStartDate);
       const activityDuration = activity.duration_hrs || 0;
-      const activityEndHour = activityStartHour + activityDuration;
+      const activityEndDate = new Date(activityStartDate.getTime() + activityDuration * 60 * 60 * 1000);
+      const notificationDate = new Date(activityEndDate.getTime() - this.NOTIFICATION_ADVANCE_MIN * 60 * 1000);
 
-      // Calculate when to send notification (5 minutes before end)
-      const notificationHour = activityEndHour - (this.NOTIFICATION_ADVANCE_MIN / 60);
-
-      // Check if we should send notification now
       if (
-        elapsedHours >= notificationHour &&
-        elapsedHours < activityEndHour &&
+        now >= notificationDate &&
+        now < activityEndDate &&
         !this.notifiedActivities.has(activity.id)
       ) {
         this.sendNotification(activity, index);
@@ -200,10 +191,9 @@ class PlanNotificationManager {
    */
   private async scheduleNotificationForActivity(
     activity: PlanActivityStep,
-    activityEndHour: number
+    notificationDate: Date
   ): Promise<void> {
     try {
-      // Clear any existing timer for this activity
       if (this.notificationTimer.has(activity.id)) {
         const existingId = this.notificationTimer.get(activity.id)!;
         try {
@@ -214,56 +204,42 @@ class PlanNotificationManager {
       }
 
       const now = new Date();
-      const planStartDate = new Date(this.activePlan?.startDate || now);
-      const elapsedMs = now.getTime() - planStartDate.getTime();
-      const elapsedHours = elapsedMs / (1000 * 60 * 60);
+      console.log(`[PlanNotifications] Scheduling for ${activity.name}: Notify at ${notificationDate.toISOString()}, From now: ${((notificationDate.getTime() - now.getTime()) / 60000).toFixed(2)} min`);
 
-      const notificationHour = activityEndHour - (this.NOTIFICATION_ADVANCE_MIN / 60);
-      const hoursUntilNotification = notificationHour - elapsedHours;
-
-      console.log(`[PlanNotifications] Scheduling for ${activity.name}: End at ${activityEndHour}h, Notify at ${notificationHour.toFixed(2)}h, Hours from now: ${hoursUntilNotification.toFixed(2)}h`);
-
-      if (hoursUntilNotification > 0) {
-        const msUntilNotification = hoursUntilNotification * 60 * 60 * 1000;
-        const notificationTime = new Date(now.getTime() + msUntilNotification);
-
-        // Request permission first
-        const hasPermission = await this.requestNotificationPermission();
-        if (!hasPermission) {
-          console.warn('[PlanNotifications] No notification permission for scheduled notification');
-          return;
-        }
-
-        const nextActivity = this.activePlan?.activities.find(a => 
-          this.timeStringToHour(a.time) > activityEndHour
-        );
-        const nextActivityName = nextActivity?.name || 'Next activity';
-
-        const notificationId = await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '⏰ Get Ready!',
-            body: `Your time at ${activity.name} is ending in ${this.NOTIFICATION_ADVANCE_MIN} minutes.\nNext: ${nextActivityName}`,
-            data: {
-              activityId: activity.id,
-              planId: this.activePlan?.id,
-              type: 'plan-reminder',
-            },
-            sound: true,
-            priority: 'high',
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date: notificationTime,
-          },
-        });
-
-        console.log('[PlanNotifications] Scheduled notification for activity:', activity.name, 'at:', notificationTime, 'ID:', notificationId);
-
-        // Store the notification ID for cleanup
-        this.notificationTimer.set(activity.id, notificationId as any);
-      } else {
-        console.log(`[PlanNotifications] Activity ${activity.name} already past notification time, skipping schedule`);
+      if (notificationDate <= now) {
+        console.log(`[PlanNotifications] Activity ${activity.name} notification time is in the past, skipping schedule`);
+        return;
       }
+
+      const hasPermission = await this.requestNotificationPermission();
+      if (!hasPermission) {
+        console.warn('[PlanNotifications] No notification permission for scheduled notification');
+        return;
+      }
+
+      const nextActivity = this.activePlan?.activities.find((a) => this.timeStringToHour(a.time) > this.timeStringToHour(activity.time));
+      const nextActivityName = nextActivity?.name || 'Next activity';
+
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Get Ready!',
+          body: `Your time at ${activity.name} is ending in ${this.NOTIFICATION_ADVANCE_MIN} minutes.\nNext: ${nextActivityName}`,
+          data: {
+            activityId: activity.id,
+            planId: this.activePlan?.id,
+            type: 'plan-reminder',
+          },
+          sound: true,
+          priority: 'high',
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: notificationDate,
+        },
+      });
+
+      console.log('[PlanNotifications] Scheduled notification for activity:', activity.name, 'at:', notificationDate, 'ID:', notificationId);
+      this.notificationTimer.set(activity.id, notificationId as any);
     } catch (error) {
       console.error('[PlanNotifications] Error scheduling notification:', error);
     }
@@ -288,6 +264,21 @@ class PlanNotificationManager {
   /**
    * Convert time string (HH:MM) to hours since midnight
    */
+  private getActivityStartDate(activity: PlanActivityStep, planStartDate: Date): Date {
+    const [hStr, mStr] = activity.time.split(':');
+    const hour = parseInt(hStr, 10) || 0;
+    const minute = parseInt(mStr || '0', 10) || 0;
+
+    const activityDate = new Date(planStartDate);
+    activityDate.setHours(hour, minute, 0, 0);
+
+    if (activityDate.getTime() < planStartDate.getTime() - 1000) {
+      activityDate.setDate(activityDate.getDate() + 1);
+    }
+
+    return activityDate;
+  }
+
   private timeStringToHour(timeStr: string): number {
     const [hStr, mStr] = timeStr.split(':');
     const hours = parseInt(hStr, 10);
