@@ -2,14 +2,33 @@
 import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AppState, type AppStateStatus } from "react-native";
 import { AppProvider } from "../constants/AppContext";
-import { configurePlanNotifications } from "../utils/planNotifications";
+import { askForNotificationPermission, configurePlanNotifications } from "../utils/planNotifications";
 import { registerPlanNotificationsBackgroundTask } from "../utils/planNotificationsBackground";
 
 export default function RootLayout() {
   useEffect(() => {
     configurePlanNotifications();
+
+    async function initNotifications() {
+      const granted = await askForNotificationPermission();
+      console.log('[PlanNotifications] Startup permission granted:', granted);
+    }
+
+    function handleAppStateChange(nextAppState: AppStateStatus) {
+      if (nextAppState === 'active') {
+        askForNotificationPermission().catch((err) => console.warn('Notification permission request failed:', err));
+      }
+    }
+
+    initNotifications().catch((err) => console.warn('Notification permission request failed:', err));
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
     registerPlanNotificationsBackgroundTask().catch((err) => console.warn('Plan notification background task failed:', err));
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (

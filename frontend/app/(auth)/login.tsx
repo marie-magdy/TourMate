@@ -1,5 +1,5 @@
 // app/(auth)/login.tsx
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -242,7 +242,7 @@ export default function Login() {
         {/* Signup */}
         <TouchableOpacity onPress={() => router.push('/(auth)/signup' as any)}>
           <Text style={styles.signupText}>
-            Don't have an account? <Text style={styles.signupLink}>Sign up</Text>
+            Don&apos;t have an account? <Text style={styles.signupLink}>Sign up</Text>
           </Text>
         </TouchableOpacity>
 

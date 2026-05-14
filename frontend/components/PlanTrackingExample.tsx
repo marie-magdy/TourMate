@@ -106,7 +106,7 @@ export const PlanTrackingExample: React.FC<Props> = ({ plan, onPlanComplete }) =
         text: 'Stop',
         onPress: async () => {
           stopTracking();
-          await clearActivePlanForBackground(plan.id);
+          await clearActivePlanFromBackground(plan.id);
           onPlanComplete?.();
         },
       },

@@ -7,7 +7,8 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
+
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface PlanActivityStep {
@@ -32,8 +33,8 @@ export interface ActivePlan {
 // ── Manager Class ───────────────────────────────────────────────────────────
 class PlanNotificationManager {
   private activePlan: ActivePlan | null = null;
-  private trackingInterval: NodeJS.Timeout | null = null;
-  private notificationTimer: Map<string | number, NodeJS.Timeout> = new Map();
+  private trackingInterval: ReturnType<typeof setInterval> | null = null;
+  private notificationTimer: Map<string | number, string> = new Map();
   private notifiedActivities: Set<string | number> = new Set();
   private NOTIFICATION_ADVANCE_MIN = 5; // 5 minutes before activity ends
   private appState = 'active';
@@ -46,14 +47,19 @@ class PlanNotificationManager {
   /**
    * Start tracking an active plan
    */
-  public startTrackingPlan(plan: ActivePlan): void {
+  public async startTrackingPlan(plan: ActivePlan): Promise<void> {
     console.log('[PlanNotifications] Starting to track plan:', plan.id);
+    console.log('[PlanNotifications] Plan start date:', plan.startDate);
+    console.log('[PlanNotifications] Activities:', plan.activities.map(a => ({ name: a.name, time: a.time, duration: a.duration_hrs })));
     
     // Stop any existing tracking
     this.stopTrackingPlan();
     
     this.activePlan = plan;
     this.notifiedActivities.clear();
+    
+    // Schedule notifications for all future activities
+    await this.scheduleAllFutureNotifications();
     
     // Start the main tracking loop
     this.trackingInterval = setInterval(
@@ -63,6 +69,29 @@ class PlanNotificationManager {
     
     // Do an initial check
     this.checkAndNotify();
+  }
+
+  /**
+   * Schedule notifications for all future activities
+   */
+  private async scheduleAllFutureNotifications(): Promise<void> {
+    if (!this.activePlan) return;
+
+    const now = new Date();
+    const planStartDate = new Date(this.activePlan.startDate);
+    const elapsedMs = now.getTime() - planStartDate.getTime();
+    const elapsedHours = elapsedMs / (1000 * 60 * 60);
+
+    for (const activity of this.activePlan.activities) {
+      const activityStartHour = this.timeStringToHour(activity.time);
+      const activityDuration = activity.duration_hrs || 0;
+      const activityEndHour = activityStartHour + activityDuration;
+
+      // Only schedule if the activity hasn't started yet
+      if (elapsedHours < activityStartHour) {
+        await this.scheduleNotificationForActivity(activity, activityEndHour);
+      }
+    }
   }
 
   /**
@@ -76,8 +105,14 @@ class PlanNotificationManager {
       this.trackingInterval = null;
     }
     
-    // Clear all pending timers
-    this.notificationTimer.forEach(timer => clearTimeout(timer));
+    // Cancel all scheduled notifications
+    this.notificationTimer.forEach(async (notificationId) => {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+      } catch (error) {
+        console.error('[PlanNotifications] Error canceling notification:', error);
+      }
+    });
     this.notificationTimer.clear();
     
     this.activePlan = null;
@@ -114,11 +149,6 @@ class PlanNotificationManager {
         this.sendNotification(activity, index);
         this.notifiedActivities.add(activity.id);
       }
-
-      // Also schedule notifications for future activities (if app is backgrounded)
-      if (elapsedHours < notificationHour) {
-        this.scheduleNotificationForActivity(activity, activityEndHour);
-      }
     });
   }
 
@@ -138,6 +168,8 @@ class PlanNotificationManager {
       const nextActivityName = nextActivity?.name || 'Next activity';
       const timeRemaining = this.NOTIFICATION_ADVANCE_MIN;
 
+      console.log(`[PlanNotifications] Sending notification - Activity: ${activity.name}, Next: ${nextActivityName}`);
+
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: '⏰ Get Ready!',
@@ -152,12 +184,12 @@ class PlanNotificationManager {
           priority: 'high',
         },
         trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.SECONDS,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
           seconds: 1, // Send immediately
         },
       });
 
-      console.log('[PlanNotifications] Sent notification for activity:', activity.name);
+      console.log('[PlanNotifications] Sent notification for activity:', activity.name, 'ID:', notificationId);
     } catch (error) {
       console.error('[PlanNotifications] Error sending notification:', error);
     }
@@ -166,35 +198,74 @@ class PlanNotificationManager {
   /**
    * Schedule notification for a future activity (for background tracking)
    */
-  private scheduleNotificationForActivity(
+  private async scheduleNotificationForActivity(
     activity: PlanActivityStep,
     activityEndHour: number
-  ): void {
-    // Clear any existing timer for this activity
-    if (this.notificationTimer.has(activity.id)) {
-      clearTimeout(this.notificationTimer.get(activity.id)!);
-    }
-
-    const now = new Date();
-    const planStartDate = new Date(this.activePlan?.startDate || now);
-    const elapsedMs = now.getTime() - planStartDate.getTime();
-    const elapsedHours = elapsedMs / (1000 * 60 * 60);
-
-    const notificationHour = activityEndHour - (this.NOTIFICATION_ADVANCE_MIN / 60);
-    const hoursUntilNotification = notificationHour - elapsedHours;
-
-    if (hoursUntilNotification > 0) {
-      const msUntilNotification = hoursUntilNotification * 60 * 60 * 1000;
-
-      const timer = setTimeout(() => {
-        const activityIndex = this.activePlan?.activities.findIndex(a => a.id === activity.id) ?? -1;
-        if (activityIndex >= 0) {
-          this.sendNotification(activity, activityIndex);
-          this.notifiedActivities.add(activity.id);
+  ): Promise<void> {
+    try {
+      // Clear any existing timer for this activity
+      if (this.notificationTimer.has(activity.id)) {
+        const existingId = this.notificationTimer.get(activity.id)!;
+        try {
+          await Notifications.cancelScheduledNotificationAsync(existingId);
+        } catch (error) {
+          console.error('[PlanNotifications] Error canceling existing notification:', error);
         }
-      }, msUntilNotification);
+      }
 
-      this.notificationTimer.set(activity.id, timer);
+      const now = new Date();
+      const planStartDate = new Date(this.activePlan?.startDate || now);
+      const elapsedMs = now.getTime() - planStartDate.getTime();
+      const elapsedHours = elapsedMs / (1000 * 60 * 60);
+
+      const notificationHour = activityEndHour - (this.NOTIFICATION_ADVANCE_MIN / 60);
+      const hoursUntilNotification = notificationHour - elapsedHours;
+
+      console.log(`[PlanNotifications] Scheduling for ${activity.name}: End at ${activityEndHour}h, Notify at ${notificationHour.toFixed(2)}h, Hours from now: ${hoursUntilNotification.toFixed(2)}h`);
+
+      if (hoursUntilNotification > 0) {
+        const msUntilNotification = hoursUntilNotification * 60 * 60 * 1000;
+        const notificationTime = new Date(now.getTime() + msUntilNotification);
+
+        // Request permission first
+        const hasPermission = await this.requestNotificationPermission();
+        if (!hasPermission) {
+          console.warn('[PlanNotifications] No notification permission for scheduled notification');
+          return;
+        }
+
+        const nextActivity = this.activePlan?.activities.find(a => 
+          this.timeStringToHour(a.time) > activityEndHour
+        );
+        const nextActivityName = nextActivity?.name || 'Next activity';
+
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '⏰ Get Ready!',
+            body: `Your time at ${activity.name} is ending in ${this.NOTIFICATION_ADVANCE_MIN} minutes.\nNext: ${nextActivityName}`,
+            data: {
+              activityId: activity.id,
+              planId: this.activePlan?.id,
+              type: 'plan-reminder',
+            },
+            sound: true,
+            priority: 'high',
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: notificationTime,
+          },
+        });
+
+        console.log('[PlanNotifications] Scheduled notification for activity:', activity.name, 'at:', notificationTime, 'ID:', notificationId);
+
+        // Store the notification ID for cleanup
+        this.notificationTimer.set(activity.id, notificationId as any);
+      } else {
+        console.log(`[PlanNotifications] Activity ${activity.name} already past notification time, skipping schedule`);
+      }
+    } catch (error) {
+      console.error('[PlanNotifications] Error scheduling notification:', error);
     }
   }
 
@@ -281,6 +352,28 @@ export function getPlanNotificationManager(): PlanNotificationManager {
 }
 
 // ── Configure notification handler for foreground ──────────────────────────
+export async function askForNotificationPermission(): Promise<boolean> {
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    console.log('[PlanNotifications] Existing permission status:', current.status);
+
+    if (current.status === 'granted') return true;
+    if (current.status === 'denied') return false;
+
+    const { status } = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+      android: { allowAlert: true, allowBadge: true, allowSound: true },
+    });
+
+    console.log('[PlanNotifications] Requested permission status:', status);
+
+    return status === 'granted';
+  } catch (error) {
+    console.error('[PlanNotifications] Error requesting permission on startup:', error);
+    return false;
+  }
+}
+
 export function configurePlanNotifications(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -294,7 +387,8 @@ export function configurePlanNotifications(): void {
 
   // Handle notification interactions (user tapped notification)
   Notifications.addNotificationResponseReceivedListener((response) => {
-    const { data } = response.notification.content;
+    const content = (response.notification as any).request?.content ?? (response.notification as any).content;
+    const data = content?.data;
     if (data?.type === 'plan-reminder') {
       console.log('[PlanNotifications] User tapped notification for activity:', data.activityId);
       // You can emit an event or call a callback here

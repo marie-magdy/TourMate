@@ -28,14 +28,14 @@ interface Spot {
 
 // ── Category tabs (keys match Excel categories) ───────────────────────
 const CATEGORIES = [
-  { key: 'all',        label: 'All'         },
-  { key: 'historical', label: 'Historical'  },
-  { key: 'restaurant', label: 'Restaurants' },
-  { key: 'beach',      label: 'Beaches'     },
-  { key: 'museum',     label: 'Museums'     },
-  { key: 'nature',     label: 'Nature'      },
-  { key: 'shopping',   label: 'Shopping'    },
-  { key: 'cafe',       label: 'Cafés'       },
+  { key: 'all',        label: 'All',         icon: '🏷️'  },
+  { key: 'historical', label: 'Historical',  icon: '🏛️'  },
+  { key: 'restaurant', label: 'Restaurants', icon: '🍽️'  },
+  { key: 'beach',      label: 'Beaches',     icon: '🏖️'  },
+  { key: 'museum',     label: 'Museums',     icon: '🏛️'  },
+  { key: 'nature',     label: 'Nature',      icon: '🌿'  },
+  { key: 'shopping',   label: 'Shopping',    icon: '🛍️'  },
+  { key: 'cafe',       label: 'Cafés',       icon: '☕' },
 ];
 
 // Maps every Excel category tag → one of the CATEGORIES keys above

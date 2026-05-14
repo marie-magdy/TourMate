@@ -61,7 +61,7 @@ const EditModal: React.FC<{
     if (attraction) {
       setName(attraction.name);
       setCity(attraction.city);
-      setCategory(attraction.category);
+      setCategory(attraction.category ?? '');
       setDescription(attraction.description ?? '');
       setRating(String(attraction.rating));
       setPrice(String(attraction.price_from));

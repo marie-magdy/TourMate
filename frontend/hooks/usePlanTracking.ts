@@ -11,7 +11,7 @@ import {
   configurePlanNotifications,
   ActivePlan,
   PlanActivityStep,
-} from './planNotifications';
+} from '../utils/planNotifications';
 
 export interface UsePlanTrackingOptions {
   autoStart?: boolean;
@@ -23,7 +23,7 @@ export function usePlanTracking(options: UsePlanTrackingOptions = {}) {
   const [isTracking, setIsTracking] = useState(false);
   const [currentActivity, setCurrentActivity] = useState<PlanActivityStep | undefined>(undefined);
   const [planId, setPlanId] = useState<string | undefined>(undefined);
-  const statusCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const statusCheckInterval = useRef<number | null>(null);
 
   // Initialize notification system on mount
   useEffect(() => {
