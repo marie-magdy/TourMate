@@ -11,7 +11,6 @@ const router = express.Router();
 // GET /api/auth/admin/users
 router.get('/admin/users', async (req, res) => {
   try {
-    // await ensureFeatureFlagsTable();  ← remove this line
     const result = await pool.query(
       `SELECT u.id, u.username, u.email, u.role, u.created_at,
         COALESCE(up.points, 0) as points,
@@ -26,7 +25,7 @@ router.get('/admin/users', async (req, res) => {
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -41,7 +40,7 @@ router.delete('/admin/users/:id', async (req, res) => {
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
     res.json({ success: true, message: 'User deleted' });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -55,7 +54,7 @@ router.put('/admin/users/:id/role', async (req, res) => {
     await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
     res.json({ success: true, message: `User role updated to ${role}` });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -86,7 +85,7 @@ router.post('/admin/users/:id/points', async (req, res) => {
     );
     res.json({ success: true, message: 'Points added' });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -94,14 +93,12 @@ router.post('/admin/users/:id/points', async (req, res) => {
 // GET /api/auth/admin/stats
 router.get('/admin/stats', async (req, res) => {
   try {
-    // Run queries sequentially (not Promise.all) to avoid exhausting limited
-    // session-mode DB connections on hosted poolers.
     const safeCount = async (sql, field = 'count') => {
       try {
         const r = await pool.query(sql);
         return parseInt(r.rows?.[0]?.[field] ?? '0', 10) || 0;
       } catch (err) {
-        console.error('[admin/stats] count query failed:', sql, err?.message ?? err);
+        if (process.env.NODE_ENV !== 'test') console.error('[admin/stats] count query failed:', sql, err?.message ?? err);
         return 0;
       }
     };
@@ -122,7 +119,7 @@ router.get('/admin/stats', async (req, res) => {
       );
       topAttractionsRows = topAttractions.rows ?? [];
     } catch (err) {
-      console.error('[admin/stats] top attractions query failed:', err?.message ?? err);
+      if (process.env.NODE_ENV !== 'test') console.error('[admin/stats] top attractions query failed:', err?.message ?? err);
       topAttractionsRows = [];
     }
 
@@ -137,7 +134,7 @@ router.get('/admin/stats', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -150,22 +147,13 @@ router.put('/admin/users/:id/voice-access', async (req, res) => {
     if (typeof enabled !== 'boolean') {
       return res.status(400).json({ success: false, message: 'enabled must be boolean' });
     }
-    // await ensureFeatureFlagsTable();
-    // await pool.query(
-    //   `INSERT INTO user_feature_flags (user_id, voice_chat_enabled, updated_at)
-    //    VALUES ($1, $2, CURRENT_TIMESTAMP)
-    //    ON CONFLICT (user_id) DO UPDATE
-    //    SET voice_chat_enabled = EXCLUDED.voice_chat_enabled,
-    //        updated_at = CURRENT_TIMESTAMP`,
-    //   [id, enabled]
-    // );
     await pool.query(
       'update users set voice_chat_enabled = $1 where id = $2',
       [enabled, id]
     );
     res.json({ success: true, message: `Voice access ${enabled ? 'enabled' : 'disabled'}` });
   } catch (err) {
-    console.error(err);
+    if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

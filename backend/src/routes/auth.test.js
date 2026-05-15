@@ -15,6 +15,14 @@ jest.unstable_mockModule('jsonwebtoken', () => ({
   default: { sign: jest.fn().mockReturnValue('fake_token') }
 }));
 
+beforeAll(() => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  jest.restoreAllMocks();
+});
+
 const { default: request } = await import('supertest');
 const { default: express } = await import('express');
 const { default: router } = await import('./auth.js');

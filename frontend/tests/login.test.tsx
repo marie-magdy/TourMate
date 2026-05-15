@@ -24,6 +24,10 @@ jest.mock('expo-auth-session', () => ({
   makeRedirectUri: jest.fn().mockReturnValue('tourmate://'),
 }));
 
+jest.mock('@expo/vector-icons', () => ({
+  Ionicons: () => null,
+}));
+
 jest.mock('../constants/AppContext', () => ({
   useApp: () => ({
     setUser: jest.fn(),
@@ -34,6 +38,14 @@ jest.mock('../constants/AppContext', () => ({
 jest.mock('@/components/ScreenWrapper', () => {
   const { View } = require('react-native');
   return ({ children }: any) => <View>{children}</View>;
+});
+
+beforeAll(() => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  jest.restoreAllMocks();
 });
 
 // Mock fetch globally
