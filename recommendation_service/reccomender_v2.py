@@ -884,7 +884,7 @@ def get_transport_info(origin_lat: float, origin_lon: float,
 # 6. MEAL RECOMMENDATION  (updated to use new transport layer)
 # ─────────────────────────────────────────────────────────────────────────────
 def recommend_meals(df, user, slot, near_lat, near_lon,
-                    visited_today, top_n=3):
+                    visited_today, top_n=3, dest_lat=None, dest_lon=None):
     per_meal   = user.meal_budget / max(
         sum([1 if slot == s else 0
              for s in ["breakfast","lunch","dinner","coffee"]]), 1
@@ -949,6 +949,21 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
         else:
             if p <= 80: return 1.0
             return 0.5
+
+    # On-the-way filter: if a destination is known, drop candidates that require
+    # backtracking (detour > 1.3× direct distance from start to destination).
+    if dest_lat is not None and dest_lon is not None and not cands.empty:
+        direct_km = _haversine_fallback(near_lat, near_lon, dest_lat, dest_lon)["distance_km"]
+        if direct_km > 1.0:  # only filter when the destination is meaningfully far
+            def _detour(row):
+                to_r = _haversine_fallback(near_lat, near_lon, float(row["latitude"]), float(row["longitude"]))["distance_km"]
+                r_to_dest = _haversine_fallback(float(row["latitude"]), float(row["longitude"]), dest_lat, dest_lon)["distance_km"]
+                return to_r + r_to_dest
+            cands["_detour_km"] = cands.apply(_detour, axis=1)
+            on_way = cands[cands["_detour_km"] <= direct_km * 1.3]
+            if not on_way.empty:
+                cands = on_way
+            cands = cands.drop(columns=["_detour_km"], errors="ignore")
 
     cands["tier_score"] = cands.apply(meal_tier_score, axis=1)
     cands["dist_km"]    = cands.apply(
@@ -1415,14 +1430,15 @@ def build_cluster_for_anchor(scored_df: pd.DataFrame,
 
     cluster = pool[pool["_dist"] <= radius].copy()
 
-    # Still under minimum after city cap — fall back to full pool (no geographic limit)
-    if len(cluster) < min_size:
-        log.info("CLUSTER", f"under minimum at {radius:.1f} km cap — using full pool ({len(pool)} candidates)", verbosity=2)
-        cluster = pool.copy()
+    # If nothing at all is within the cap, take the nearest available attractions —
+    # but never fall back to the full city pool, which would scatter the user.
+    if cluster.empty:
+        log.info("CLUSTER", f"no attractions within {radius:.1f} km — using nearest available", verbosity=2)
+        cluster = pool.nsmallest(min(min_size, len(pool)), "_dist").copy()
 
     max_d = cluster["_dist"].max() or 1.0
     cluster["final_score"] = (
-        cluster["final_score"] * (1.0 - 0.3 * (cluster["_dist"] / max_d))
+        cluster["final_score"] * (1.0 - 0.5 * (cluster["_dist"] / max_d))
     ).clip(lower=0.0)
 
     cluster_ids = set(cluster["attraction_id"].astype(str).tolist())
@@ -1666,6 +1682,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 log.info("CLUSTER", f"liked '{row['name']}' → Day {best_day + 1} (anchor '{anchors[best_day]['name']}')", verbosity=2)
 
             anchor = anchors[min(day_index, len(anchors) - 1)]
+            _anchor_lat, _anchor_lon = anchor["lat"], anchor["lon"]
             log.section("CLUSTER", f"Day {day_index + 1} anchor: '{anchor['name']}' ({anchor['lat']:.4f}, {anchor['lon']:.4f})")
             scored_for_knapsack, cluster_ids = build_cluster_for_anchor(
                 scored, anchor["lat"], anchor["lon"],
@@ -1674,8 +1691,10 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             log.info("CLUSTER", f"pool={len(scored)} → cluster={len(scored_for_knapsack)}", verbosity=2)
         else:
             scored_for_knapsack = scored
+            _anchor_lat, _anchor_lon = user.current_lat, user.current_lon
     else:
         scored_for_knapsack = scored
+        _anchor_lat, _anchor_lon = user.current_lat, user.current_lon
 
     # Today's liked IDs: those whose nearest anchor matches this day.
     # For single-day trips (no assignment computed) all liked IDs belong today.
@@ -1683,6 +1702,20 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         {aid for aid, day in liked_day_assignment.items() if day == day_index}
         if liked_day_assignment else set(liked_ids_set)
     )
+
+    # Force-inject today's liked places that were cut by the cluster radius filter.
+    if today_liked_ids and n_days > 1:
+        already_in = set(scored_for_knapsack["attraction_id"].astype(str))
+        missing_today = today_liked_ids - already_in
+        if missing_today:
+            missing_rows = scored[scored["attraction_id"].astype(str).isin(missing_today)].copy()
+            if not missing_rows.empty:
+                scored_for_knapsack = (
+                    pd.concat([missing_rows, scored_for_knapsack])
+                    .drop_duplicates(subset="attraction_id")
+                    .reset_index(drop=True)
+                )
+                log.info("CLUSTER", f"force-injected today's liked outside cluster radius: {missing_rows['name'].tolist()}", verbosity=1)
 
     # Remove liked attractions reserved for OTHER days from today's candidate pool
     # so they are never scheduled (or force-injected) into the wrong day.
@@ -1692,7 +1725,13 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         scored_for_knapsack = scored_for_knapsack[
             ~scored_for_knapsack["attraction_id"].astype(str).isin(other_day_liked)
         ].copy()
-        log.info("CLUSTER", f"day {day_index + 1} liked: today={sorted(today_liked_ids)} | reserved={sorted(other_day_liked)} | pool {before}→{len(scored_for_knapsack)}", verbosity=2)
+        log.info("CLUSTER", f"day {day_index + 1} liked: today={sorted(today_liked_ids)} | reserved={sorted(other_day_liked)} | pool {before}→{len(scored_for_knapsack)}", verbosity=1)
+        # Show human-readable names for reserved liked attractions
+        for aid in sorted(other_day_liked):
+            row = df[df["attraction_id"].astype(str) == aid]
+            name = row.iloc[0]["name"] if not row.empty else aid
+            assigned_day = liked_day_assignment.get(aid, "?")
+            log.info("LIKED", f"'{name}' reserved for Day {assigned_day + 1 if isinstance(assigned_day, int) else assigned_day} — excluded from Day {day_index + 1} pool", verbosity=1)
 
     # ── Liked restaurant / café pool for meal-slot priority ────────────────────
     _LIKED_MEAL_CATS = {"restaurant", "cafe", "food", "seafood", "grills",
@@ -1705,7 +1744,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
 
     # ── Fixed meal windows (clock-based, not progress-based) ───────────────────
     BREAKFAST_OPEN, BREAKFAST_CLOSE = 8.0,  10.0
-    LUNCH_OPEN,     LUNCH_CLOSE     = 12.5, 14.5
+    LUNCH_OPEN,     LUNCH_CLOSE     = 12.5, 16.0
     COFFEE_OPEN,    COFFEE_CLOSE    = 16.0, 18.0
     DINNER_OPEN,    DINNER_CLOSE    = 19.0, 21.0
 
@@ -1772,13 +1811,15 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # 5. Nearest-neighbor TSP ordering (replaces optimise_route as the live path)
     ordered = nearest_neighbor_route(selected_df, user.current_lat, user.current_lon)
 
-    # Liked attractions for TODAY go first so the scheduler never reaches them too late.
-    # Other-day liked attractions have already been stripped from the pool above.
-    _liked_first = [a for a in ordered if str(a["attraction_id"]) in today_liked_ids]
-    _rest        = [a for a in ordered if str(a["attraction_id"]) not in today_liked_ids]
-    ordered = _liked_first + _rest
-    if _liked_first:
-        log.section("ROUTE", f"liked-first order: {[a['name'] for a in _liked_first]} then {len(_rest)} others")
+    # Use natural nearest-neighbor order — liked places are already in the pool via
+    # knapsack re-injection and their LIKED_BONUS score. Forcing them first caused them
+    # to be tried before they opened and then never retried.
+    # Sort by open_hour ascending (secondary: original nearest-neighbor position).
+    # This ensures 09:00 attractions are visited before 10:00 ones, so late-opening
+    # liked places are naturally reached after the clock has passed their open time.
+    _liked_in_order = [a["name"] for a in ordered if str(a["attraction_id"]) in today_liked_ids]
+    if _liked_in_order:
+        log.section("ROUTE", f"liked in pool: {_liked_in_order}")
 
     # ── Scheduler state ─────────────────────────────────────────────────────────
     itinerary       = []
@@ -1808,15 +1849,18 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     def time_left():
         return avail_hrs - (curr_hr - float(start_hour))
 
-    def add_meal(slot, nlat, nlon, dur):
+    def add_meal(slot, nlat, nlon, dur, max_dist_km=None, dest_lat=None, dest_lon=None):
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
-        opts = recommend_meals(df, user, slot, nlat, nlon, visited_today)
+        opts = recommend_meals(df, user, slot, nlat, nlon, visited_today, dest_lat=dest_lat, dest_lon=dest_lon)
         if not opts:
             return
         pick           = opts[0]
         transport      = pick["transport"]
         transport_cost = transport.get("cost_egp", 0)
         travel_hrs     = float(transport.get("duration_min", 0) or 0) / 60.0
+        if max_dist_km is not None and transport.get("distance_km", 0) > max_dist_km:
+            log.info("ROUTE", f"skipping {slot} — nearest option {transport['distance_km']:.1f} km away (cap {max_dist_km} km)", verbosity=1)
+            return
         total_stop_hrs = travel_hrs + dur
         if time_left() < total_stop_hrs:
             return
@@ -1856,7 +1900,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         last_stop_type  = "meal"
         last_meal_hr    = curr_hr
 
-    MAX_MEAL_DETOUR_KM = 3.0
+    MAX_MEAL_DETOUR_KM = 5.0
 
     def try_liked_meal(slot: str, dur: float) -> bool:
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
@@ -1941,13 +1985,41 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     if include_breakfast and not breakfast_done and curr_hr >= BREAKFAST_OPEN:
         if curr_hr <= BREAKFAST_CLOSE:
             if not try_liked_meal("breakfast", 0.5):
-                add_meal("breakfast", user.current_lat, user.current_lon, 0.5)
+                add_meal("breakfast", user.current_lat, user.current_lon, 0.5,
+                         dest_lat=_anchor_lat, dest_lon=_anchor_lon)
         breakfast_done = True
 
     # ── Main scheduling loop ────────────────────────────────────────────────────
-    for att in ordered:
+    # _open_wait holds liked places parked because they aren't open yet.
+    # After each successful visit the clock advances, so we check if any of them
+    # can now be visited and push them to the front of the queue immediately.
+    from collections import deque
+    _sched_queue = deque(ordered)
+    _open_wait: list = []
+    while _sched_queue:
         if time_left() <= 0:
             break
+
+        # Flush any parked liked places that are now open back into the queue
+        # so the liked-first scan below can pick them up immediately.
+        for _w in list(_open_wait):
+            if curr_hr >= float(_w.get("open_hour", 0)):
+                _sched_queue.appendleft(_w)
+                _open_wait.remove(_w)
+                log.info("LIKED", f"'{_w['name']}' now open — back in queue", verbosity=1)
+
+        # Always try a liked place that is currently open before anything else.
+        # Scan the queue for the first liked attraction whose open_hour <= curr_hr.
+        att = None
+        for _i, _candidate in enumerate(_sched_queue):
+            if str(_candidate.get("attraction_id")) in today_liked_ids:
+                if curr_hr >= float(_candidate.get("open_hour", 0) or 0):
+                    att = _candidate
+                    del _sched_queue[_i]
+                    log.info("LIKED", f"'{_candidate['name']}' pulled to front (open now)", verbosity=2)
+                    break
+        if att is None:
+            att = _sched_queue.popleft()
 
         # ── Inject meals whose window has opened since the last attraction ──────
         if include_breakfast and not breakfast_done:
@@ -1962,7 +2034,8 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         if (include_coffee and not coffee_done and
                 COFFEE_OPEN <= curr_hr <= COFFEE_CLOSE and
                 (curr_hr - last_meal_hr) >= COFFEE_GAP_HRS):
-            add_meal("coffee", prev_lat, prev_lon, 0.4)
+            if not try_liked_meal("coffee", 0.4):
+                add_meal("coffee", prev_lat, prev_lon, 0.4, max_dist_km=2.0)
             coffee_done = True
         elif include_coffee and not coffee_done and curr_hr > COFFEE_CLOSE:
             coffee_done = True  # window passed without eligible gap — skip
@@ -2011,23 +2084,33 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         open_hr    = float(att.get("open_hour", 0))
         close_hr   = float(att.get("close_hour", 24))
         if arrival_hr < open_hr:
-            log.skip(att["name"], f"arrives {_fmt(arrival_hr)}, opens {_fmt(open_hr)}")
+            reason = f"arrives {_fmt(arrival_hr)}, opens {_fmt(open_hr)}"
+            log.skip(att["name"], reason)
+            if is_liked and att not in _open_wait:
+                _open_wait.append(att)
+                log.info("LIKED", f"'{att['name']}' parked — will retry after next visit (opens {_fmt(open_hr)})", verbosity=1)
             continue
         if arrival_hr >= close_hr - MIN_VISIT_HRS:
-            log.skip(att["name"], f"arrives {_fmt(arrival_hr)}, closes {_fmt(close_hr)}")
+            reason = f"arrives {_fmt(arrival_hr)}, closes {_fmt(close_hr)}"
+            log.skip(att["name"], reason)
+            if is_liked: log.warn("LIKED", f"'{att['name']}' skipped — {reason}")
             continue
 
         raw_dur          = max(float(att["avg_visit_hrs"]), MIN_VISIT_HRS)
         time_until_close = close_hr - arrival_hr
         dur = min(raw_dur, max(0.0, time_left() - travel_hrs), time_until_close)
         if dur < MIN_VISIT_HRS:
-            log.skip(att["name"], "can't fit minimum visit time", verbosity=2)
+            reason = "can't fit minimum visit time"
+            log.skip(att["name"], reason, verbosity=2)
+            if is_liked: log.warn("LIKED", f"'{att['name']}' skipped — {reason}")
             continue
         if not is_liked and dur < raw_dur * 0.70:
             log.skip(att["name"], f"needs {raw_dur}h, only {dur:.2f}h available (70% rule)")
             continue
         if is_liked and dur < MIN_VISIT_HRS:
-            log.skip(att["name"], f"can't fit even {MIN_VISIT_HRS}h")
+            reason = f"can't fit even {MIN_VISIT_HRS}h"
+            log.skip(att["name"], reason)
+            log.warn("LIKED", f"'{att['name']}' skipped — {reason}")
             continue
 
         # ── Accepted — log the route hop ────────────────────────────────────────
@@ -2156,7 +2239,8 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # ── Fallback: if < 3 attractions scheduled, expand beyond cluster ─────────
     att_count = sum(1 for s in itinerary if s["type"] == "Attraction")
     if att_count < 3 and time_left() > 0:
-        log.section("ROUTE", f"fallback — only {att_count} attraction(s), expanding to full city pool")
+        FALLBACK_RADIUS_KM = 6.0
+        log.section("ROUTE", f"fallback — only {att_count} attraction(s), expanding to {FALLBACK_RADIUS_KM:.0f} km around anchor")
         already_in = {str(s["id"]) for s in itinerary}
         fallback_df = scored[
             ~scored["attraction_id"].astype(str).isin(already_in)
@@ -2164,6 +2248,15 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
             )
         ].copy()
+        if not fallback_df.empty:
+            fallback_df["_fb_dist"] = fallback_df.apply(
+                lambda r: _haversine_fallback(
+                    _anchor_lat, _anchor_lon,
+                    float(r["latitude"]), float(r["longitude"])
+                )["distance_km"],
+                axis=1,
+            )
+            fallback_df = fallback_df[fallback_df["_fb_dist"] <= FALLBACK_RADIUS_KM].drop(columns=["_fb_dist"])
         if not fallback_df.empty:
             fallback_ordered = nearest_neighbor_route(fallback_df, prev_lat, prev_lon)
             for att in fallback_ordered:
@@ -2222,7 +2315,8 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # ── Post-loop: fire any meal windows not yet reached by the attraction loop ─
     if include_breakfast and not breakfast_done and curr_hr <= BREAKFAST_CLOSE:
         if not try_liked_meal("breakfast", 0.5):
-            add_meal("breakfast", prev_lat, prev_lon, 0.5)
+            add_meal("breakfast", prev_lat, prev_lon, 0.5,
+                     dest_lat=_anchor_lat, dest_lon=_anchor_lon)
         breakfast_done = True
 
     lunch_added_post = False

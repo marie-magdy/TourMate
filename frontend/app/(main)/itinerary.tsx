@@ -231,9 +231,8 @@ const eodStyles = StyleSheet.create({
 // ── Activity Row ──────────────────────────────────────────────────────
 const ActivityRow: React.FC<{
   activity: Activity;
-  onDelete: (id: string) => void;
   onPress: () => void;
-}> = ({ activity, onDelete, onPress }) => (
+}> = ({ activity, onPress }) => (
   <View style={styles.activityRow}>
     <View style={styles.activityTimeCol}>
       <Text style={styles.activityTime}>{formatTime12(activity.time)}</Text>
@@ -283,9 +282,6 @@ const ActivityRow: React.FC<{
     <View style={styles.activityIconBox}>
       {getCategoryIcon(activity.icon)}
     </View>
-    <TouchableOpacity onPress={() => onDelete(activity.id)} style={styles.deleteBtn}>
-      <Text style={styles.deleteIcon}>✕</Text>
-    </TouchableOpacity>
   </View>
 );
 
@@ -321,13 +317,11 @@ export default function ItineraryScreen() {
 
   const city = params.city ?? 'Hurghada';
   const [fetchedInterests, setFetchedInterests] = useState<string[] | null>(null);
-  const [fetchedSpotIds, setFetchedSpotIds] = useState<number[] | null>(null);
+  const [fetchedSpotIds, setFetchedSpotIds] = useState<string[] | null>(null);
   const interests = fetchedInterests ?? (params.interests?.split(',')?.filter(Boolean) ?? []);
   const spotIdsForApi =
     fetchedSpotIds ??
-    (params.spotIds?.split(',')
-      .map(s => parseInt(s, 10))
-      .filter(n => !Number.isNaN(n)) ?? []);
+    (params.spotIds?.split(',').filter(Boolean) ?? []);
   const startDate = params.startDate ?? new Date().toISOString();
   const endDate = params.endDate ?? new Date().toISOString();
 
@@ -955,15 +949,6 @@ if (row.hotel_details) {
     }
   };
 
-  // ── Delete activity ───────────────────────────────────────────────
-  const deleteActivity = (dayIndex: number, activityId: string): void => {
-    setDays(prev => prev.map((d, i) =>
-      i === dayIndex
-        ? { ...d, activities: d.activities.filter(a => a.id !== activityId) }
-        : d
-    ));
-  };
-
   // ── Plan coach ────────────────────────────────────────────────────
   const sendPlanCoachMessage = async (preset?: string): Promise<void> => {
     const raw =
@@ -1274,7 +1259,6 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
               )}
               <ActivityRow
                 activity={activity}
-                onDelete={(id) => deleteActivity(activeDay, id)}
                 onPress={() => {
                   const hasRealId = activity.id && !activity.id.startsWith('rec-') && activity.id !== 'start' && activity.id !== 'end';
                   if (hasRealId) {

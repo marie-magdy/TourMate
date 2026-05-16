@@ -20,11 +20,14 @@ function ensureTable() {
         interests   JSONB,
         spot_ids    JSONB,
         itinerary   JSONB,
+        name        TEXT,
         created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
-    `).catch(err => {
+    `).then(() => pool.query(
+      `ALTER TABLE saved_plans ADD COLUMN IF NOT EXISTS name TEXT`
+    )).catch(err => {
       console.error('[plans] table init error:', err);
-      _tableReady = null; // allow retry on next request
+      _tableReady = null;
     });
   }
   return _tableReady;
@@ -133,12 +136,35 @@ router.get('/:user_id', async (req, res) => {
   try {
     const { user_id } = req.params;
     const result = await pool.query(
-      'SELECT id, city, start_date, end_date, budget, itinerary, created_at FROM saved_plans WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, city, start_date, end_date, budget, itinerary, name, created_at FROM saved_plans WHERE user_id = $1 ORDER BY created_at DESC',
       [user_id]
     );
     return res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('[plans] fetch error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// PATCH /api/plans/item/:planId/name  — rename a saved plan
+router.patch('/item/:planId/name', async (req, res) => {
+  await ensureTable();
+  try {
+    const { planId } = req.params;
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'name is required' });
+    }
+    const result = await pool.query(
+      'UPDATE saved_plans SET name = $1 WHERE id = $2 RETURNING id, name',
+      [name.trim(), planId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('[plans] rename error:', err);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 });
