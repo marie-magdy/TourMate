@@ -69,10 +69,9 @@ def attractions():
     city     = request.args.get("city", "").strip().lower()
     category = request.args.get("category", "").strip().lower()
     try:
-        limit = int(request.args.get("limit", "50"))
+        limit = int(request.args.get("limit", "200"))
     except ValueError:
-        limit = 50
-    limit = max(1, min(limit, 150))
+        limit = 200
     near_lat = request.args.get("near_lat", type=float)
     near_lon = request.args.get("near_lon", type=float)
 

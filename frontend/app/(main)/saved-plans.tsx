@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   SafeAreaView, ActivityIndicator, RefreshControl, Alert,
+  Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,6 +25,7 @@ interface SavedPlan {
   end_date: string;
   budget: string;
   created_at: string;
+  name?: string;
   itinerary?: DayPlan[];
 }
 
@@ -78,7 +80,8 @@ const PlanCard: React.FC<{
   plan: SavedPlan;
   onPress: () => void;
   onDelete: () => void;
-}> = ({ plan, onPress, onDelete }) => {
+  onRename: () => void;
+}> = ({ plan, onPress, onDelete, onRename }) => {
   const days: DayPlan[] = plan.itinerary ?? [];
   const totalStops = days.reduce((s, d) =>
     s + d.activities.filter(a => a.id !== 'start' && a.id !== 'end').length, 0);
@@ -91,9 +94,17 @@ const PlanCard: React.FC<{
         </View>
 
         <View style={cardStyles.headerMid}>
-          <Text style={cardStyles.city}>
-            {plan.city.charAt(0).toUpperCase() + plan.city.slice(1)}
-          </Text>
+          <View style={cardStyles.nameRow}>
+            <Text style={cardStyles.city}>
+              {plan.name ?? (plan.city.charAt(0).toUpperCase() + plan.city.slice(1))}
+            </Text>
+            <TouchableOpacity
+              onPress={e => { e.stopPropagation?.(); onRename(); }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={14} color="#C0A882" />
+            </TouchableOpacity>
+          </View>
           <Text style={cardStyles.dates}>{formatDateRange(plan.start_date, plan.end_date)}</Text>
           <View style={cardStyles.metaRow}>
             <View style={cardStyles.metaChip}>
@@ -162,7 +173,8 @@ const cardStyles = StyleSheet.create({
     borderColor: '#F0E2C8',
   },
   headerMid: { flex: 1 },
-  city: { fontSize: 16, fontWeight: '800', color: '#2C1810', marginBottom: 3 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+  city: { fontSize: 16, fontWeight: '800', color: '#2C1810' },
   dates: { fontSize: 12, color: '#A08060', fontWeight: '600', marginBottom: 7 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   metaChip: {
@@ -227,6 +239,8 @@ export default function SavedPlansScreen() {
   const [plans, setPlans] = useState<SavedPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [renamePlan, setRenamePlan] = useState<SavedPlan | null>(null);
+  const [renameText, setRenameText] = useState('');
 
   // Load userId from AsyncStorage on mount
   useEffect(() => {
@@ -297,8 +311,61 @@ export default function SavedPlansScreen() {
     ]);
   };
 
+  const submitRename = async () => {
+    if (!renamePlan || !renameText.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/plans/item/${renamePlan.id}/name`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: renameText.trim() }),
+      });
+      const contentType = res.headers.get('content-type') ?? '';
+      const data = contentType.includes('application/json') ? await res.json() : null;
+      if (res.ok && data?.success) {
+        setPlans(prev => prev.map(p =>
+          p.id === renamePlan.id ? { ...p, name: renameText.trim() } : p
+        ));
+      } else {
+        Alert.alert('Error', 'Could not rename plan. Please try again.');
+      }
+    } catch (err) {
+      console.error('[SavedPlans] rename error:', err);
+      Alert.alert('Error', 'Could not rename plan. Please try again.');
+    } finally {
+      setRenamePlan(null);
+      setRenameText('');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
+
+      {/* ── Rename Modal ── */}
+      <Modal visible={!!renamePlan} transparent animationType="fade" onRequestClose={() => setRenamePlan(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={renameStyles.overlay}>
+          <View style={renameStyles.box}>
+            <Text style={renameStyles.title}>Rename plan</Text>
+            <TextInput
+              style={renameStyles.input}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Enter a name…"
+              placeholderTextColor="#C0A882"
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={submitRename}
+            />
+            <View style={renameStyles.btnRow}>
+              <TouchableOpacity style={renameStyles.cancelBtn} onPress={() => { setRenamePlan(null); setRenameText(''); }}>
+                <Text style={renameStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={renameStyles.saveBtn} onPress={submitRename}>
+                <Text style={renameStyles.saveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ── Header ── */}
       <View style={styles.header}>
@@ -356,6 +423,7 @@ export default function SavedPlansScreen() {
                   key={plan.id}
                   plan={plan}
                   onDelete={() => deletePlan(plan.id)}
+                  onRename={() => { setRenamePlan(plan); setRenameText(plan.name ?? ''); }}
                   onPress={() =>
                     router.push({
                       pathname: '/(main)/itinerary' as any,
@@ -380,6 +448,22 @@ export default function SavedPlansScreen() {
     </SafeAreaView>
   );
 }
+
+const renameStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 32 },
+  box: { backgroundColor: '#FFF', borderRadius: 20, padding: 24, width: '100%', gap: 16 },
+  title: { fontSize: 17, fontWeight: '800', color: '#2C1810' },
+  input: {
+    borderWidth: 1, borderColor: '#F0E2C8', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 10,
+    fontSize: 15, color: '#2C1810', backgroundColor: '#FDF8F0',
+  },
+  btnRow: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
+  cancelBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5EDE0' },
+  cancelText: { fontSize: 14, fontWeight: '700', color: '#A08060' },
+  saveBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: '#C4873A' },
+  saveText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+});
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FDF8F0' },
