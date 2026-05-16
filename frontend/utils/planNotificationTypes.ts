@@ -189,31 +189,6 @@ export const ACTIVITY_TYPES = {
   TRANSPORT: 'Transport',
 } as const;
 
-/**
- * Helper function to get emoji for activity type
- */
-export function getActivityEmoji(type: ActivityType): string {
-  switch (type.toLowerCase()) {
-    case 'attraction':
-      return '🎭';
-    case 'breakfast':
-      return '🍳';
-    case 'lunch':
-      return '🍽️';
-    case 'dinner':
-      return '🍽️';
-    case 'snack':
-      return '🍿';
-    case 'coffee':
-      return '☕';
-    case 'rest':
-      return '🪑';
-    case 'transport':
-      return '🚕';
-    default:
-      return '📍';
-  }
-}
 
 /**
  * Helper function to convert time string to hours
