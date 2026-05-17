@@ -233,7 +233,8 @@ const eodStyles = StyleSheet.create({
 const ActivityRow: React.FC<{
   activity: Activity;
   onPress: () => void;
-}> = ({ activity, onPress }) => (
+  isLiked?: boolean;
+}> = ({ activity, onPress, isLiked }) => (
   <View style={styles.activityRow}>
     <View style={styles.activityTimeCol}>
       <Text style={styles.activityTime}>{formatTime12(activity.time)}</Text>
@@ -243,7 +244,9 @@ const ActivityRow: React.FC<{
       <View style={styles.activityConnector} />
     </View>
     <TouchableOpacity style={styles.activityContent} onPress={onPress} activeOpacity={0.72}>
-      <Text style={styles.activityTitle}>{activity.title}</Text>
+      <Text style={styles.activityTitle}>
+        {activity.title}{isLiked && <>{' '}<MaterialCommunityIcons name="star" size={14} color="#F5A623" /></>}
+      </Text>
       {(activity.categories ?? []).length > 0 && (
         <View style={styles.activityCatsRow}>
           {(activity.categories ?? []).slice(0, 2).map(cat => (
@@ -345,6 +348,7 @@ export default function ItineraryScreen() {
 
   const [days, setDays] = useState<DayPlan[]>([]);
   const [activeDay, setActiveDay] = useState(0);
+  const [likedIdSet, setLikedIdSet] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
@@ -724,6 +728,8 @@ if (row.hotel_details) {
       const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
       const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
+      const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
+      setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
 
       const scheduledLikedIds = new Set<string>();
 
@@ -1267,6 +1273,7 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
               )}
               <ActivityRow
                 activity={activity}
+                isLiked={likedIdSet.has(activity.id.replace(/^ATT0*/i, ''))}
                 onPress={() => {
                   const hasRealId = activity.id && !activity.id.startsWith('rec-') && activity.id !== 'start' && activity.id !== 'end';
                   if (hasRealId) {
