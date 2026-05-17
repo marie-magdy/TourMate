@@ -1284,9 +1284,25 @@ def select_anchors(scored_df: pd.DataFrame, liked_ids_set: set,
         )
         max_s = ordered["final_score"].max() or 1.0
         max_d = ordered["_dist_start"].max() or 1.0
+        # ordered["_anchor0_val"] = (
+        #     0.65 * (ordered["final_score"] / max_s) +
+        #     0.35 * (1.0 - ordered["_dist_start"] / max_d)
+        # )
+        ordered["_isolation"] = ordered.apply(
+            lambda r: pool.apply(
+                lambda p: _haversine_fallback(
+                    float(r["latitude"]), float(r["longitude"]),
+                    float(p["latitude"]), float(p["longitude"])
+                )["distance_km"],
+                axis=1
+            ).nsmallest(10).mean(),
+            axis=1,
+        )
+        max_iso = ordered["_isolation"].max() or 1.0
         ordered["_anchor0_val"] = (
-            0.65 * (ordered["final_score"] / max_s) +
-            0.35 * (1.0 - ordered["_dist_start"] / max_d)
+            0.50 * (ordered["final_score"] / max_s) +
+            0.30 * (1.0 - ordered["_dist_start"] / max_d) +
+            0.20 * (1.0 - ordered["_isolation"] / max_iso)
         )
         ordered = (ordered
                    .sort_values("_anchor0_val", ascending=False)
@@ -2165,77 +2181,315 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             mall_added = True
 
     # ── Fill step: if > 1.5h remains after main loop, top up from cluster pool ─
+    # if time_left() > 1.5:
+    #     fill_already = {str(s["id"]) for s in itinerary}
+    #     fill_df = scored_for_knapsack[
+    #         ~scored_for_knapsack["attraction_id"].astype(str).isin(fill_already)
+    #         & ~scored_for_knapsack["categories"].apply(
+    #             lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
+    #         )
+    #     ].copy()
+    #     if not fill_df.empty:
+    #         log.section("ROUTE", f"fill step — {time_left():.1f}h left, {len(fill_df)} candidates")
+    #         fill_cap_km = CITY_FILL_DISTANCE_KM.get(user.city, MAX_FILL_DISTANCE_KM)
+    #         for att in nearest_neighbor_route(fill_df, prev_lat, prev_lon):
+    #             if time_left() <= 0:
+    #                 break
+    #             att_cats = set(att["categories"])
+    #             is_liked = str(att["attraction_id"]) in liked_ids_set
+    #             if att_cats & BEACH_CATS and beach_added and not is_liked: continue
+    #             if att_cats & MALL_CATS  and mall_added  and not is_liked: continue
+    #             if str(att["attraction_id"]) in liked_used_as_meal: continue
+    #             if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS and not is_liked: continue
+    #             # Distance cap — cheap haversine check before the OSRM call
+    #             fill_dist_km = _haversine_fallback(
+    #                 prev_lat, prev_lon,
+    #                 float(att["latitude"]), float(att["longitude"]),
+    #             )["distance_km"]
+    #             if not is_liked and fill_dist_km > fill_cap_km:
+    #                 log.skip(att["name"], f"{fill_dist_km:.1f} km away (>{fill_cap_km:.0f} km fill cap)", verbosity=1)
+    #                 continue
+    #             if is_liked and fill_dist_km > fill_cap_km:
+    #                 log.info("ROUTE", f"fill: liked '{att['name']}' is {fill_dist_km:.1f} km — bypassing cap")
+    #             transport      = get_transport_info(prev_lat, prev_lon,
+    #                                  att["latitude"], att["longitude"],
+    #                                  dest_name=att["name"], city=user.city)
+    #             transport_cost = transport.get("cost_egp", 0)
+    #             travel_hrs     = float(transport.get("duration_min", 0) or 0) / 60.0
+    #             if not is_liked and float(att["price_avg"]) > (user.budget_egp - total_cost - total_transport): continue
+    #             if time_left() <= travel_hrs: continue
+    #             arrival_hr = curr_hr + travel_hrs
+    #             open_hr  = float(att.get("open_hour", 0))
+    #             close_hr = float(att.get("close_hour", 24))
+    #             if arrival_hr < open_hr or arrival_hr >= close_hr - MIN_VISIT_HRS: continue
+    #             raw_dur = max(float(att["avg_visit_hrs"]), MIN_VISIT_HRS)
+    #             dur = min(raw_dur, max(0.0, time_left() - travel_hrs), close_hr - arrival_hr)
+    #             if dur < MIN_VISIT_HRS: continue
+    #             if not is_liked and dur < raw_dur * 0.70: continue
+    #             itinerary.append({
+    #                 "time": _fmt(curr_hr + travel_hrs), "departure_time": _fmt(curr_hr),
+    #                 "type": "Attraction", "name": att["name"], "id": att["attraction_id"],
+    #                 "latitude": att["latitude"], "longitude": att["longitude"],
+    #                 "cosine_sim": round(float(att.get("cosine_sim", 0)), 3),
+    #                 "final_score": round(float(att.get("final_score", 0)), 3),
+    #                 "duration_hrs": round(dur, 2),
+    #                 "travel_duration_min": transport.get("duration_min", 0),
+    #                 "cost_egp": float(att["price_avg"]), "distance_km": transport["distance_km"],
+    #                 "transport": transport, "transport_cost": transport_cost,
+    #                 "address": att.get("address", ""), "description": att.get("description", ""),
+    #                 "categories": att["categories"], "crowd_label": att.get("crowd_label", ""),
+    #                 "crowd_pattern": att.get("crowd_pattern", ""), "rating": att.get("avg_rating", 0),
+    #                 "open": att.get("open_hour", 0), "close": att.get("close_hour", 24),
+    #                 "image_url": str(att.get("primary_image") or ""),
+    #                 "price_from": float(att.get("price_min", 0)),
+    #                 "directions_url": transport.get("directions_url", ""),
+    #                 "osm_url": osm_maps_url(att["latitude"], att["longitude"], att["name"]),
+    #             })
+    #             visited_today.append(att["attraction_id"])
+    #             prev_lat = att["latitude"]; prev_lon = att["longitude"]
+    #             curr_hr += travel_hrs + dur; total_cost += float(att["price_avg"])
+    #             total_transport += transport_cost; total_dist += transport["distance_km"]
+    #             last_stop_type = "attraction"
+    #             if att_cats & BEACH_CATS: beach_added = True
+    #             if att_cats & MALL_CATS:  mall_added  = True
+    # ── Fill step: global cluster evaluation ───────────────────────────────────
     if time_left() > 1.5:
+        log.section("ROUTE", f"fill step ")
         fill_already = {str(s["id"]) for s in itinerary}
-        fill_df = scored_for_knapsack[
-            ~scored_for_knapsack["attraction_id"].astype(str).isin(fill_already)
-            & ~scored_for_knapsack["categories"].apply(
-                lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
-            )
-        ].copy()
-        if not fill_df.empty:
-            log.section("ROUTE", f"fill step — {time_left():.1f}h left, {len(fill_df)} candidates")
-            fill_cap_km = CITY_FILL_DISTANCE_KM.get(user.city, MAX_FILL_DISTANCE_KM)
-            for att in nearest_neighbor_route(fill_df, prev_lat, prev_lon):
-                if time_left() <= 0:
-                    break
-                att_cats = set(att["categories"])
-                is_liked = str(att["attraction_id"]) in liked_ids_set
-                if att_cats & BEACH_CATS and beach_added and not is_liked: continue
-                if att_cats & MALL_CATS  and mall_added  and not is_liked: continue
-                if str(att["attraction_id"]) in liked_used_as_meal: continue
-                if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS and not is_liked: continue
-                # Distance cap — cheap haversine check before the OSRM call
-                fill_dist_km = _haversine_fallback(
+
+        def _get_fill_candidates():
+            cands = scored[
+                ~scored["attraction_id"].astype(str).isin(fill_already)
+                & ~scored["categories"].apply(
+                    lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
+                )
+            ].copy()
+            if cands.empty:
+                return cands
+            cands["_dist_curr"] = cands.apply(
+                lambda r: _haversine_fallback(
                     prev_lat, prev_lon,
-                    float(att["latitude"]), float(att["longitude"]),
-                )["distance_km"]
-                if not is_liked and fill_dist_km > fill_cap_km:
-                    log.skip(att["name"], f"{fill_dist_km:.1f} km away (>{fill_cap_km:.0f} km fill cap)", verbosity=1)
+                    float(r["latitude"]), float(r["longitude"])
+                )["distance_km"], axis=1,
+            )
+            return cands
+
+        def _passes_guards(att):
+            att_cats = set(att["categories"])
+            is_liked = str(att["attraction_id"]) in liked_ids_set
+            if att_cats & BEACH_CATS and beach_added and not is_liked: return False
+            if att_cats & MALL_CATS  and mall_added  and not is_liked: return False
+            if str(att["attraction_id"]) in liked_used_as_meal:        return False
+            if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS and not is_liked:
+                return False
+            return True
+
+        def _evaluate_cluster(anchor_row, all_rows, internal_radius_km=4.0):
+            """
+            Given an anchor attraction, find all other candidates within
+            internal_radius_km of it. Simulate visiting them in nearest-neighbor
+            order FROM the anchor. Return list of viable (att, t_info, t_hrs, dur)
+            tuples, or [] if even the anchor itself can't be reached.
+            """
+            alat = float(anchor_row["latitude"])
+            alon = float(anchor_row["longitude"])
+
+            # Travel cost from current position to anchor
+            t_to_anchor = get_transport_info(
+                prev_lat, prev_lon, alat, alon,
+                dest_name=anchor_row["name"], city=user.city,
+            )
+            t_hrs_to_anchor = float(t_to_anchor.get("duration_min", 0)) / 60.0
+
+            # Can we even reach the anchor?
+            if time_left() <= t_hrs_to_anchor + MIN_VISIT_HRS:
+                return [], t_to_anchor
+
+            # Build the cluster: anchor + everything within internal_radius_km
+            cluster_rows = [anchor_row]
+            for _, other in all_rows.iterrows():
+                if str(other["attraction_id"]) == str(anchor_row["attraction_id"]):
                     continue
-                if is_liked and fill_dist_km > fill_cap_km:
-                    log.info("ROUTE", f"fill: liked '{att['name']}' is {fill_dist_km:.1f} km — bypassing cap")
-                transport      = get_transport_info(prev_lat, prev_lon,
-                                     att["latitude"], att["longitude"],
-                                     dest_name=att["name"], city=user.city)
-                transport_cost = transport.get("cost_egp", 0)
-                travel_hrs     = float(transport.get("duration_min", 0) or 0) / 60.0
-                if not is_liked and float(att["price_avg"]) > (user.budget_egp - total_cost - total_transport): continue
-                if time_left() <= travel_hrs: continue
-                arrival_hr = curr_hr + travel_hrs
+                d = _haversine_fallback(
+                    alat, alon,
+                    float(other["latitude"]), float(other["longitude"])
+                )["distance_km"]
+                if d <= internal_radius_km:
+                    cluster_rows.append(other.to_dict())
+
+            # Order cluster by nearest-neighbor starting FROM anchor
+            cluster_df = pd.DataFrame(cluster_rows).drop_duplicates("attraction_id")
+            ordered = nearest_neighbor_route(cluster_df, alat, alon)
+
+            # Simulate visiting each stop in order
+            sim_hr = curr_hr + t_hrs_to_anchor  # clock after arriving at anchor
+            sim_lat, sim_lon = alat, alon
+            sim_cost = total_cost + total_transport
+            viable = []
+
+            for att in ordered:
+                if not _passes_guards(att):
+                    continue
+                is_liked = str(att["attraction_id"]) in liked_ids_set
+
+                if len(viable) == 0:
+                    # First stop IS the anchor — use t_to_anchor already computed
+                    t_info = t_to_anchor
+                    t_hrs  = t_hrs_to_anchor
+                    arr_hr = curr_hr + t_hrs
+                else:
+                    t_info = get_transport_info(
+                        sim_lat, sim_lon,
+                        float(att["latitude"]), float(att["longitude"]),
+                        dest_name=att["name"], city=user.city,
+                    )
+                    t_hrs  = float(t_info.get("duration_min", 0)) / 60.0
+                    arr_hr = sim_hr + t_hrs
+
+                time_rem = avail_hrs - (arr_hr - float(start_hour))
                 open_hr  = float(att.get("open_hour", 0))
                 close_hr = float(att.get("close_hour", 24))
-                if arrival_hr < open_hr or arrival_hr >= close_hr - MIN_VISIT_HRS: continue
+
+                if arr_hr < open_hr or arr_hr >= close_hr - MIN_VISIT_HRS:
+                    continue
+                if not is_liked and float(att["price_avg"]) > (user.budget_egp - sim_cost):
+                    continue
+                if time_rem <= 0:
+                    break
+
                 raw_dur = max(float(att["avg_visit_hrs"]), MIN_VISIT_HRS)
-                dur = min(raw_dur, max(0.0, time_left() - travel_hrs), close_hr - arrival_hr)
-                if dur < MIN_VISIT_HRS: continue
-                if not is_liked and dur < raw_dur * 0.70: continue
+                dur = min(raw_dur, max(0.0, time_rem), close_hr - arr_hr)
+                if dur < MIN_VISIT_HRS:
+                    break
+                if not is_liked and dur < raw_dur * 0.70:
+                    continue
+
+                viable.append((att, t_info, t_hrs, dur))
+                sim_hr   = arr_hr + dur
+                sim_lat  = float(att["latitude"])
+                sim_lon  = float(att["longitude"])
+                sim_cost += float(att["price_avg"]) + t_info.get("cost_egp", 0)
+
+            return viable, t_to_anchor
+
+        # ── PHASE 1: evaluate every remaining attraction as a potential anchor ──
+        log.section("ROUTE", f"fill step — {time_left():.1f}h left, evaluating all clusters globally")
+
+        while time_left() > 1.5:
+            all_cands = _get_fill_candidates()
+            if all_cands.empty:
+                log.section("ROUTE", "fill: no more candidates")
+                break
+
+            # Evaluate every candidate as a potential cluster anchor
+            best_viable   = []
+            best_anchor   = None
+            best_t_anchor = None
+            best_cluster_score = -999.0  
+
+            for _, anchor_row in all_cands.iterrows():
+                if not _passes_guards(anchor_row.to_dict()):
+                    continue
+                viable, t_to_anchor = _evaluate_cluster(
+                    anchor_row.to_dict(), all_cands, internal_radius_km=4.0
+                )
+
+                # ── NEW: hard cap — after 17:00, don't travel >10km for <2 stops ──────
+                if (curr_hr >= 17.0
+                        and t_to_anchor["distance_km"] > 10.0
+                        and len(viable) < 2
+                        and not any(str(a[0]["attraction_id"]) in liked_ids_set for a in viable)):
+                    continue
+
+                #  score = stops minus travel penalty ────────────────────────────
+                travel_penalty = t_to_anchor["distance_km"] / max(time_left(), 0.1)
+                cluster_score  = len(viable) - (travel_penalty * 0.5)
+                #  fatigue guard — after 6 attractions, skip far low-yield hops ─
+                att_count_so_far = sum(1 for s in itinerary if s["type"] == "Attraction")
+                if (att_count_so_far >= 6
+                        and t_to_anchor["distance_km"] > 4.0
+                        and len(viable) < 2
+                        and not any(str(a[0]["attraction_id"]) in liked_ids_set for a in viable)):
+                    continue
+
+                # Replace the old len(viable) > len(best_viable) comparison:
+                if cluster_score > best_cluster_score or (
+                    cluster_score == best_cluster_score
+                    and len(viable) > 0
+                    and t_to_anchor["distance_km"] < (best_t_anchor or {}).get("distance_km", 999)
+                ):
+                    best_viable        = viable
+                    best_anchor        = anchor_row
+                    best_t_anchor      = t_to_anchor
+                    best_cluster_score = cluster_score
+
+            if not best_viable:
+                log.section("ROUTE", "fill: no viable cluster found — stopping")
+                break
+
+            anchor_name = best_anchor["name"] if best_anchor is not None else "?"
+            log.section("ROUTE",
+                f"fill: best cluster anchor='{anchor_name}' "
+                f"→ {len(best_viable)} stop(s), "
+                f"{best_t_anchor['distance_km']:.1f}km to reach"
+            )
+
+            # ── PHASE 2: commit the best cluster ───────────────────────────────
+            for (att, t_info, t_hrs, dur) in best_viable:
+                att_cats       = set(att["categories"])
+                transport_cost = t_info.get("cost_egp", 0)
+                arrival_hr     = curr_hr + t_hrs
+                open_hr        = float(att.get("open_hour", 0))
+                close_hr       = float(att.get("close_hour", 24))
+
+                log.hop(_fmt(curr_hr), att["name"],
+                        t_info["distance_km"], t_info["duration_min"],
+                        t_info["mode"], _fmt(arrival_hr), open_hr, close_hr)
+
                 itinerary.append({
-                    "time": _fmt(curr_hr + travel_hrs), "departure_time": _fmt(curr_hr),
-                    "type": "Attraction", "name": att["name"], "id": att["attraction_id"],
-                    "latitude": att["latitude"], "longitude": att["longitude"],
-                    "cosine_sim": round(float(att.get("cosine_sim", 0)), 3),
-                    "final_score": round(float(att.get("final_score", 0)), 3),
-                    "duration_hrs": round(dur, 2),
-                    "travel_duration_min": transport.get("duration_min", 0),
-                    "cost_egp": float(att["price_avg"]), "distance_km": transport["distance_km"],
-                    "transport": transport, "transport_cost": transport_cost,
-                    "address": att.get("address", ""), "description": att.get("description", ""),
-                    "categories": att["categories"], "crowd_label": att.get("crowd_label", ""),
-                    "crowd_pattern": att.get("crowd_pattern", ""), "rating": att.get("avg_rating", 0),
-                    "open": att.get("open_hour", 0), "close": att.get("close_hour", 24),
-                    "image_url": str(att.get("primary_image") or ""),
-                    "price_from": float(att.get("price_min", 0)),
-                    "directions_url": transport.get("directions_url", ""),
-                    "osm_url": osm_maps_url(att["latitude"], att["longitude"], att["name"]),
+                    "time":                _fmt(curr_hr + t_hrs),
+                    "departure_time":      _fmt(curr_hr),
+                    "type":                "Attraction",
+                    "name":                att["name"],
+                    "id":                  att["attraction_id"],
+                    "latitude":            att["latitude"],
+                    "longitude":           att["longitude"],
+                    "cosine_sim":          round(float(att.get("cosine_sim", 0)), 3),
+                    "final_score":         round(float(att.get("final_score", 0)), 3),
+                    "duration_hrs":        round(dur, 2),
+                    "travel_duration_min": t_info.get("duration_min", 0),
+                    "cost_egp":            float(att["price_avg"]),
+                    "distance_km":         t_info["distance_km"],
+                    "transport":           t_info,
+                    "transport_cost":      transport_cost,
+                    "address":             att.get("address", ""),
+                    "description":         att.get("description", ""),
+                    "categories":          att["categories"],
+                    "crowd_label":         att.get("crowd_label", ""),
+                    "crowd_pattern":       att.get("crowd_pattern", ""),
+                    "rating":              att.get("avg_rating", 0),
+                    "open":                att.get("open_hour", 0),
+                    "close":              att.get("close_hour", 24),
+                    "image_url":           str(att.get("primary_image") or ""),
+                    "price_from":          float(att.get("price_min", 0)),
+                    "directions_url":      t_info.get("directions_url", ""),
+                    "osm_url":             osm_maps_url(
+                                            att["latitude"], att["longitude"], att["name"]
+                                        ),
                 })
+                fill_already.add(str(att["attraction_id"]))
                 visited_today.append(att["attraction_id"])
-                prev_lat = att["latitude"]; prev_lon = att["longitude"]
-                curr_hr += travel_hrs + dur; total_cost += float(att["price_avg"])
-                total_transport += transport_cost; total_dist += transport["distance_km"]
-                last_stop_type = "attraction"
+                prev_lat        = att["latitude"]
+                prev_lon        = att["longitude"]
+                curr_hr        += t_hrs + dur
+                total_cost     += float(att["price_avg"])
+                total_transport += transport_cost
+                total_dist     += t_info["distance_km"]
+                last_stop_type  = "attraction"
                 if att_cats & BEACH_CATS: beach_added = True
                 if att_cats & MALL_CATS:  mall_added  = True
+
+        # Loop back — re-evaluate globally from the new position/time
 
     # ── Fallback: if < 3 attractions scheduled, expand beyond cluster ─────────
     att_count = sum(1 for s in itinerary if s["type"] == "Attraction")
