@@ -73,6 +73,7 @@ interface Activity {
   open_hour?: number;
   close_hour?: number;
   price_from?: number;
+  detour_note?: string;
 }
 
 interface RecommendationStop {
@@ -275,6 +276,12 @@ const ActivityRow: React.FC<{
               <Text style={[styles.activityMetaText, styles.activityMetaTextFree]}>Free</Text>
             </View>
           )}
+        </View>
+      )}
+      {!!activity.detour_note && (
+        <View style={styles.detourNote}>
+          <MaterialCommunityIcons name="information-outline" size={12} color="#A06020" />
+          <Text style={styles.detourNoteText}>{activity.detour_note}</Text>
         </View>
       )}
       <Text style={styles.activityTapHint}>Tap for details →</Text>
@@ -622,6 +629,7 @@ if (row.hotel_details) {
         open_hour: stop.open,
         close_hour: stop.close,
         price_from: stop.price_from,
+        detour_note: (stop as any).detour_note ?? '',
         icon: (() => {
           if (stop.type.includes('Breakfast')) return 'breakfast';
           if (stop.type.includes('Lunch'))     return 'food';
@@ -2284,6 +2292,22 @@ activityIcon: {},
     color: Theme.colors.primary,
     fontWeight: '500',
     marginTop: 5,
+  },
+  detourNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    marginTop: 5,
+    backgroundColor: '#FFF8EE',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  detourNoteText: {
+    fontSize: 11,
+    color: '#A06020',
+    flexShrink: 1,
+    lineHeight: 15,
   },
 
   deleteBtn: { padding: 8, marginTop: 4 },
