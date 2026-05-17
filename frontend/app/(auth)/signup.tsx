@@ -16,7 +16,6 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [showRepeatPassword, setShowRepeatPassword] = useState(false);
 
-  // ✅ one error state per field
   const [errors, setErrors] = useState({
     username: '',
     email: '',
@@ -29,7 +28,6 @@ export default function SignUp() {
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const handleSignUp = async (retries = 2) => {
-    // reset all errors first
     const newErrors = { username: '', email: '', password: '', repeatPassword: '' };
     let hasError = false;
 
@@ -37,7 +35,7 @@ export default function SignUp() {
       newErrors.username = 'Username is required';
       hasError = true;
     }
-    
+
     if (!email) {
       newErrors.email = 'Email is required';
       hasError = true;
@@ -45,6 +43,7 @@ export default function SignUp() {
       newErrors.email = 'Enter a valid email address';
       hasError = true;
     }
+
     if (!password) {
       newErrors.password = 'Password is required';
       hasError = true;
@@ -52,6 +51,7 @@ export default function SignUp() {
       newErrors.password = 'Password must be at least 6 characters';
       hasError = true;
     }
+
     if (!repeatPassword) {
       newErrors.repeatPassword = 'Please repeat your password';
       hasError = true;
@@ -61,12 +61,11 @@ export default function SignUp() {
     }
 
     setErrors(newErrors);
-    if (hasError) return; //stops here instantly, no server call
+    if (hasError) return;
 
     try {
       const res = await api.post('/auth/register', { username, email, password });
-      
-      // ← save user to AsyncStorage just like login does
+
       await AsyncStorage.setItem('token', res.data.token);
       await AsyncStorage.setItem('user', JSON.stringify({
         id: res.data.id,
@@ -82,12 +81,12 @@ export default function SignUp() {
     } catch (error: any) {
       const isNetworkError = !error?.response;
       if (isNetworkError && retries > 0) {
-        console.log(`Retrying... (${retries} left)`);
-        return handleSignUp(retries - 1); 
+        if (process.env.NODE_ENV !== 'test') console.log(`Retrying... (${retries} left)`);
+        return handleSignUp(retries - 1);
       }
       const message = error?.response?.data?.error || 'Sign up failed';
       setErrors(prev => ({ ...prev, email: message }));
-   }
+    }
   };
 
   return (
@@ -104,10 +103,9 @@ export default function SignUp() {
             setUsername(text);
             if (errors.username) setErrors(prev => ({ ...prev, username: '' }));
           }}
-          onBlur={() => {                                               // fires when user leaves field
+          onBlur={() => {
             if (!username) setErrors(prev => ({ ...prev, username: 'Username is required' }));
-            if (username.length < 3) setErrors(prev => ({ ...prev, username: 'Username must be at least 3 characters' }));
-
+            else if (username.length < 3) setErrors(prev => ({ ...prev, username: 'Username must be at least 3 characters' }));
           }}
           style={[styles.input, errors.username ? styles.inputError : null]}
           placeholderTextColor="#999"
@@ -123,7 +121,7 @@ export default function SignUp() {
             setEmail(text);
             if (errors.email) setErrors(prev => ({ ...prev, email: '' }));
           }}
-          onBlur={() => {                                            
+          onBlur={() => {
             if (!email) setErrors(prev => ({ ...prev, email: 'Email is required' }));
             else if (!validateEmail(email)) setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
           }}
@@ -145,14 +143,18 @@ export default function SignUp() {
               setPassword(text);
               if (errors.password) setErrors(prev => ({ ...prev, password: '' }));
             }}
-            onBlur={() => {                                           
+            onBlur={() => {
               if (!password) setErrors(prev => ({ ...prev, password: 'Password is required' }));
               else if (password.length < 6) setErrors(prev => ({ ...prev, password: 'Password must be at least 6 characters' }));
             }}
             style={[styles.passwordInput, errors.password ? styles.inputError : null]}
             placeholderTextColor="#999"
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+          <TouchableOpacity
+            testID="toggle-password"
+            onPress={() => setShowPassword(!showPassword)}
+            style={styles.eyeIcon}
+          >
             <MaterialCommunityIcons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
           </TouchableOpacity>
         </View>
@@ -169,18 +171,23 @@ export default function SignUp() {
               setRepeatPassword(text);
               if (errors.repeatPassword) setErrors(prev => ({ ...prev, repeatPassword: '' }));
             }}
-            onBlur={() => {                                             // ✅
+            onBlur={() => {
               if (!repeatPassword) setErrors(prev => ({ ...prev, repeatPassword: 'Please repeat your password' }));
               else if (password !== repeatPassword) setErrors(prev => ({ ...prev, repeatPassword: 'Passwords do not match' }));
             }}
             style={[styles.passwordInput, errors.repeatPassword ? styles.inputError : null]}
             placeholderTextColor="#999"
           />
-          <TouchableOpacity onPress={() => setShowRepeatPassword(!showRepeatPassword)} style={styles.eyeIcon}>
+          <TouchableOpacity
+            testID="toggle-repeat-password"
+            onPress={() => setShowRepeatPassword(!showRepeatPassword)}
+            style={styles.eyeIcon}
+          >
             <MaterialCommunityIcons name={showRepeatPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
           </TouchableOpacity>
         </View>
         {errors.repeatPassword ? <Text style={styles.errorText}>{errors.repeatPassword}</Text> : null}
+
         <TouchableOpacity onPress={() => handleSignUp()} style={styles.signupButton}>
           <Text style={styles.signupButtonText}>Continue</Text>
         </TouchableOpacity>
@@ -204,7 +211,7 @@ const styles = StyleSheet.create({
     padding: 14, borderRadius: 20, fontSize: 16, color: '#000',
   },
   inputError: {
-    borderColor: '#E53935', 
+    borderColor: '#E53935',
   },
   errorText: {
     color: '#E53935',
