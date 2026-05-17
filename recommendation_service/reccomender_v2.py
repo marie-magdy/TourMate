@@ -1900,8 +1900,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         last_stop_type  = "meal"
         last_meal_hr    = curr_hr
 
-    MAX_MEAL_DETOUR_KM = 5.0
-
     def try_liked_meal(slot: str, dur: float) -> bool:
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
         slot_clean = slot.lower()
@@ -1919,9 +1917,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         for r in candidates:
             straight_km = _haversine_fallback(
                 prev_lat, prev_lon, r["latitude"], r["longitude"])["distance_km"]
-            if straight_km > MAX_MEAL_DETOUR_KM:
-                log.info("ROUTE", f"liked meal '{r['name']}' is {straight_km:.1f} km — exceeds cap, falling back", verbosity=2)
-                return False
             t = get_transport_info(
                 prev_lat, prev_lon, r["latitude"], r["longitude"],
                 dest_name=r["name"], city=user.city,
@@ -1932,6 +1927,11 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 continue
             if (float(r["price_avg"]) + transport_cost) > (user.budget_egp - total_cost - total_transport):
                 continue
+            detour_note = (
+                f"This is a place you liked! We went out of the day's area to fit it in — "
+                "your plan may be slightly less optimised around this stop."
+                if str(r["attraction_id"]) not in cluster_ids else ""
+            )
             itinerary.append({
                 "time":           _fmt(curr_hr + travel_hrs),
                 "departure_time": _fmt(curr_hr),
@@ -1954,6 +1954,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 "price_from":     float(r.get("price_min", 0)),
                 "osm_url":        osm_maps_url(r["latitude"], r["longitude"], r["name"]),
                 "directions_url": t.get("directions_url", ""),
+                "detour_note":    detour_note,
             })
             visited_today.append(r["attraction_id"])
             liked_used_as_meal.add(str(r["attraction_id"]))
