@@ -12,7 +12,7 @@ import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp, CurrencyCode, Language } from '../../constants/AppContext';
 import { API_BASE } from '../../constants/api';
-
+import { Theme } from '../../constants/theme';
 
 interface SettingRowProps {
   icon: React.ReactNode; label: string; value?: string;
@@ -612,61 +612,332 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea:  { flex: 1, backgroundColor: '#F5F5F5' },
-  container: { flex: 1 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: Theme.colors.subtleBg,
+  },
 
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  backBtn:     { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  backIcon:    { fontSize: 22, fontWeight: '700', color: '#333' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
+  container: {
+    flex: 1,
+  },
 
-  profileCard:        { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', marginHorizontal: 16, marginTop: 20, borderRadius: 20, padding: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, elevation: 3, gap: 14 },
-  profileCardLoading: { height: 90, marginHorizontal: 16, marginTop: 20, borderRadius: 20, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center' },
-  avatarCircle:       { width: 60, height: 60, borderRadius: 30, backgroundColor: '#E67E22', justifyContent: 'center', alignItems: 'center' },
-  avatarInitial:      { fontSize: 26, fontWeight: '900', color: '#FFF' },
-  profileInfo:        { flex: 1 },
-  profileName:        { fontSize: 17, fontWeight: '800', color: '#1A1A1A' },
-  profileEmail:       { fontSize: 13, color: '#999', marginTop: 2 },
-  profileEditHint:    { fontSize: 11, color: '#E67E22', marginTop: 4, fontWeight: '600' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: Theme.colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.lightBorder,
+  },
 
-  rewardsBanner:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1A1A1A', marginHorizontal: 16, marginTop: 14, borderRadius: 20, padding: 16 },
-  rewardsBannerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rewardsBannerEmoji:  { fontSize: 28 },
-  rewardsBannerTitle:  { fontSize: 15, fontWeight: '800', color: '#FFF' },
-  rewardsBannerSub:    { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
-  rewardsBannerRight:  { alignItems: 'center' },
-  rewardsBannerPoints: { fontSize: 28, fontWeight: '900', color: '#E67E22' },
-  rewardsBannerPts:    { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: -2 },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
-  sectionHeader: { fontSize: 12, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 1, paddingHorizontal: 20, marginTop: 24, marginBottom: 8 },
-  section:       { backgroundColor: '#FFF', marginHorizontal: 16, borderRadius: 16, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
-  divider:       { height: 1, backgroundColor: '#F5F5F5', marginLeft: 52 },
+  backIcon: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Theme.colors.darkText,
+  },
 
-  settingRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
-  settingLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  settingIcon:  { fontSize: 20, width: 28, textAlign: 'center' },  // legacy – kept for safety
-  settingIconView: { width: 28, alignItems: 'center', justifyContent: 'center' },
-  settingLabel: { fontSize: 15, color: '#1A1A1A', fontWeight: '500' },
-  settingRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  settingValue: { fontSize: 14, color: '#999' },
-  settingArrow: { fontSize: 22, color: '#CCC' },
-  dangerText:   { color: '#E74C3C' },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Theme.colors.hero,
+  },
 
-  footer:        { alignItems: 'center', paddingVertical: 28 },
-  footerLogo:    { fontSize: 22, fontWeight: '900', color: '#1A1A1A', marginBottom: 4 },
-  footerVersion: { fontSize: 12, color: '#CCC', marginBottom: 2 },
-  footerMade:    { fontSize: 12, color: '#CCC' },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.white,
+    marginHorizontal: 16,
+    marginTop: 20,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: Theme.colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    gap: 14,
+  },
 
-  modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalCard:       { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 44 },
-  modalTitle:      { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 20 },
-  modalFieldGroup: { marginBottom: 16 },
-  modalFieldLabel: { fontSize: 12, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-  modalInput:      { borderWidth: 1, borderColor: '#EEE', borderRadius: 14, padding: 14, fontSize: 15, color: '#1A1A1A', backgroundColor: '#FAFAFA' },
-  passwordRow:     { flexDirection: 'row', alignItems: 'center' },
-  modalActions:    { flexDirection: 'row', gap: 12, marginTop: 8 },
-  modalCancelBtn:  { flex: 1, borderWidth: 2, borderColor: '#EEE', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  modalCancelText: { color: '#999', fontSize: 15, fontWeight: '700' },
-  modalConfirmBtn: { flex: 2, backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
-  modalConfirmText:{ color: '#FFF', fontSize: 15, fontWeight: '700' },
+  profileCardLoading: {
+    height: 90,
+    marginHorizontal: 16,
+    marginTop: 20,
+    borderRadius: 20,
+    backgroundColor: Theme.colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  avatarCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Theme.colors.icon,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  avatarInitial: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: Theme.colors.white,
+  },
+
+  profileInfo: {
+    flex: 1,
+  },
+
+  profileName: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: Theme.colors.hero,
+  },
+
+  profileEmail: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
+
+  profileEditHint: {
+    fontSize: 11,
+    color: Theme.colors.primary,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+
+  rewardsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Theme.colors.hero,
+    marginHorizontal: 16,
+    marginTop: 14,
+    borderRadius: 20,
+    padding: 16,
+  },
+
+  rewardsBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+
+  rewardsBannerTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Theme.colors.white,
+  },
+
+  rewardsBannerSub: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    marginTop: 2,
+  },
+
+  rewardsBannerRight: {
+    alignItems: 'center',
+  },
+
+  rewardsBannerPoints: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: Theme.colors.icon,
+  },
+
+  rewardsBannerPts: {
+    fontSize: 11,
+    color: Theme.colors.muted,
+    marginTop: -2,
+  },
+
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 8,
+  },
+
+  section: {
+    backgroundColor: Theme.colors.white,
+    marginHorizontal: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: Theme.colors.shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: Theme.colors.lightBorder,
+    marginLeft: 52,
+  },
+
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+
+  settingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+
+  settingIconView: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  settingLabel: {
+    fontSize: 15,
+    color: Theme.colors.hero,
+    fontWeight: '500',
+  },
+
+  settingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  settingValue: {
+    fontSize: 14,
+    color: Theme.colors.muted,
+  },
+
+  settingArrow: {
+    fontSize: 22,
+    color: Theme.colors.border,
+  },
+
+  dangerText: {
+    color: Theme.colors.error,
+  },
+
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 28,
+  },
+
+  footerLogo: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: Theme.colors.hero,
+    marginBottom: 4,
+  },
+
+  footerVersion: {
+    fontSize: 12,
+    color: Theme.colors.emptyText,
+    marginBottom: 2,
+  },
+
+  footerMade: {
+    fontSize: 12,
+    color: Theme.colors.emptyText,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: Theme.colors.overlay,
+    justifyContent: 'flex-end',
+  },
+
+  modalCard: {
+    backgroundColor: Theme.colors.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 44,
+  },
+
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Theme.colors.hero,
+    marginBottom: 20,
+  },
+
+  modalFieldGroup: {
+    marginBottom: 16,
+  },
+
+  modalFieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+
+  modalInput: {
+    borderWidth: 1,
+    borderColor: Theme.colors.inputBorder,
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 15,
+    color: Theme.colors.hero,
+    backgroundColor: Theme.colors.inputBg,
+  },
+
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+
+  modalCancelBtn: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: Theme.colors.lightBorder,
+    borderRadius: 30,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  modalCancelText: {
+    color: Theme.colors.muted,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  modalConfirmBtn: {
+    flex: 2,
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 30,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  modalConfirmText: {
+    color: Theme.colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });

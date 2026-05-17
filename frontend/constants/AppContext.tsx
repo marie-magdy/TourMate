@@ -30,7 +30,7 @@ interface AppContextType {
   setUser: (user: AppUser | null) => void;
   logout: () => Promise<void>;
   voiceChatEnabled: boolean;        
-  refreshFeatures: () => Promise<void>; //  (for admin changes)
+refreshFeatures: (userId?: number) => Promise<void>; //  (for admin changes)
 
   // Language
   language: Language;

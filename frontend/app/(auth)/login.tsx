@@ -1,17 +1,16 @@
 // app/(auth)/login.tsx
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '@/components/ScreenWrapper';
 import { useApp } from '../../constants/AppContext';
 import * as Google from 'expo-auth-session/providers/google';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect } from 'react';
 import { API_BASE } from '../../constants/api';
+import { Theme } from '../../constants/theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -23,18 +22,13 @@ export default function Login() {
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]           = useState(false);
-
-  const [errors, setErrors] = useState({ email: '', password: '', general: '' });
-
+  const [errors, setErrors]             = useState({ email: '', password: '', general: '' });
   const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  // ── Google Auth ───────────────────────────────────────────────────
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'tourmate',
-  });
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'tourmate' });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: GOOGLE_WEB_ID,
@@ -53,20 +47,18 @@ export default function Login() {
   const handleGoogleLogin = async (accessToken: string) => {
     setGoogleLoading(true);
     try {
-      // Fetch user info from Google
-      const profileRes  = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+      const profileRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const profile = await profileRes.json();
 
-      // Send to our backend to create/login the user
       const res  = await fetch(`${API_BASE}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          google_id: profile.id,
-          email: profile.email,
-          username: profile.name,
+          google_id:  profile.id,
+          email:      profile.email,
+          username:   profile.name,
           avatar_url: profile.picture,
         }),
       });
@@ -80,9 +72,7 @@ export default function Login() {
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
       await setUser(data.user);
-
       await refreshFeatures(data.user.id);
-
       router.replace('/(main)/home' as any);
     } catch (err) {
       console.error('Google login error:', err);
@@ -92,22 +82,13 @@ export default function Login() {
     }
   };
 
-  // ── Email Login ───────────────────────────────────────────────────
   const handleLogin = async () => {
     const newErrors = { email: '', password: '', general: '' };
     let hasError = false;
 
-    if (!email) {
-      newErrors.email = 'Email is required';
-      hasError = true;
-    } else if (!validateEmail(email)) {
-      newErrors.email = 'Enter a valid email address';
-      hasError = true;
-    }
-    if (!password) {
-      newErrors.password = 'Password is required';
-      hasError = true;
-    }
+    if (!email) { newErrors.email = 'Email is required'; hasError = true; }
+    else if (!validateEmail(email)) { newErrors.email = 'Enter a valid email address'; hasError = true; }
+    if (!password) { newErrors.password = 'Password is required'; hasError = true; }
 
     setErrors(newErrors);
     if (hasError) return;
@@ -129,7 +110,6 @@ export default function Login() {
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
       await setUser(data.user);
-
       await refreshFeatures(data.user.id);
 
       if (data.user.role === 'admin') {
@@ -137,8 +117,7 @@ export default function Login() {
       } else {
         router.replace('/(main)/home' as any);
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
       setErrors(prev => ({ ...prev, general: 'Could not connect to server. Check your connection.' }));
     } finally {
       setLoading(false);
@@ -151,38 +130,20 @@ export default function Login() {
 
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <MaterialCommunityIcons name="briefcase-outline" size={52} color="#E67E22" style={{ marginBottom: 8 }} />
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.logoText}>TourMate</Text>
           <Text style={styles.logoSubtitle}>Your Egyptian adventure awaits</Text>
         </View>
 
         <Text style={styles.title}>Sign in</Text>
 
-      {/* Google Button */}
-      <TouchableOpacity
-        style={styles.googleButton}
-        onPress={() => promptAsync()}
-        disabled={!request || googleLoading}
-        activeOpacity={0.85}
-      >
-        {googleLoading ? (
-          <ActivityIndicator color="#333" />
-        ) : (
-          <>
-            <Text style={styles.googleIcon}>G</Text>
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </>
-        )}
-      </TouchableOpacity>
 
-      {/* Divider */}
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or</Text>
-        <View style={styles.dividerLine} />
-      </View>
 
-        {/* General error (wrong credentials / network) */}
+        {/* General error */}
         {errors.general ? (
           <View style={styles.generalError}>
             <Text style={styles.generalErrorText}>{errors.general}</Text>
@@ -199,12 +160,14 @@ export default function Login() {
             if (errors.email) setErrors(prev => ({ ...prev, email: '' }));
             if (errors.general) setErrors(prev => ({ ...prev, general: '' }));
           }}
-          onBlur={() => {
-            if (!email) setErrors(prev => ({ ...prev, email: 'Email is required' }));
-            else if (!validateEmail(email)) setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-          }}
+  onEndEditing={(e) => {
+    const val = e.nativeEvent.text.trim();
+    if (!val) setErrors(prev => ({ ...prev, email: 'Email is required' }));
+    else if (!validateEmail(val)) setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
+    else setEmail(val); // ← make sure state has autofilled value
+  }}
           style={[styles.input, errors.email ? styles.inputError : null]}
-          placeholderTextColor="#999"
+          placeholderTextColor={Theme.colors.placeholder}
           keyboardType="email-address"
           autoCapitalize="none"
         />
@@ -222,32 +185,71 @@ export default function Login() {
               if (errors.password) setErrors(prev => ({ ...prev, password: '' }));
               if (errors.general) setErrors(prev => ({ ...prev, general: '' }));
             }}
-            onBlur={() => {
-              if (!password) setErrors(prev => ({ ...prev, password: 'Password is required' }));
-            }}
+  onEndEditing={(e) => {
+    const val = e.nativeEvent.text.trim();
+    if (!val) setErrors(prev => ({ ...prev, password: 'Password is required' }));
+    else setPassword(val); // ← make sure state has autofilled value
+  }}
             style={[styles.passwordInput, errors.password ? styles.inputError : null]}
-            placeholderTextColor="#999"
+            placeholderTextColor={Theme.colors.placeholder}
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}  testID="toggle-password" >
-            <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#888" />
+          <TouchableOpacity
+            onPress={() => setShowPassword(!showPassword)}
+            style={styles.eyeIcon}
+            testID="toggle-password"
+          >
+            <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color={Theme.colors.muted} />
           </TouchableOpacity>
         </View>
         {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
 
-        {/* Login Button */}
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton} disabled={loading} activeOpacity={0.85}>
-          {loading
-            ? <ActivityIndicator color="#FFF" />
-            : <Text style={styles.loginButtonText}>Continue</Text>
-          }
+        
+        {/* Divider */}
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+                {/* Google Button */}
+        <TouchableOpacity
+          style={styles.googleButton}
+          onPress={() => promptAsync()}
+          disabled={!request || googleLoading}
+          activeOpacity={0.85}
+        >
+          {googleLoading ? (
+            <ActivityIndicator color={Theme.colors.primary} />
+          ) : (
+            <>
+              <Text style={styles.googleIcon}>G</Text>
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </>
+          )}
         </TouchableOpacity>
 
-        {/* Signup */}
+                {/* Signup */}
         <TouchableOpacity onPress={() => router.push('/(auth)/signup' as any)}>
           <Text style={styles.signupText}>
             Don't have an account? <Text style={styles.signupLink}>Sign up</Text>
           </Text>
         </TouchableOpacity>
+
+
+        {/* Login Button */}
+        <TouchableOpacity
+          onPress={handleLogin}
+          style={styles.loginButton}
+          disabled={loading}
+          activeOpacity={0.85}
+        >
+          {loading
+            ? <ActivityIndicator color={Theme.colors.white} />
+            : <Text style={styles.loginButtonText}>Continue</Text>
+          }
+        </TouchableOpacity>
+
+
 
       </View>
     </ScreenWrapper>
@@ -255,42 +257,158 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: '#FFF', justifyContent: 'center' },
+  container: {
+    flex: 1,
+    padding: 24,
+    backgroundColor: Theme.colors.background,
+    justifyContent: 'center',
+  },
 
-  logoContainer: { alignItems: 'center', marginBottom: 36 },
-  logoEmoji:     { fontSize: 48, marginBottom: 8 },
-  logoText:      { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
-  logoSubtitle:  { fontSize: 14, color: '#999', marginTop: 4 },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  logoImage: {
+    width: 140,
+    height: 140,
+    marginBottom: 12,
+  },
+  logoText: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: Theme.colors.text,
+    letterSpacing: 1,
+  },
+  logoSubtitle: {
+    fontSize: 14,
+    color: Theme.colors.muted,
+    marginTop: 4,
+  },
 
-  title: { fontSize: 26, fontWeight: '800', color: '#1A1A1A', marginBottom: 16 },
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Theme.colors.text,
+    marginBottom: 16,
+  },
 
-  // Google button
-  googleButton:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#E0E0E0', borderRadius: 30, padding: 14, gap: 10, backgroundColor: '#FFF' },
-  googleIcon:       { fontSize: 18, fontWeight: '900', color: '#4285F4' },
-  googleButtonText: { fontSize: 15, fontWeight: '700', color: '#333' },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Theme.colors.border,
+    borderRadius: 30,
+    padding: 14,
+    gap: 10,
+    backgroundColor: Theme.colors.card,
+  },
+  googleIcon: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#4285F4',
+  },
+  googleButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Theme.colors.darkText,
+  },
 
-  // Divider
-  divider:     { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#E0E0E0' },
-  dividerText: { fontSize: 13, color: '#999', fontWeight: '600' },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Theme.colors.border,
+  },
+  dividerText: {
+    fontSize: 13,
+    color: Theme.colors.muted,
+    fontWeight: '600',
+  },
 
-  inputLabel: { fontSize: 15, fontWeight: '600', marginTop: 4, color: '#333', marginBottom: 6 },
+  inputLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 4,
+    color: Theme.colors.text,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Theme.colors.inputBorder,
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 16,
+    color: Theme.colors.text,
+    backgroundColor: Theme.colors.inputBg,
+  },
+  inputError: {
+    borderColor: Theme.colors.error,
+  },
+  errorText: {
+    color: Theme.colors.error,
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 14,
+  },
+  generalError: {
+    backgroundColor: Theme.colors.errorBg,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  generalErrorText: {
+    color: Theme.colors.error,
+    fontSize: 14,
+    textAlign: 'center',
+  },
 
-  input:         { borderWidth: 1, borderColor: '#E0E0E0', padding: 14, borderRadius: 14, fontSize: 16, color: '#000', backgroundColor: '#FAFAFA' },
-  inputError:    { borderColor: '#E53935' },
-  errorText:     { color: '#E53935', fontSize: 12, marginTop: 4, marginLeft: 14 },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Theme.colors.inputBorder,
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 16,
+    color: Theme.colors.text,
+    backgroundColor: Theme.colors.inputBg,
+  },
+  eyeIcon: {
+    position: 'absolute',
+    right: 16,
+  },
 
-  // ✅ new: banner for server errors like "Invalid credentials"
-  generalError:     { backgroundColor: '#FFEBEE', borderRadius: 10, padding: 12, marginBottom: 8 },
-  generalErrorText: { color: '#C62828', fontSize: 14, textAlign: 'center' },
+  loginButton: {
+    backgroundColor: Theme.colors.primary,
+    padding: 16,
+    borderRadius: 30,
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  loginButtonText: {
+    fontWeight: '800',
+    color: Theme.colors.white,
+    fontSize: 16,
+  },
 
-  passwordContainer: { flexDirection: 'row', alignItems: 'center' },
-  passwordInput:     { flex: 1, borderWidth: 1, borderColor: '#E0E0E0', padding: 14, borderRadius: 14, fontSize: 16, color: '#000', backgroundColor: '#FAFAFA' },
-  eyeIcon:           { position: 'absolute', right: 16 },
-
-  loginButton:     { backgroundColor: '#E67E22', padding: 16, borderRadius: 30, marginTop: 24, alignItems: 'center' },
-  loginButtonText: { fontWeight: '800', color: '#FFF', fontSize: 16 },
-
-  signupText: { marginTop: 16, textAlign: 'center', fontSize: 14, color: '#444' },
-  signupLink: { textDecorationLine: 'underline', color: '#E67E22', fontWeight: '600' },
+  signupText: {
+    marginTop: 16,
+    textAlign: 'center',
+    fontSize: 14,
+    color: Theme.colors.muted,
+  },
+  signupLink: {
+    textDecorationLine: 'underline',
+    color: Theme.colors.primary,
+    fontWeight: '600',
+  },
 });
