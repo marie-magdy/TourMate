@@ -5,12 +5,24 @@ dotenv.config();
 
 const { Pool } = pg;
 
+
+const dbUrl = process.env.DATABASE_URL || '';
+const needsSsl =
+  /neon\.tech|supabase\.co|railway\.app|render\.com|aiven\.io|azure\.com/i.test(dbUrl) ||
+  process.env.DATABASE_SSL === 'true';
+
+const poolMax = Math.min(
+  Math.max(1, parseInt(process.env.DATABASE_POOL_MAX || '8', 10)),
+  32,
+);
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false,
-  max: 8,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 5_000,
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
+  max: poolMax,
+  min: 1,   
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000,
 });
 
 export default pool;

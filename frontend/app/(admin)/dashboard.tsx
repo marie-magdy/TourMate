@@ -6,6 +6,12 @@ import {
   ActivityIndicator, SafeAreaView, StatusBar, RefreshControl,
   Alert, TextInput, Modal, Dimensions,
 } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Platform,
+} from 'react-native';
 
 type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 import { useRouter } from 'expo-router';
@@ -123,25 +129,81 @@ const AddPointsModal: React.FC<{
 }> = ({ visible, user, onClose, onConfirm }) => {
   const [points, setPoints] = useState('');
   const [reason, setReason] = useState('');
+
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Add Points to {user?.username}</Text>
-          <Text style={styles.modalLabel}>Points amount</Text>
-          <TextInput style={styles.modalInput} value={points} onChangeText={setPoints} keyboardType="numeric" placeholder="e.g. 100" placeholderTextColor="#AAA" />
-          <Text style={styles.modalLabel}>Reason</Text>
-          <TextInput style={styles.modalInput} value={reason} onChangeText={setReason} placeholder="e.g. Welcome bonus" placeholderTextColor="#AAA" />
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { onClose(); setPoints(''); setReason(''); }}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modalConfirmBtn} onPress={() => { onConfirm(parseInt(points), reason); setPoints(''); setReason(''); }}>
-              <Text style={styles.modalConfirmText}>Add Points</Text>
-            </TouchableOpacity>
-          </View>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      {/* Dismiss keyboard when tapping outside */}
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.modalOverlay}>
+
+          {/* KeyboardAvoidingView INSIDE the modal */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ width: '100%' }}
+          >
+            <TouchableWithoutFeedback>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>
+                  Add Points to {user?.username}
+                </Text>
+
+                <Text style={styles.modalLabel}>Points amount</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={points}
+                  onChangeText={setPoints}
+                  keyboardType="numeric"
+                  placeholder="e.g. 100"
+                  placeholderTextColor="#AAA"
+                  returnKeyType="next"
+                />
+
+                <Text style={styles.modalLabel}>Reason</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={reason}
+                  onChangeText={setReason}
+                  placeholder="e.g. Welcome bonus"
+                  placeholderTextColor="#AAA"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      onClose();
+                      setPoints('');
+                      setReason('');
+                    }}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalConfirmBtn}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      onConfirm(parseInt(points), reason);
+                      setPoints('');
+                      setReason('');
+                    }}
+                  >
+                    <Text style={styles.modalConfirmText}>Add Points</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -284,7 +346,15 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: async () => { await AsyncStorage.clear(); router.replace('/(auth)/login' as any); } },
+      { text: 'Logout', style: 'destructive', onPress: async () => {
+          try {
+            await AsyncStorage.multiRemove(['token', 'user']);
+            // setUsers(null);
+            router.replace('/(auth)/login');
+          } catch (e) {
+            Alert.alert('Error', 'Logout failed. Please try again.');
+          }
+        } },
     ]);
   };
 
@@ -364,6 +434,14 @@ export default function AdminDashboard() {
                 </View>
               </View>
             ))}
+            <TouchableOpacity
+              style={styles.viewAsUserBtn}
+              onPress={() => router.push('/(main)/home' as any)}
+              activeOpacity={0.85}
+            >
+              <MaterialCommunityIcons name="account-eye" size={18} color="#FFF" />
+              <Text style={styles.viewAsUserText}>Preview as User</Text>
+            </TouchableOpacity>
           </View>
         )}
         {activeTab === 'overview' && !stats && (
@@ -502,4 +580,27 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#999', fontSize: 15, fontWeight: '700' },
   modalConfirmBtn: { flex: 2, backgroundColor: '#E67E22', borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
   modalConfirmText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  viewAsUserBtn: {
+  marginTop: 16,
+  backgroundColor: '#1A1A1A', // matches header
+  borderRadius: 16,
+  paddingVertical: 14,
+  paddingHorizontal: 18,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+
+  // subtle shadow like cards
+  shadowColor: '#000',
+  shadowOpacity: 0.1,
+  shadowRadius: 6,
+  elevation: 3,
+},
+
+viewAsUserText: {
+  color: '#FFF',
+  fontSize: 14,
+  fontWeight: '800',
+},
 });

@@ -79,18 +79,55 @@ router.get('/popular', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-//  GET /api/attractions/nearest?city=Alexandria
+//  GET /api/attractions/nearest?lat=..&lon=..&city=Alexandria
 // ─────────────────────────────────────────────────────────────────────
 router.get('/nearest', async (req, res) => {
   try {
-    const { city } = req.query;
+    const { city, lat, lon, limit } = req.query;
+    const n = Math.max(1, Math.min(50, parseInt(String(limit ?? '20'), 10) || 20));
+    const latNum = lat != null ? Number(lat) : null;
+    const lonNum = lon != null ? Number(lon) : null;
+    const hasCoords = Number.isFinite(latNum) && Number.isFinite(lonNum);
+
+    if (hasCoords) {
+      // Great-circle distance (km). Note: uses DB lat/lon columns; rows missing coords are excluded.
+      const params = [latNum, lonNum];
+      let where = `WHERE a.latitude IS NOT NULL AND a.longitude IS NOT NULL`;
+      if (city) {
+        where += ` AND LOWER(ci.name) = LOWER($3)`;
+        params.push(city);
+      }
+
+      const result = await pool.query(
+        `${BASE_SELECT}
+         ${where}
+         ${GROUP_BY}
+         ORDER BY
+           (6371 * acos(
+             LEAST(
+               1,
+               GREATEST(
+                 -1,
+                 cos(radians($1)) * cos(radians(a.latitude)) * cos(radians(a.longitude) - radians($2)) +
+                 sin(radians($1)) * sin(radians(a.latitude))
+               )
+             )
+           )) ASC,
+           a.rating DESC
+         LIMIT ${n}`,
+        params,
+      );
+      return res.json({ success: true, data: result.rows });
+    }
+
+    // Fallback: city-based list ordered by rating (legacy behavior)
     const result = await pool.query(
       `${BASE_SELECT}
        WHERE LOWER(ci.name) = LOWER($1)
        ${GROUP_BY}
        ORDER BY a.rating DESC
-       LIMIT 20`,
-      [city ?? 'Alexandria']
+       LIMIT ${n}`,
+      [city ?? 'Alexandria'],
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -315,24 +352,12 @@ router.put('/:id', async (req, res) => {
       latitude, longitude, images
     } = req.body;
 
-    const cleanImageUrl = convertDriveUrl(image_url);
-
-    // Look up city_id
     const cityResult = await pool.query(
       'SELECT city_id FROM cities WHERE LOWER(name) = LOWER($1)',
       [city]
     );
     const city_id = cityResult.rows[0]?.city_id ?? null;
 
-    // const result = await pool.query(
-    //   `UPDATE attractions SET
-    //     name=$1, city=$2, city_id=$3, description=$4, image_url=$5,
-    //     rating=$6, price_from=$7, opening_hours=$8, is_popular=$9,
-    //     latitude=$10, longitude=$11, updated_at=NOW()
-    //    WHERE id=$12 RETURNING *`,
-    //   [name, city, city_id, description, cleanImageUrl, rating,
-    //    price_from, opening_hours, is_popular, latitude, longitude, id]
-    // );
     const result = await pool.query(
       `UPDATE attractions SET
         name=$1, city_id=$2, description=$3,
@@ -340,13 +365,13 @@ router.put('/:id', async (req, res) => {
         latitude=$8, longitude=$9, updated_at=NOW()
       WHERE id=$10 RETURNING *`,
       [name, city_id, description, rating,
-      price_from, opening_hours, is_popular, latitude, longitude, id]
+       price_from, opening_hours, is_popular, latitude, longitude, id]
     );
+
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Not found' });
     }
 
-    // Replace categories if provided
     if (categories && categories.length > 0) {
       await pool.query('DELETE FROM attraction_categories WHERE attraction_id = $1', [id]);
       for (const catName of categories) {
@@ -363,7 +388,7 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    // Replace images if provided
+    // ← SIMPLIFIED: only images array, no cleanImageUrl fallback
     if (images && images.length > 0) {
       await pool.query('DELETE FROM attraction_images WHERE attraction_id = $1', [id]);
       for (let i = 0; i < images.length; i++) {
@@ -371,22 +396,6 @@ router.put('/:id', async (req, res) => {
         await pool.query(
           'INSERT INTO attraction_images (attraction_id, image_url, is_primary) VALUES ($1, $2, $3)',
           [id, cleanUrl, i === 0]
-        );
-      }
-    } else if (cleanImageUrl) {
-      const existing = await pool.query(
-        'SELECT id FROM attraction_images WHERE attraction_id = $1 AND is_primary = true',
-        [id]
-      );
-      if (existing.rows.length > 0) {
-        await pool.query(
-          'UPDATE attraction_images SET image_url = $1 WHERE attraction_id = $2 AND is_primary = true',
-          [cleanImageUrl, id]
-        );
-      } else {
-        await pool.query(
-          'INSERT INTO attraction_images (attraction_id, image_url, is_primary) VALUES ($1, $2, true)',
-          [id, cleanImageUrl]
         );
       }
     }

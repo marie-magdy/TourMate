@@ -28,7 +28,6 @@ export default function ScreenWrapper({
             showsVerticalScrollIndicator={false}
             bounces={false}
             overScrollMode="never"
-            automaticallyAdjustKeyboardInsets={true} // ✅ replaces the paddingBottom
           >
             {children}
           </ScrollView>
@@ -41,6 +40,6 @@ export default function ScreenWrapper({
 }
 
 const styles = StyleSheet.create({
-  flex:   { flex: 1 },
-  scroll: { flexGrow: 1 }, // ← clean, no padding needed
+  flex: { flex: 1 },
+  scroll: { flexGrow: 1 },
 });

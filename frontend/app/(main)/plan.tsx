@@ -14,8 +14,14 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 import DesertTriangles from '../../components/DesertTriangles';
 import { Theme } from '../../constants/theme';
+import { useBookingStore } from '@/store/bookingStore';
+import BottomTab from '@/components/BottomTab';
+
+import { CurrencyCode } from '../../constants/AppContext';
+
 
 const { width } = Dimensions.get('window');
+const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
 
 // ── Egyptian Cities ───────────────────────────────────────────────────
 const EGYPTIAN_CITIES = [
@@ -146,6 +152,10 @@ export default function PlanScreen() {
  const [daySchedules, setDaySchedules] = useState<{ start: Date; end: Date }[]>([]);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [isForeigner, setIsForeigner] = useState(false);
+  const [budgetCurrency, setBudgetCurrency] = useState<CurrencyCode>('EGP');
+  const [budgetRateToEgp, setBudgetRateToEgp] = useState(1);
+  const [budgetRateLoading, setBudgetRateLoading] = useState(false);
+  const [budgetRateError, setBudgetRateError] = useState<string | null>(null);
 
   // Starting location
   const [locationLabel, setLocationLabel] = useState('');
@@ -156,6 +166,46 @@ export default function PlanScreen() {
   // Weather
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [weatherLoading, setWeatherLoading] = useState(false);
+
+  const { selectedHotel } = useBookingStore();
+
+// useEffect(() => {
+//   const applyBookedHotel = async () => {
+//     if (!selectedHotel) return;
+
+//     try {
+//       const query = `${selectedHotel.name}, ${selectedHotel.city}, Egypt`;
+
+//       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+
+//       const res = await fetch(url, {
+//         headers: { 'Accept-Language': 'en' },
+//       });
+
+//       const data = await res.json();
+
+//       if (data.length) {
+//         const { lat, lon } = data[0];
+
+//         setLocationCoords({
+//           lat: parseFloat(lat),
+//           lon: parseFloat(lon),
+//         });
+
+//         setLocationLabel(selectedHotel.name);
+//         setLocationInput(selectedHotel.name);
+//       }
+//     } catch (err) {
+//       console.error('Hotel geocode failed:', err);
+//     }
+
+//     useBookingStore.setState({
+//       selectedHotel: null,
+//     });
+//   };
+
+//   applyBookedHotel();
+// }, [selectedHotel]);
 
   useEffect(() => {
     fetchForecast(selectedCity);
@@ -234,6 +284,13 @@ export default function PlanScreen() {
   // ── Calendar logic ────────────────────────────────────────────────
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
+
+  const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
   const isPastDay = (day: number) => {
     const today = new Date();
@@ -341,44 +398,102 @@ export default function PlanScreen() {
   };
 
   const handleNext = () => {
-    if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
-    if (!budget) { alert('Please enter your budget.'); return; }
-    if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
+  if (!startDate || !endDate) { alert('Please select your travel dates.'); return; }
+  if (!budget) { alert('Please enter your budget.'); return; }
+  if (selectedInterests.length === 0) { alert('Please select at least one interest.'); return; }
 
-    const isValid = daySchedules.every(s => {
-      const start = s.start?.getHours();
-      const end = s.end?.getHours();
-      return s.start && s.end && start !== end;
-    });
+  const isValid = daySchedules.every(s => {
+    const start = s.start?.getHours();
+    const end = s.end?.getHours();
+    return s.start && s.end && start !== end;
+  });
 
-    if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
+  if (!isValid) { alert('Please set valid start and end hours for each day.'); return; }
 
-    const formattedSchedules = daySchedules.map(d => ({
-      start_hour: d.start.getHours(),
-      end_hour: d.end.getHours(),
-    }));
+  const formattedSchedules = daySchedules.map(d => ({
+    start_hour: d.start.getHours(),
+    end_hour: d.end.getHours(),
+  }));
 
-    router.push({
-      pathname: '/(main)/pick-spots' as any,
-      params: {
-        city: selectedCity.name,
-        startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
-        endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
-        budget,
+  const rawBudget = Number(String(budget).replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(rawBudget) || rawBudget <= 0) {
+    alert('Please enter a valid budget amount.');
+    return;
+  }
+  const egpBudget = Math.max(0, Math.round(rawBudget * (budgetRateToEgp || 1)));
 
-        daySchedules: JSON.stringify(formattedSchedules),
-
-        interests: selectedInterests.join(','),
-        isForeigner: String(isForeigner),
-
-        ...(locationCoords && {
-          startLat: String(locationCoords.lat),
-          startLon: String(locationCoords.lon),
-          startLabel: locationLabel,
-        }),
-      },
-    });
+  router.push({
+    pathname: '/(main)/pick-spots' as any,
+    params: {
+      city: selectedCity.name,
+      startDate: `${startDate!.getFullYear()}-${String(startDate!.getMonth() + 1).padStart(2,'0')}-${String(startDate!.getDate()).padStart(2,'0')}`,
+      endDate:   `${endDate!.getFullYear()}-${String(endDate!.getMonth() + 1).padStart(2,'0')}-${String(endDate!.getDate()).padStart(2,'0')}`,
+      budget: String(egpBudget),
+      budgetCurrency,
+      budgetOriginal: String(rawBudget),
+      daySchedules: JSON.stringify(formattedSchedules),
+      interests: selectedInterests.join(','),
+      isForeigner: String(isForeigner),
+      ...(locationCoords && {
+        startLat: String(locationCoords.lat),
+        startLon: String(locationCoords.lon),
+        startLabel: locationLabel,
+      }),
+    },
+  });
+  // ← DELETE the setTimeout block that was here
+};
+  const pickBudgetCurrency = () => {
+    Alert.alert('Select currency', 'Your budget will be converted to EGP before generating the plan.', [
+      { text: 'EGP (ج.م)', onPress: () => setBudgetCurrency('EGP') },
+      { text: 'USD ($)', onPress: () => setBudgetCurrency('USD') },
+      { text: 'EUR (€)', onPress: () => setBudgetCurrency('EUR') },
+      { text: 'GBP (£)', onPress: () => setBudgetCurrency('GBP') },
+      { text: 'SAR (ر.س)', onPress: () => setBudgetCurrency('SAR') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRate = async () => {
+      setBudgetRateError(null);
+      if (budgetCurrency === 'EGP') {
+        setBudgetRateToEgp(1);
+        return;
+      }
+      if (!EXCHANGE_KEY) {
+        setBudgetRateError('Exchange API key is missing.');
+        setBudgetRateToEgp(1);
+        return;
+      }
+      setBudgetRateLoading(true);
+      try {
+        const res = await fetch(
+          `https://v6.exchangerate-api.com/v6/${EXCHANGE_KEY}/pair/${budgetCurrency}/EGP`,
+        );
+        const data = await res.json();
+        const rate = Number(data?.conversion_rate);
+        if (!cancelled && data?.result === 'success' && Number.isFinite(rate) && rate > 0) {
+          setBudgetRateToEgp(rate);
+        } else if (!cancelled) {
+          setBudgetRateError('Could not load exchange rate.');
+          setBudgetRateToEgp(1);
+        }
+      } catch {
+        if (!cancelled) {
+          setBudgetRateError('Could not load exchange rate.');
+          setBudgetRateToEgp(1);
+        }
+      } finally {
+        if (!cancelled) setBudgetRateLoading(false);
+      }
+    };
+    fetchRate();
+    return () => {
+      cancelled = true;
+    };
+  }, [budgetCurrency]);
 
   const calendarCells: (number | null)[] = [
     ...Array(firstDay).fill(null),
@@ -547,9 +662,10 @@ export default function PlanScreen() {
               pathname: '/(main)/city-intro' as any,
               params: {
                 city: selectedCity.name,
-                startDate: startDate ? `${currentYear}-${currentMonth + 1}-${startDate}` : '',
-                endDate: endDate ? `${currentYear}-${currentMonth + 1}-${endDate}` : '',
+                startDate: startDate ? formatLocalDate(startDate) : '',
+                endDate: endDate ? formatLocalDate(endDate) : '',
                 budget,
+                
               },
             })}
             activeOpacity={0.85}
@@ -614,7 +730,10 @@ export default function PlanScreen() {
             <Text style={styles.cardTitleText}>Budget</Text>
           </View>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetCurrency}>EGP</Text>
+            <TouchableOpacity style={styles.budgetCurrencyPill} onPress={pickBudgetCurrency} activeOpacity={0.85}>
+              <Text style={styles.budgetCurrency}>{budgetCurrency}</Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color="#A08060" />
+            </TouchableOpacity>
             <TextInput
               style={styles.budgetInput}
               placeholder="Enter your budget"
@@ -624,6 +743,22 @@ export default function PlanScreen() {
               onChangeText={setBudget}
             />
           </View>
+          <Text style={styles.budgetHint}>
+            {budgetRateLoading
+              ? 'Converting…'
+              : budgetRateError
+                ? budgetRateError
+                : (() => {
+                    const raw = Number(String(budget).replace(/[^0-9.]/g, ''));
+                    if (!Number.isFinite(raw) || raw <= 0) return 'Converted budget will be shown here (in EGP).';
+                    const egp = Math.round(raw * (budgetRateToEgp || 1));
+                    const rateLine =
+                      budgetCurrency === 'EGP'
+                        ? ''
+                        : ` · 1 ${budgetCurrency} = ${budgetRateToEgp.toFixed(2)} EGP`;
+                    return `≈ ${egp.toLocaleString()} EGP${rateLine}`;
+                  })()}
+          </Text>
         </View>
 
         {startDate && endDate && daySchedules.length > 0 && (
@@ -770,7 +905,7 @@ export default function PlanScreen() {
           </View>
         </View>
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 140 }} />
       </ScrollView>
 
       {/* ── Next Step ── */}
@@ -779,6 +914,8 @@ export default function PlanScreen() {
           <Text style={styles.nextBtnText}>{t('Generate Plan')} →</Text>
         </TouchableOpacity>
       </View>
+      {/* Navigation */}
+      <BottomTab active="Plan" />
 
       {/* ── City Modal ── */}
       <Modal visible={showCityModal} animationType="slide" transparent>
@@ -809,6 +946,7 @@ export default function PlanScreen() {
           </View>
         </View>
       </Modal>
+
     </SafeAreaView>
     </View>
   );
@@ -820,35 +958,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
-
-header: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingHorizontal: 20,
-  paddingVertical: 14,
-
-  backgroundColor: 'rgba(255,255,255,0.85)',
-  borderBottomWidth: 0,
-},
-
+ header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0E2C8',
+  },
   backBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: Theme.colors.card,
   },
-
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#2C1810',
+  },
   backIcon: {
     fontSize: 22,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  headerTitle: {
-    fontSize: 18,
     fontWeight: '700',
     color: Theme.colors.text,
   },
@@ -1168,17 +1306,36 @@ header: {
     paddingVertical: 12,
   },
 
-  budgetCurrency: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Theme.colors.text,
+  budgetCurrencyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#FBF5EB',
+    borderWidth: 1,
+    borderColor: '#F0E2C8',
     marginRight: 8,
+  },
+
+  budgetCurrency: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Theme.colors.text,
   },
 
   budgetInput: {
     flex: 1,
     fontSize: 16,
     color: Theme.colors.text,
+  },
+
+  budgetHint: {
+    fontSize: 12,
+    color: Theme.colors.muted,
+    marginTop: 10,
+    lineHeight: 16,
   },
 
   helperText: {
@@ -1332,7 +1489,7 @@ header: {
     backgroundColor: Theme.colors.card,
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingBottom: 30,
+    paddingBottom: 100,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 10,

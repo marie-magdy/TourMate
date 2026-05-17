@@ -6,26 +6,6 @@ import pool from '../db.js';
 
 const router = express.Router();
 
-let featureFlagsReady = false;
-const ensureFeatureFlagsTable = async () => {
-  if (featureFlagsReady) return;
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS user_feature_flags (
-        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-        voice_chat_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  } catch (err) {
-    // In dev/watch mode two bootstraps can race on table creation.
-    if (err?.code !== '42P07' && err?.code !== '23505') {
-      throw err;
-    }
-  }
-  featureFlagsReady = true;
-};
-
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
@@ -47,6 +27,12 @@ router.post('/register', async (req, res) => {
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    if (username.length > 50) {
+      return res.status(400).json({ error: 'Username is too long' });
+    }
+    if (password.length > 100) {
+      return res.status(400).json({ error: 'Password is too long' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -198,19 +184,15 @@ router.get('/user/:id', async (req, res) => {
 router.get('/user/:id/features', async (req, res) => {
   try {
     const { id } = req.params;
-    await ensureFeatureFlagsTable();
     const result = await pool.query(
       `SELECT voice_chat_enabled
-       FROM user_feature_flags
-       WHERE user_id = $1`,
+       FROM users
+       WHERE id = $1`,
       [id]
     );
-    res.json({
-      success: true,
-      data: {
-        voice_chat_enabled: result.rows[0]?.voice_chat_enabled ?? false,
-      },
-    });
+    if (!result.rows[0])
+       return res.status(404).json({ success: false });
+    res.json({ success: true, data: { voice_chat_enabled: result.rows[0].voice_chat_enabled } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -270,158 +252,179 @@ router.delete('/user/:id', async (req, res) => {
   }
 });
 
-// ── Admin routes ──────────────────────────────────────────────────────
+// // ── Admin routes ──────────────────────────────────────────────────────
 
-// GET /api/auth/admin/users
-router.get('/admin/users', async (req, res) => {
-  try {
-    await ensureFeatureFlagsTable();
-    const result = await pool.query(
-      `SELECT u.id, u.username, u.email, u.role, u.created_at,
-        COALESCE(up.points, 0) as points,
-        COALESCE(up.total_earned, 0) as total_earned,
-        COUNT(DISTINCT f.attraction_id) as favorites_count,
-        COALESCE(uff.voice_chat_enabled, false) as voice_chat_enabled
-       FROM users u
-       LEFT JOIN user_points up ON u.id = up.user_id
-       LEFT JOIN favorites f ON u.id = f.user_id
-       LEFT JOIN user_feature_flags uff ON u.id = uff.user_id
-       GROUP BY u.id, up.points, up.total_earned, uff.voice_chat_enabled
-       ORDER BY u.created_at DESC`
-    );
-    res.json({ success: true, data: result.rows });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+// // GET /api/auth/admin/users
+// router.get('/admin/users', async (req, res) => {
+//   try {
+//     await ensureFeatureFlagsTable();
+//     const result = await pool.query(
+//       `SELECT u.id, u.username, u.email, u.role, u.created_at,
+//         COALESCE(up.points, 0) as points,
+//         COALESCE(up.total_earned, 0) as total_earned,
+//         COUNT(DISTINCT f.attraction_id) as favorites_count,
+//         COALESCE(uff.voice_chat_enabled, false) as voice_chat_enabled
+//        FROM users u
+//        LEFT JOIN user_points up ON u.id = up.user_id
+//        LEFT JOIN favorites f ON u.id = f.user_id
+//        LEFT JOIN user_feature_flags uff ON u.id = uff.user_id
+//        GROUP BY u.id, up.points, up.total_earned, uff.voice_chat_enabled
+//        ORDER BY u.created_at DESC`
+//     );
+//     res.json({ success: true, data: result.rows });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
 
-// DELETE /api/auth/admin/users/:id
-router.delete('/admin/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.query('DELETE FROM favorites WHERE user_id = $1', [id]);
-    await pool.query('DELETE FROM user_points WHERE user_id = $1', [id]);
-    await pool.query('DELETE FROM points_history WHERE user_id = $1', [id]);
-    await pool.query('DELETE FROM users WHERE id = $1', [id]);
-    res.json({ success: true, message: 'User deleted' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+// // DELETE /api/auth/admin/users/:id
+// router.delete('/admin/users/:id', async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     await pool.query('DELETE FROM favorites WHERE user_id = $1', [id]);
+//     await pool.query('DELETE FROM user_points WHERE user_id = $1', [id]);
+//     await pool.query('DELETE FROM points_history WHERE user_id = $1', [id]);
+//     await pool.query('DELETE FROM users WHERE id = $1', [id]);
+//     res.json({ success: true, message: 'User deleted' });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
 
-// PUT /api/auth/admin/users/:id/role
-router.put('/admin/users/:id/role', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { role } = req.body;
-    if (!['user', 'admin'].includes(role)) return res.status(400).json({ success: false, message: 'Invalid role' });
-    await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
-    res.json({ success: true, message: `User role updated to ${role}` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+// // PUT /api/auth/admin/users/:id/role
+// router.put('/admin/users/:id/role', async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { role } = req.body;
+//     if (!['user', 'admin'].includes(role)) return res.status(400).json({ success: false, message: 'Invalid role' });
+//     await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+//     res.json({ success: true, message: `User role updated to ${role}` });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
 
-// POST /api/auth/admin/users/:id/points
-router.post('/admin/users/:id/points', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { points, reason } = req.body;
-    await pool.query(
-      `INSERT INTO user_points (user_id, points, total_earned)
-       VALUES ($1, $2, $2)
-       ON CONFLICT (user_id) DO UPDATE
-       SET points = user_points.points + $2,
-           total_earned = user_points.total_earned + $2`,
-      [id, points]
-    );
-    await pool.query(
-      'INSERT INTO points_history (user_id, points, action, description) VALUES ($1, $2, $3, $4)',
-      [id, points, 'admin', reason ?? 'Admin bonus points']
-    );
-    res.json({ success: true, message: 'Points added' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+// // POST /api/auth/admin/users/:id/points
+// router.post('/admin/users/:id/points', async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { points, reason } = req.body;
+//     await pool.query(
+//       `INSERT INTO user_points (user_id, points, total_earned)
+//        VALUES ($1, $2, $2)
+//        ON CONFLICT (user_id) DO UPDATE
+//        SET points = user_points.points + $2,
+//            total_earned = user_points.total_earned + $2`,
+//       [id, points]
+//     );
+//     await pool.query(
+//       'INSERT INTO points_history (user_id, points, action, description) VALUES ($1, $2, $3, $4)',
+//       [id, points, 'admin', reason ?? 'Admin bonus points']
+//     );
+//     res.json({ success: true, message: 'Points added' });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
 
-// GET /api/auth/admin/stats
-router.get('/admin/stats', async (req, res) => {
-  try {
-    // Run queries sequentially (not Promise.all) to avoid exhausting limited
-    // session-mode DB connections on hosted poolers.
-    const safeCount = async (sql, field = 'count') => {
-      try {
-        const r = await pool.query(sql);
-        return parseInt(r.rows?.[0]?.[field] ?? '0', 10) || 0;
-      } catch (err) {
-        console.error('[admin/stats] count query failed:', sql, err?.message ?? err);
-        return 0;
-      }
-    };
+// // GET /api/auth/admin/stats
+// router.get('/admin/stats', async (req, res) => {
+//   try {
+//     // Run queries sequentially (not Promise.all) to avoid exhausting limited
+//     // session-mode DB connections on hosted poolers.
+//     const safeCount = async (sql, field = 'count') => {
+//       try {
+//         const r = await pool.query(sql);
+//         return parseInt(r.rows?.[0]?.[field] ?? '0', 10) || 0;
+//       } catch (err) {
+//         console.error('[admin/stats] count query failed:', sql, err?.message ?? err);
+//         return 0;
+//       }
+//     };
 
-    const totalUsers = await safeCount('SELECT COUNT(*) FROM users');
-    const totalAttractions = await safeCount('SELECT COUNT(*) FROM attractions');
-    const totalFavorites = await safeCount('SELECT COUNT(*) FROM favorites');
-    const totalPoints = await safeCount('SELECT COALESCE(SUM(total_earned), 0) as total FROM user_points', 'total');
+//     const totalUsers = await safeCount('SELECT COUNT(*) FROM users');
+//     const totalAttractions = await safeCount('SELECT COUNT(*) FROM attractions');
+//     const totalFavorites = await safeCount('SELECT COUNT(*) FROM favorites');
+//     const totalPoints = await safeCount('SELECT COALESCE(SUM(total_earned), 0) as total FROM user_points', 'total');
 
-    let topAttractionsRows = [];
-    try {
-      const topAttractions = await pool.query(
-        `SELECT a.name, COALESCE(ci.name, 'Unknown') as city, COUNT(f.id) as favorites
-         FROM attractions a
-         LEFT JOIN cities ci ON ci.city_id = a.city_id
-         LEFT JOIN favorites f ON a.id = f.attraction_id
-         GROUP BY a.id, ci.name ORDER BY favorites DESC LIMIT 5`
-      );
-      topAttractionsRows = topAttractions.rows ?? [];
-    } catch (err) {
-      console.error('[admin/stats] top attractions query failed:', err?.message ?? err);
-      topAttractionsRows = [];
-    }
+//     let topAttractionsRows = [];
+//     try {
+//       const topAttractions = await pool.query(
+//         `SELECT a.name, COALESCE(ci.name, 'Unknown') as city, COUNT(f.id) as favorites
+//          FROM attractions a
+//          LEFT JOIN cities ci ON ci.city_id = a.city_id
+//          LEFT JOIN favorites f ON a.id = f.attraction_id
+//          GROUP BY a.id, ci.name ORDER BY favorites DESC LIMIT 5`
+//       );
+//       topAttractionsRows = topAttractions.rows ?? [];
+//     } catch (err) {
+//       console.error('[admin/stats] top attractions query failed:', err?.message ?? err);
+//       topAttractionsRows = [];
+//     }
 
-    res.json({
-      success: true,
-      data: {
-        total_users: totalUsers,
-        total_attractions: totalAttractions,
-        total_favorites: totalFavorites,
-        total_points: totalPoints,
-        top_attractions: topAttractionsRows,
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+//     res.json({
+//       success: true,
+//       data: {
+//         total_users: totalUsers,
+//         total_attractions: totalAttractions,
+//         total_favorites: totalFavorites,
+//         total_points: totalPoints,
+//         top_attractions: topAttractionsRows,
+//       },
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
 
-// PUT /api/auth/admin/users/:id/voice-access
-router.put('/admin/users/:id/voice-access', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { enabled } = req.body;
-    if (typeof enabled !== 'boolean') {
-      return res.status(400).json({ success: false, message: 'enabled must be boolean' });
-    }
-    await ensureFeatureFlagsTable();
-    await pool.query(
-      `INSERT INTO user_feature_flags (user_id, voice_chat_enabled, updated_at)
-       VALUES ($1, $2, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) DO UPDATE
-       SET voice_chat_enabled = EXCLUDED.voice_chat_enabled,
-           updated_at = CURRENT_TIMESTAMP`,
-      [id, enabled]
-    );
-    res.json({ success: true, message: `Voice access ${enabled ? 'enabled' : 'disabled'}` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
+// // PUT /api/auth/admin/users/:id/voice-access
+// router.put('/admin/users/:id/voice-access', async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { enabled } = req.body;
+//     if (typeof enabled !== 'boolean') {
+//       return res.status(400).json({ success: false, message: 'enabled must be boolean' });
+//     }
+//     // await ensureFeatureFlagsTable();
+//     // await pool.query(
+//     //   `INSERT INTO user_feature_flags (user_id, voice_chat_enabled, updated_at)
+//     //    VALUES ($1, $2, CURRENT_TIMESTAMP)
+//     //    ON CONFLICT (user_id) DO UPDATE
+//     //    SET voice_chat_enabled = EXCLUDED.voice_chat_enabled,
+//     //        updated_at = CURRENT_TIMESTAMP`,
+//     //   [id, enabled]
+//     // );
+//     await pool.query(
+//       'update users set voice_chat_enabled = $1 where id = $2',
+//       [enabled, id]
+//     );
+//     res.json({ success: true, message: `Voice access ${enabled ? 'enabled' : 'disabled'}` });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// });
+
+// POST /api/auth/user/:id/unlock-voice
+router.post('/user/:id/unlock-voice', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    'SELECT points, voice_chat_enabled FROM users WHERE id = $1', [id]
+  );
+  const user = result.rows[0];
+  if (!user) return res.status(404).json({ success: false });
+  if (user.voice_chat_enabled) 
+    return res.json({ success: true, message: 'Already unlocked' });
+  if (user.points < 500)
+    return res.status(403).json({ success: false, message: 'Need 500 points to unlock voice' });
+
+  await pool.query('UPDATE users SET voice_chat_enabled = TRUE WHERE id = $1', [id]);
+  res.json({ success: true, message: 'Voice chat unlocked!' });
 });
 
 export default router;

@@ -8,6 +8,11 @@ import {
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import DesertTriangles from '../../components/DesertTriangles';
+import { Theme } from '../../constants/theme';
+import BottomTab from '@/components/BottomTab';
+
+const BOTTOM_TAB_HEIGHT = 60; // adjust to match your BottomTab height
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 
 type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -370,6 +375,8 @@ export default function SavedPlansScreen() {
           )}
         </ScrollView>
       )}
+          {/* ── BOTTOM TAB (ADD THIS) ── */}
+    <BottomTab active="My Plans" />
     </SafeAreaView>
   );
 }

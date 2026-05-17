@@ -1,24 +1,27 @@
 // app/(admin)/attractions.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, SafeAreaView, StatusBar, Alert,
+  ActivityIndicator, SafeAreaView, StatusBar,
   TextInput, Modal, ScrollView, Switch, Image,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
 
 interface Attraction {
   id: number;
   name: string;
-  city: string;          // ← still fine, comes from ci.name AS city
-  city_id?: number;      // ← add this
-  categories?: string[]; // ← change from category: string
-  category?: string;     // ← keep as optional fallback
+  city: string;
+  city_id?: number;
+  categories?: string[];
+  category?: string; // optional fallback
   description: string;
-  primary_image: string; // ← was image_url
+  primary_image: string;
   rating: number;
   price_from: number;
   opening_hours: string;
@@ -37,16 +40,115 @@ const convertDriveUrl = (url: string): string => {
   return url.trim();
 };
 
+// ── Toast ─────────────────────────────────────────────────────────────
+type ToastType = 'success' | 'error' | 'warning';
+
+const Toast: React.FC<{ message: string; type: ToastType; visible: boolean }> = ({ message, type, visible }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 0, duration: 250, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -20, duration: 200, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const bgColor = type === 'success' ? '#27AE60' : type === 'error' ? '#C0392B' : '#E67E22';
+  const icon: any = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'alert';
+
+  return (
+    <Animated.View style={[toastStyles.container, { backgroundColor: bgColor, opacity, transform: [{ translateY }] }]}>
+      <MaterialCommunityIcons name={icon} size={18} color="#FFF" />
+      <Text style={toastStyles.text}>{message}</Text>
+    </Animated.View>
+  );
+};
+
+const toastStyles = StyleSheet.create({
+  container: {
+    position: 'absolute', bottom: 32, left: 16, right: 16, zIndex: 999,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderRadius: 14, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, elevation: 8,
+  },
+  text: { color: '#FFF', fontSize: 14, fontWeight: '600', flex: 1 },
+});
+
+// ── useToast hook ─────────────────────────────────────────────────────
+function useToast() {
+  const [toast, setToast] = useState<{ message: string; type: ToastType; visible: boolean }>({
+    message: '', type: 'success', visible: false,
+  });
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const show = (message: string, type: ToastType = 'success') => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setToast({ message, type, visible: true });
+    timerRef.current = setTimeout(() => setToast(t => ({ ...t, visible: false })), 3000);
+  };
+
+  return { toast, show };
+}
+
+// ── Confirm Dialog ────────────────────────────────────────────────────
+const ConfirmDialog: React.FC<{
+  visible: boolean;
+  title: string;
+  message: string;
+  confirmText?: string;
+  confirmColor?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}> = ({ visible, title, message, confirmText = 'Confirm', confirmColor = '#E74C3C', onConfirm, onCancel }) => (
+  <Modal visible={visible} transparent animationType="fade">
+    <View style={dialogStyles.overlay}>
+      <View style={dialogStyles.card}>
+        <Text style={dialogStyles.title}>{title}</Text>
+        <Text style={dialogStyles.message}>{message}</Text>
+        <View style={dialogStyles.actions}>
+          <TouchableOpacity style={dialogStyles.cancelBtn} onPress={onCancel}>
+            <Text style={dialogStyles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[dialogStyles.confirmBtn, { backgroundColor: confirmColor }]} onPress={onConfirm}>
+            <Text style={dialogStyles.confirmText}>{confirmText}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
+
+const dialogStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 32 },
+  card: { backgroundColor: '#FFF', borderRadius: 20, padding: 24, width: '100%' },
+  title: { fontSize: 17, fontWeight: '800', color: '#1A1A1A', marginBottom: 8 },
+  message: { fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 24 },
+  actions: { flexDirection: 'row', gap: 12 },
+  cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: '#EEE', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  cancelText: { color: '#999', fontWeight: '700', fontSize: 14 },
+  confirmBtn: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  confirmText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+});
+
 // ── Edit Modal ────────────────────────────────────────────────────────
 const EditModal: React.FC<{
   visible: boolean;
   attraction: Attraction | null;
   onClose: () => void;
-  onSave: (data: Partial<Attraction> & { images: string[] }) => void;
-}> = ({ visible, attraction, onClose, onSave }) => {
+  onSave: (data: Partial<Attraction> & { images: string[]; categories: string[] }) => void;
+  showToast: (message: string, type: ToastType) => void;
+}> = ({ visible, attraction, onClose, onSave, showToast }) => {
   const [name, setName] = useState('');
   const [city, setCity] = useState('Alexandria');
-  const [category, setCategory] = useState('historical');
+  const [categories, setCategories] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [rating, setRating] = useState('4.5');
   const [price, setPrice] = useState('0');
@@ -61,7 +163,12 @@ const EditModal: React.FC<{
     if (attraction) {
       setName(attraction.name);
       setCity(attraction.city);
-      setCategory(attraction.category ?? '');
+      // ✅ use categories array, fallback to splitting old category string
+      setCategories(
+        attraction.categories && attraction.categories.length > 0
+          ? attraction.categories
+          : attraction.category ? [attraction.category] : []
+      );
       setDescription(attraction.description ?? '');
       setRating(String(attraction.rating));
       setPrice(String(attraction.price_from));
@@ -69,11 +176,9 @@ const EditModal: React.FC<{
       setIsPopular(attraction.is_popular);
       setLat(String(attraction.latitude ?? ''));
       setLon(String(attraction.longitude ?? ''));
-      // Load existing images
       fetchImages(attraction.id);
     } else {
-      // Reset for new attraction
-      setName(''); setCity('Alexandria'); setCategory('historical');
+      setName(''); setCity('Alexandria'); setCategories([]);
       setDescription(''); setRating('4.5'); setPrice('0');
       setHours(''); setIsPopular(false); setLat(''); setLon('');
       setImages([]);
@@ -96,7 +201,10 @@ const EditModal: React.FC<{
 
   const handleAddImage = () => {
     if (!newImageUrl.trim()) return;
-    if (images.length >= 5) { Alert.alert('Limit reached', 'Max 5 images.'); return; }
+    if (images.length >= 5) {
+      showToast('Maximum 5 images allowed', 'warning');
+      return;
+    }
     const converted = convertDriveUrl(newImageUrl.trim());
     setImages(prev => [...prev, converted]);
     setNewImageUrl('');
@@ -106,12 +214,24 @@ const EditModal: React.FC<{
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  const toggleCategory = (c: string) => {
+    setCategories(prev =>
+      prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]
+    );
+  };
+
   const handleSave = () => {
-    if (!name || !city || !category) { Alert.alert('Error', 'Name, city and category are required.'); return; }
-    if (images.length === 0) { Alert.alert('Error', 'Add at least one image.'); return; }
+    // ✅ validate using categories array, not category string
+    if (!name.trim()) { showToast('Name is required', 'error'); return; }
+    if (!city) { showToast('Please select a city', 'error'); return; }
+    if (categories.length === 0) { showToast('Select at least one category', 'error'); return; }
+    if (images.length === 0) { showToast('Add at least one image', 'error'); return; }
+
     onSave({
-      name, city, category, description,
-      // image_url: images[0],
+      name,
+      city,
+      categories, // ✅ array, not string
+      description,
       rating: parseFloat(rating),
       price_from: parseFloat(price),
       opening_hours: hours,
@@ -126,23 +246,30 @@ const EditModal: React.FC<{
     <Modal visible={visible} animationType="slide">
       <SafeAreaView style={styles.editModal}>
         <View style={styles.editModalHeader}>
-          <TouchableOpacity onPress={onClose}><Text style={styles.editModalCancel}>Cancel</Text></TouchableOpacity>
+          <TouchableOpacity onPress={onClose}>
+            <Text style={styles.editModalCancel}>Cancel</Text>
+          </TouchableOpacity>
           <Text style={styles.editModalTitle}>{attraction ? 'Edit Attraction' : 'Add Attraction'}</Text>
-          <TouchableOpacity onPress={handleSave}><Text style={styles.editModalSave}>Save</Text></TouchableOpacity>
+          <TouchableOpacity onPress={handleSave}>
+            <Text style={styles.editModalSave}>Save</Text>
+          </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.editModalContent} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.editModalContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-          {/* ── Images Section ── */}
+          {/* ── Images ── */}
           <View style={styles.imageSection}>
             <Text style={styles.fieldLabel}>Images ({images.length}/5)</Text>
-
             {images.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {images.map((uri, i) => (
                   <View key={i} style={styles.imageThumbContainer}>
                     <Image source={{ uri }} style={styles.imageThumb} />
-                    {i === 0 && <View style={styles.primaryBadge}><Text style={styles.primaryBadgeText}>Cover</Text></View>}
+                    {i === 0 && (
+                      <View style={styles.primaryBadge}>
+                        <Text style={styles.primaryBadgeText}>Cover</Text>
+                      </View>
+                    )}
                     <TouchableOpacity style={styles.removeImageBtn} onPress={() => handleRemoveImage(i)}>
                       <MaterialCommunityIcons name="close" size={10} color="#FFF" />
                     </TouchableOpacity>
@@ -150,7 +277,6 @@ const EditModal: React.FC<{
                 ))}
               </ScrollView>
             )}
-
             <View style={styles.addImageRow}>
               <TextInput
                 style={styles.addImageInput}
@@ -167,7 +293,7 @@ const EditModal: React.FC<{
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
               <MaterialCommunityIcons name="lightbulb-on-outline" size={14} color="#BBB" />
-              <Text style={[styles.imageHint, { marginTop: 0 }]}>Supports Google Drive share links & direct URLs</Text>
+              <Text style={styles.imageHint}>Supports Google Drive share links & direct URLs</Text>
             </View>
           </View>
 
@@ -203,31 +329,52 @@ const EditModal: React.FC<{
             />
           </View>
 
+          {/* ── City pills (single select) ── */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>City</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {CITIES.map(c => (
-                <TouchableOpacity key={c} style={[styles.pill, city === c && styles.pillActive]} onPress={() => setCity(c)}>
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.pill, city === c && styles.pillActive]}
+                  onPress={() => setCity(c)}
+                >
                   <Text style={[styles.pillText, city === c && styles.pillTextActive]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
 
+          {/* ── Category pills (multi select) ── */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Category</Text>
+            <Text style={styles.fieldLabel}>
+              Categories {categories.length > 0 && `(${categories.length} selected)`}
+            </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {CATEGORIES.map(c => (
-                <TouchableOpacity key={c} style={[styles.pill, category === c && styles.pillActive]} onPress={() => setCategory(c)}>
-                  <Text style={[styles.pillText, category === c && styles.pillTextActive]}>{c}</Text>
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.pill, categories.includes(c) && styles.pillActive]}
+                  onPress={() => toggleCategory(c)}
+                >
+                  {categories.includes(c) && (
+                    <MaterialCommunityIcons name="check" size={12} color="#FFF" style={{ marginRight: 4 }} />
+                  )}
+                  <Text style={[styles.pillText, categories.includes(c) && styles.pillTextActive]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
 
+          {/* ── Popular toggle ── */}
           <View style={[styles.fieldGroup, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
             <Text style={styles.fieldLabel}>Popular Attraction</Text>
-            <Switch value={isPopular} onValueChange={setIsPopular} trackColor={{ false: '#DDD', true: '#E67E22' }} thumbColor="#FFF" />
+            <Switch
+              value={isPopular}
+              onValueChange={setIsPopular}
+              trackColor={{ false: '#DDD', true: '#E67E22' }}
+              thumbColor="#FFF"
+            />
           </View>
 
           <View style={{ height: 40 }} />
@@ -245,21 +392,36 @@ export default function AdminAttractionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [editModal, setEditModal] = useState(false);
   const [selectedAttraction, setSelectedAttraction] = useState<Attraction | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    visible: boolean; title: string; message: string; onConfirm: () => void;
+  }>({ visible: false, title: '', message: '', onConfirm: () => {} });
+  const { toast, show: showToast } = useToast();
 
-  useEffect(() => { fetchAttractions(); }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchAttractions();
+    }, [])
+  );
 
   const fetchAttractions = async () => {
     try {
       const res = await fetch(`${API_BASE}/attractions`);
       const data = await res.json();
       if (data.success) setAttractions(data.data);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+      else showToast('Could not load attractions', 'error');
+    } catch {
+      showToast('Network error loading attractions', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEdit = (attraction: Attraction) => { setSelectedAttraction(attraction); setEditModal(true); };
+  const handleEdit = (attraction: Attraction) => {
+    setSelectedAttraction(attraction);
+    setEditModal(true);
+  };
 
-  const handleSave = async (data: Partial<Attraction> & { images: string[] }) => {
+  const handleSave = async (data: Partial<Attraction> & { images: string[]; categories: string[] }) => {
     if (!selectedAttraction) return;
     try {
       const res = await fetch(`${API_BASE}/attractions/${selectedAttraction.id}`, {
@@ -269,26 +431,35 @@ export default function AdminAttractionsScreen() {
       });
       const result = await res.json();
       if (result.success) {
-        setAttractions(prev => prev.map(a => a.id === selectedAttraction.id ? { ...a, ...data } : a));
+        setAttractions(prev =>
+          prev.map(a => a.id === selectedAttraction.id ? { ...a, ...data } : a)
+        );
         setEditModal(false);
-        Alert.alert('Saved ✓', 'Attraction updated successfully.');
+        showToast('Attraction updated successfully', 'success');
+      } else {
+        showToast(result.message ?? 'Could not save changes', 'error');
       }
-    } catch { Alert.alert('Error', 'Could not save changes.'); }
+    } catch {
+      showToast('Network error — could not save', 'error');
+    }
   };
 
   const handleDelete = (attraction: Attraction) => {
-    Alert.alert('Delete Attraction', `Delete "${attraction.name}"? This cannot be undone.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          try {
-            await fetch(`${API_BASE}/attractions/${attraction.id}`, { method: 'DELETE' });
-            setAttractions(prev => prev.filter(a => a.id !== attraction.id));
-          } catch { Alert.alert('Error', 'Could not delete attraction.'); }
-        },
+    setConfirmDialog({
+      visible: true,
+      title: 'Delete Attraction',
+      message: `Delete "${attraction.name}"? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirmDialog(d => ({ ...d, visible: false }));
+        try {
+          await fetch(`${API_BASE}/attractions/${attraction.id}`, { method: 'DELETE' });
+          setAttractions(prev => prev.filter(a => a.id !== attraction.id));
+          showToast(`"${attraction.name}" deleted`, 'success');
+        } catch {
+          showToast('Could not delete attraction', 'error');
+        }
       },
-    ]);
+    });
   };
 
   const filtered = attractions.filter(a =>
@@ -299,6 +470,9 @@ export default function AdminAttractionsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
+
+      {/* Toast sits at the top of the screen */}
+      <Toast message={toast.message} type={toast.type} visible={toast.visible} />
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -340,9 +514,18 @@ export default function AdminAttractionsScreen() {
               <View style={styles.attractionInfo}>
                 <Text style={styles.attractionName}>{item.name}</Text>
                 <Text style={styles.attractionMeta}>
-                  {item.city} · {item.category} · <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {item.rating}
+                  {item.city} ·{' '}
+                  {/* ✅ show categories array joined, fallback to category string */}
+                  {(item.categories && item.categories.length > 0)
+                    ? item.categories.join(', ')
+                    : item.category ?? '—'
+                  } · <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {item.rating}
                 </Text>
-                {item.is_popular && <View style={styles.popularBadge}><Text style={styles.popularBadgeText}>Popular</Text></View>}
+                {item.is_popular && (
+                  <View style={styles.popularBadge}>
+                    <Text style={styles.popularBadgeText}>Popular</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.attractionActions}>
                 <TouchableOpacity style={styles.editBtn} onPress={() => handleEdit(item)}>
@@ -362,6 +545,17 @@ export default function AdminAttractionsScreen() {
         attraction={selectedAttraction}
         onClose={() => setEditModal(false)}
         onSave={handleSave}
+        showToast={showToast}
+      />
+
+      <ConfirmDialog
+        visible={confirmDialog.visible}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="Delete"
+        confirmColor="#E74C3C"
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(d => ({ ...d, visible: false }))}
       />
     </SafeAreaView>
   );
@@ -371,7 +565,6 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F5F5F5' },
   header: { backgroundColor: '#1A1A1A', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
-  backIcon: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFF' },
   addBtn: { backgroundColor: '#E67E22', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7 },
   addBtnText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
@@ -389,9 +582,7 @@ const styles = StyleSheet.create({
   popularBadgeText: { color: '#E67E22', fontSize: 10, fontWeight: '700' },
   attractionActions: { flexDirection: 'row', gap: 8 },
   editBtn: { backgroundColor: '#EEF', borderRadius: 10, padding: 8 },
-  editBtnText: { fontSize: 16 },
   deleteBtn: { backgroundColor: '#FEE', borderRadius: 10, padding: 8 },
-  deleteBtnText: { fontSize: 16 },
 
   editModal: { flex: 1, backgroundColor: '#F5F5F5' },
   editModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
@@ -406,17 +597,16 @@ const styles = StyleSheet.create({
   primaryBadge: { position: 'absolute', top: 4, left: 4, backgroundColor: '#E67E22', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 },
   primaryBadgeText: { color: '#FFF', fontSize: 8, fontWeight: '800' },
   removeImageBtn: { position: 'absolute', top: 3, right: 3, backgroundColor: 'rgba(0,0,0,0.6)', width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  removeImageBtnText: { color: '#FFF', fontSize: 9, fontWeight: '700' },
   addImageRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   addImageInput: { flex: 1, borderWidth: 1, borderColor: '#EEE', borderRadius: 10, padding: 11, fontSize: 13, color: '#333', backgroundColor: '#FAFAFA' },
   addImageBtn: { backgroundColor: '#E67E22', borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center' },
   addImageBtnText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-  imageHint: { fontSize: 11, color: '#BBB', marginTop: 6 },
+  imageHint: { fontSize: 11, color: '#BBB' },
 
   fieldGroup: { marginBottom: 16 },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
   fieldInput: { backgroundColor: '#FFF', borderRadius: 14, padding: 14, fontSize: 15, color: '#1A1A1A', borderWidth: 1, borderColor: '#EEE' },
-  pill: { backgroundColor: '#F5F5F5', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
+  pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
   pillActive: { backgroundColor: '#E67E22' },
   pillText: { fontSize: 13, color: '#666', fontWeight: '600' },
   pillTextActive: { color: '#FFF' },

@@ -356,30 +356,10 @@ def _get_pool(db_url: str = DB_URL) -> psycopg2.pool.ThreadedConnectionPool:
     if _DB_POOL is None:
         with _DB_POOL_LOCK:
             if _DB_POOL is None:
-                last_error = None
-                candidate_urls = []
-                if db_url:
-                    candidate_urls.append(db_url)
-
-                fallback_url = _get_fallback_db_url()
-                if fallback_url and fallback_url not in candidate_urls:
-                    candidate_urls.append(fallback_url)
-
-                if not candidate_urls:
-                    raise RuntimeError('No DATABASE_URL configured for recommendation service')
-
-                for candidate in candidate_urls:
-                    try:
-                        _DB_POOL = psycopg2.pool.ThreadedConnectionPool(
-                            minconn=1, maxconn=2, dsn=candidate
-                        )
-                        print('[DB] connection pool created')
-                        break
-                    except psycopg2.OperationalError as exc:
-                        last_error = exc
-                        print('[DB] connection pool failed for candidate DATABASE_URL:', exc)
-                else:
-                    raise last_error or RuntimeError('Failed to create DB connection pool')
+                _DB_POOL = psycopg2.pool.ThreadedConnectionPool(
+                    minconn=1, maxconn=2, dsn=db_url
+                )
+                print("[DB] connection pool created (min=1 max=4)")
     return _DB_POOL
 
 

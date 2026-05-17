@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import authRoutes from './routes/auth.js';
+import adminRouter from './routes/admin.js'; 
 import hotelsRouter from './routes/hotels.js';
 import aiRouter from './routes/ai.js';
 import attractionsRouter from './routes/attractions.js';
@@ -33,6 +34,7 @@ app.use('/uploads', express.static(join(__dirname, '../uploads')));
 app.use('/api/attractions', attractionsRouter);
 app.use('/api/points', pointsRouter);
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', adminRouter); 
 app.use('/api/hotels', hotelsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/tts', ttsRouter);
@@ -43,11 +45,15 @@ app.use('/api/plans', plansRouter);
 app.get('/', (req, res) => {
   res.json({ message: 'TourMate API is running' });
 });
+//catches any error not handled by routes
+app.use((err, req, res, next) => {
+  console.error(`[${new Date().toISOString()}] UNHANDLED ERROR:`, err.message);
+  res.status(500).json({ error: 'Something went wrong' });
+});
 
-// 👇 replace your app.listen at the bottom with this
 async function start() {
   try {
-    await pool.query('SELECT 1'); // warms up DB connection
+    await pool.query('SELECT 1');
     console.log('✅ DB connected');
 
     app.listen(port, () => {
@@ -55,6 +61,13 @@ async function start() {
     });
   } catch (err) {
     console.error('❌ DB connection failed:', err);
+    const msg = String(err?.message || err);
+    if (msg.includes('EMAXCONNSESSION') || msg.includes('max clients reached')) {
+      console.error(`
+Supabase "session" connection limit is full. Close other DB clients (Flask, SQL editor, extra terminals),
+or use Supabase's pooled connection URL (host often contains "-pooler").
+`);
+    }
     process.exit(1);
   }
 }

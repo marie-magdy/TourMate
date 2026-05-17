@@ -34,22 +34,95 @@ function ensureTable() {
 router.post('/', async (req, res) => {
   await ensureTable();
   try {
-    const { user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary } = req.body;
+    const { user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary,
+      flight_details, hotel_details   // ← add
+     } = req.body;
     if (!user_id || !itinerary) {
       return res.status(400).json({ success: false, message: 'user_id and itinerary are required' });
     }
     const result = await pool.query(
-      `INSERT INTO saved_plans (user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, created_at`,
-      [user_id, city, start_date, end_date, budget, day_hours,
-       JSON.stringify(interests ?? []),
-       JSON.stringify(spot_ids ?? []),
-       JSON.stringify(itinerary)]
-    );
+  `INSERT INTO saved_plans (
+    user_id, city, start_date, end_date, budget,
+    day_hours, interests, spot_ids, itinerary,
+    flight_details, hotel_details
+  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+  RETURNING id, created_at`,
+  [
+    user_id, city, start_date, end_date, budget,
+    day_hours,
+    JSON.stringify(interests ?? []),
+    JSON.stringify(spot_ids ?? []),
+    JSON.stringify(itinerary),
+    flight_details ? JSON.stringify(flight_details) : null,
+    hotel_details  ? JSON.stringify(hotel_details)  : null,
+  ]
+);
     return res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error('[plans] save error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// GET /api/plans/item/:planId — one saved plan (open from "Saved plans" without regenerating)
+router.get('/item/:planId', async (req, res) => {
+  await ensureTable();
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      `SELECT id, user_id, city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary,
+       flight_details, hotel_details, created_at
+       FROM saved_plans WHERE id = $1`,
+      [planId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('[plans] get item error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// PUT /api/plans/item/:planId — update an existing saved plan (coach edits, date changes, etc.)
+router.put('/item/:planId', async (req, res) => {
+  await ensureTable();
+  try {
+    const { planId } = req.params;
+    const {
+      city, start_date, end_date, budget, day_hours, interests, spot_ids, itinerary,flight_details, hotel_details   // ← add
+    } = req.body;
+    if (itinerary === undefined) {
+      return res.status(400).json({ success: false, message: 'itinerary is required' });
+    }
+    const result = await pool.query(
+  `UPDATE saved_plans SET
+    city = $1, start_date = $2, end_date = $3, budget = $4,
+    day_hours = $5, interests = $6::jsonb, spot_ids = $7::jsonb,
+    itinerary = $8::jsonb,
+    flight_details = $9::jsonb,
+    hotel_details = $10::jsonb
+  WHERE id = $11
+  RETURNING id, created_at`,
+  [
+    city ?? null, start_date ?? null, end_date ?? null, budget ?? null,
+    typeof day_hours === 'string' ? day_hours : JSON.stringify(day_hours ?? []),
+    JSON.stringify(interests ?? []),
+    JSON.stringify(spot_ids ?? []),
+    JSON.stringify(itinerary),
+    flight_details ? JSON.stringify(flight_details) : null,
+    hotel_details  ? JSON.stringify(hotel_details)  : null,
+    planId
+  ]
+);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('[plans] update error:', err);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 });
