@@ -3,8 +3,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { startTrackingPlan, stopTrackingPlan } from '../../utils/planNotifications';
+import { scheduleItineraryNotifications, cancelItineraryNotifications } from '../../notifications';
 import { storeActivePlanForBackground, clearActivePlanFromBackground } from '../../utils/planNotificationsBackground';
+
+const NOTIF_IDS_STORAGE_KEY = (planId: string) => `@itinerary_notif_ids_${planId}`;
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
@@ -399,7 +401,7 @@ export default function ItineraryScreen() {
       .catch(() => setUserId(1));
   }, []);
 
-  // ── Notification tracking — fires whenever the active day changes ─
+  // ── Notification scheduling — registers OS-level alerts that fire even when the app is closed
   useEffect(() => {
     if (loading || !days.length) return;
 
@@ -409,32 +411,45 @@ export default function ItineraryScreen() {
     const planDate = new Date(startDate);
     planDate.setDate(planDate.getDate() + activeDay);
     const planId = `${city}-${startDate}-${activeDay}`;
+    const idsKey = NOTIF_IDS_STORAGE_KEY(planId);
 
-    const plan = {
+    const scheduledActivities = activities
+      .filter(a => a.time && a.id !== 'start' && a.id !== 'end')
+      .map(a => ({
+        id: String(a.id),
+        time: a.time,
+        title: a.title,
+        category: a.category ?? 'attraction',
+      }));
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const prevRaw = await AsyncStorage.getItem(idsKey);
+        const prevIds: string[] = prevRaw ? JSON.parse(prevRaw) : [];
+        if (prevIds.length) await cancelItineraryNotifications(prevIds);
+
+        const newIds = await scheduleItineraryNotifications(scheduledActivities, planDate, 10);
+        if (cancelled) {
+          await cancelItineraryNotifications(newIds);
+          return;
+        }
+        await AsyncStorage.setItem(idsKey, JSON.stringify(newIds));
+        console.log(`[Itinerary] Scheduled ${newIds.length} notifications for plan ${planId}`);
+      } catch (err) {
+        console.warn('[Itinerary] Failed to schedule notifications:', err);
+      }
+    })();
+
+    storeActivePlanForBackground({
       id: planId,
       userId: userId?.toString() ?? '1',
-      startDate: planDate,
-      activities: activities.map(a => ({
-        id: a.id,
-        name: a.title,
-        type: a.category ?? 'Attraction',
-        time: a.time,
-        duration_hrs: a.duration_hrs ?? 0.5,
-      })),
-    };
-
-    stopTrackingPlan();
-    startTrackingPlan(plan);
-    storeActivePlanForBackground({
-      id: plan.id,
-      userId: plan.userId,
       startDate: planDate.toISOString(),
-      activities: plan.activities,
-    });
+      activities: scheduledActivities,
+    }).catch(() => {});
 
     return () => {
-      stopTrackingPlan();
-      clearActivePlanFromBackground(planId).catch(() => {});
+      cancelled = true;
     };
   }, [loading, days, activeDay, startDate, city, userId]);
 

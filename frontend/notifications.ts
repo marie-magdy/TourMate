@@ -92,24 +92,6 @@ export async function scheduleItineraryNotifications(
       scheduledIds.push(id);
     }
 
-    // ── "Running late?" nudge 20 min after activity starts ───────────
-    const lateDate = new Date(activityDate.getTime() + 20 * 60 * 1000);
-    if (lateDate > now && i < realActivities.length - 1) {
-      const nextActivity = realActivities[i + 1];
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `🏃 Don't forget your next stop!`,
-          body:  `${nextActivity.title} is coming up — stay on schedule!`,
-          data:  { activityId: nextActivity.id, type: 'late_nudge' },
-          sound: false,
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: lateDate,
-        },
-      });
-      scheduledIds.push(id);
-    }
   }
 
   return scheduledIds;
