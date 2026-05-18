@@ -2299,6 +2299,31 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         def _passes_guards(att):
             att_cats = set(att["categories"])
             is_liked = str(att["attraction_id"]) in liked_ids_set
+
+            # ── NEW: skip if this attraction belongs to a future day's anchor cluster ──
+            if n_days > 1 and day_index < n_days - 1:
+                att_lat = float(att.get("latitude", 0))
+                att_lon = float(att.get("longitude", 0))
+                if att_lat != 0.0 and att_lon != 0.0:
+                    for future_day, future_anchor in enumerate(anchors):
+                        if future_day <= day_index:
+                            continue
+                        dist_to_future = _haversine_fallback(
+                            att_lat, att_lon,
+                            future_anchor["lat"], future_anchor["lon"]
+                        )["distance_km"]
+                        current_anchor_dist = _haversine_fallback(
+                            att_lat, att_lon,
+                            _anchor_lat, _anchor_lon
+                        )["distance_km"]
+                        if (dist_to_future < current_anchor_dist and
+                                dist_to_future < CITY_CLUSTER_RADIUS.get(user.city, CLUSTER_RADIUS_DEFAULT)):
+                            log.info("FILL", 
+                                f"skipping '{att['name']}' — closer to Day {future_day+1} anchor '{future_anchor['name']}' "
+                                f"({dist_to_future:.1f} km) than today's ({current_anchor_dist:.1f} km)",
+                                verbosity=1
+                            )
+                            return False
             if att_cats & BEACH_CATS and beach_added and not is_liked: return False
             if att_cats & MALL_CATS  and mall_added  and not is_liked: return False
             if str(att["attraction_id"]) in liked_used_as_meal:        return False
