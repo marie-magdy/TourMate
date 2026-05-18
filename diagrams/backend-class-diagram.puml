@@ -1,0 +1,516 @@
+@startuml TourMate_Backend_Diagram1
+title TourMate Backend - Core Server, Auth, Attractions, Admin & Hotels
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #EEF4FF
+skinparam classBorderColor #336699
+skinparam classHeaderBackgroundColor #1a3a5c
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontColor #1a1a1a
+skinparam classAttributeIconSize 0
+skinparam arrowColor #444444
+skinparam shadowing false
+skinparam nodesep 50
+skinparam ranksep 70
+top to bottom direction
+
+' ═══════════════════════════════════════
+' CORE SERVER
+' ═══════════════════════════════════════
+package "Core Server" #E3F2FD {
+
+  class ExpressApp <<class>> {
+    -port: number
+    -uploadsDir: string
+    --
+    +use(middleware): void
+    +listen(port): void
+    +start(): Promise<void>
+  }
+
+  class Database <<class>> {
+    -connectionString: string
+    --
+    +query(sql, params): Promise<Result>
+  }
+
+  ExpressApp --> Database : connects to
+  ExpressApp --> AuthRouter : /api/auth
+  ExpressApp --> AdminRouter : /api/auth/admin
+  ExpressApp --> AttractionsRouter : /api/attractions
+  ExpressApp --> PointsRouter : /api/points
+  ExpressApp --> HotelsRouter : /api/hotels
+  ExpressApp --> AIRouter : /api/ai
+  ExpressApp --> TTSRouter : /api/tts
+  ExpressApp --> RecognitionRouter : /api/recognition
+  ExpressApp --> RecommendationsRouter : /api/recommendations
+  ExpressApp --> PlansRouter : /api/plans
+}
+
+' ═══════════════════════════════════════
+' AUTH ROUTER
+' ═══════════════════════════════════════
+package "Auth Router /api/auth" #FFF8E1 {
+
+  class AuthRouter <<router>> {
+    --
+    +POST /register(req, res): void
+    +POST /login(req, res): void
+    +POST /google(req, res): void
+    +GET /user/:id(req, res): void
+    +GET /user/:id/features(req, res): void
+    +PUT /user/:id(req, res): void
+    +PUT /user/:id/password(req, res): void
+    +DELETE /user/:id(req, res): void
+    +POST /user/:id/unlock-voice(req, res): void
+  }
+
+  class JWTService <<service>> {
+    --
+    +sign(payload, secret, options): string
+    +verify(token, secret): Payload
+  }
+
+  class BcryptService <<service>> {
+    --
+    +hash(password, saltRounds): Promise<string>
+    +compare(password, hash): Promise<boolean>
+  }
+
+  class UserEntity <<db-table>> {
+    +id: SERIAL PK
+    +username: TEXT
+    +email: TEXT UNIQUE
+    +password: TEXT
+    +role: TEXT
+    +voice_chat_enabled: BOOLEAN
+    +avatar_url: TEXT
+    +points: INTEGER
+    +created_at: TIMESTAMP
+    +updated_at: TIMESTAMP
+  }
+
+  class UserPointsEntity <<db-table>> {
+    +user_id: INTEGER FK
+    +points: INTEGER
+    +total_earned: INTEGER
+    +updated_at: TIMESTAMP
+  }
+
+  class FavoritesEntity <<db-table>> {
+    +id: SERIAL PK
+    +user_id: INTEGER FK
+    +attraction_id: INTEGER FK
+    +created_at: TIMESTAMP
+  }
+
+  class PointsHistoryEntity <<db-table>> {
+    +id: SERIAL PK
+    +user_id: INTEGER FK
+    +points: INTEGER
+    +action: TEXT
+    +description: TEXT
+    +created_at: TIMESTAMP
+  }
+
+  AuthRouter --> UserEntity : reads/writes
+  AuthRouter --> UserPointsEntity : creates on register
+  AuthRouter --> FavoritesEntity : deletes on account delete
+  AuthRouter --> PointsHistoryEntity : deletes on account delete
+  AuthRouter --> JWTService : signs token
+  AuthRouter --> BcryptService : hashes/compares password
+  UserEntity --> UserPointsEntity : has
+  UserEntity --> FavoritesEntity : has
+  UserEntity --> PointsHistoryEntity : has
+}
+
+' ═══════════════════════════════════════
+' ADMIN ROUTER
+' ═══════════════════════════════════════
+package "Admin Router /api/auth/admin" #FCE4EC {
+
+  class AdminRouter <<router>> {
+    --
+    +GET /admin/users(req, res): void
+    +DELETE /admin/users/:id(req, res): void
+    +PUT /admin/users/:id/role(req, res): void
+    +POST /admin/users/:id/points(req, res): void
+    +GET /admin/stats(req, res): void
+    +PUT /admin/users/:id/voice-access(req, res): void
+  }
+
+  class AdminStatsResult <<interface>> {
+    +total_users: number
+    +total_attractions: number
+    +total_favorites: number
+    +total_points: number
+    +top_attractions: TopAttraction[]
+  }
+
+  AdminRouter --> UserEntity : manages
+  AdminRouter --> UserPointsEntity : updates points
+  AdminRouter --> PointsHistoryEntity : inserts history
+  AdminRouter --> FavoritesEntity : counts favorites
+  AdminRouter --> AdminStatsResult : returns stats
+}
+
+' ═══════════════════════════════════════
+' ATTRACTIONS ROUTER
+' ═══════════════════════════════════════
+package "Attractions Router /api/attractions" #F3E5F5 {
+
+  class AttractionsRouter <<router>> {
+    --
+    +GET /popular(req, res): void
+    +GET /nearest(req, res): void
+    +GET /search(req, res): void
+    +GET /favorites/:user_id(req, res): void
+    +GET /(req, res): void
+    +GET /:id/images(req, res): void
+    +GET /:id(req, res): void
+    +POST /(req, res): void
+    +PUT /:id(req, res): void
+    +DELETE /:id(req, res): void
+    +POST /:id/favorite(req, res): void
+    +POST /upload-image(req, res): void
+    +POST /download-images(req, res): void
+    -convertDriveUrl(url): string
+  }
+
+  class AttractionEntity <<db-table>> {
+    +id: SERIAL PK
+    +attraction_id: TEXT
+    +name: TEXT
+    +city_id: INTEGER FK
+    +description: TEXT
+    +categories: TEXT
+    +rating: NUMERIC
+    +price_from: NUMERIC
+    +opening_hours: TEXT
+    +is_popular: BOOLEAN
+    +latitude: NUMERIC
+    +longitude: NUMERIC
+    +model_label: TEXT
+    +updated_at: TIMESTAMP
+  }
+
+  class AttractionImageEntity <<db-table>> {
+    +id: SERIAL PK
+    +attraction_id: INTEGER FK
+    +image_url: TEXT
+    +is_primary: BOOLEAN
+  }
+
+  class AttractionCategoryEntity <<db-table>> {
+    +attraction_id: INTEGER FK
+    +category_id: INTEGER FK
+  }
+
+  class CategoryEntity <<db-table>> {
+    +category_id: SERIAL PK
+    +name: TEXT
+  }
+
+  class CityEntity <<db-table>> {
+    +city_id: SERIAL PK
+    +name: TEXT
+  }
+
+  AttractionsRouter --> AttractionEntity : CRUD
+  AttractionsRouter --> AttractionImageEntity : manages images
+  AttractionsRouter --> AttractionCategoryEntity : manages categories
+  AttractionsRouter --> FavoritesEntity : toggle favorite
+  AttractionEntity --> CityEntity : belongs to
+  AttractionEntity --> AttractionImageEntity : has images
+  AttractionEntity --> AttractionCategoryEntity : has categories
+  AttractionCategoryEntity --> CategoryEntity : links to
+}
+
+' ═══════════════════════════════════════
+' HOTELS ROUTER
+' ═══════════════════════════════════════
+package "Hotels Router /api/hotels" #FFF3E0 {
+
+  class HotelsRouter <<router>> {
+    --
+    +GET /(req, res): void
+  }
+
+  class HotelEntity <<db-table>> {
+    +id: SERIAL PK
+    +name: TEXT
+    +city: TEXT
+    +stars: INTEGER
+    +rating: NUMERIC
+    +price_per_night: NUMERIC
+    +image_url: TEXT
+    +booking_url: TEXT
+  }
+
+  HotelsRouter --> HotelEntity : reads by city
+}
+
+@enduml
+
+@startuml TourMate_Backend_Diagram2
+title TourMate Backend - Plans, Points, AI, TTS, Recognition & Recommendations
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #EEF4FF
+skinparam classBorderColor #336699
+skinparam classHeaderBackgroundColor #1a3a5c
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontColor #1a1a1a
+skinparam classAttributeIconSize 0
+skinparam arrowColor #444444
+skinparam shadowing false
+skinparam nodesep 50
+skinparam ranksep 70
+top to bottom direction
+
+' ═══════════════════════════════════════
+' PLANS ROUTER
+' ═══════════════════════════════════════
+package "Plans Router /api/plans" #E8F5E9 {
+
+  class PlansRouter <<router>> {
+    --
+    +POST /(req, res): void
+    +GET /item/:planId(req, res): void
+    +PUT /item/:planId(req, res): void
+    +GET /:user_id(req, res): void
+    +PATCH /item/:planId/name(req, res): void
+    +DELETE /:id(req, res): void
+    -ensureTable(): Promise<void>
+  }
+
+  class SavedPlanEntity <<db-table>> {
+    +id: SERIAL PK
+    +user_id: INTEGER FK
+    +city: TEXT
+    +start_date: TEXT
+    +end_date: TEXT
+    +budget: TEXT
+    +day_hours: TEXT
+    +interests: JSONB
+    +spot_ids: JSONB
+    +itinerary: JSONB
+    +flight_details: JSONB
+    +hotel_details: JSONB
+    +name: TEXT
+    +created_at: TIMESTAMP
+  }
+
+  PlansRouter --> SavedPlanEntity : CRUD
+}
+
+' ═══════════════════════════════════════
+' POINTS ROUTER
+' ═══════════════════════════════════════
+package "Points Router /api/points" #FCE4EC {
+
+  class PointsRouter <<router>> {
+    --
+    +GET /rewards/all(req, res): void
+    +GET /:user_id(req, res): void
+    +GET /:user_id/history(req, res): void
+    +POST /earn(req, res): void
+    +POST /redeem(req, res): void
+  }
+
+  class RewardEntity <<db-table>> {
+    +id: SERIAL PK
+    +title: TEXT
+    +description: TEXT
+    +points_required: INTEGER
+    +category: TEXT
+    +icon: TEXT
+    +is_available: BOOLEAN
+  }
+
+  class UserPointsEntity <<db-table>> {
+    +user_id: INTEGER FK
+    +points: INTEGER
+    +total_earned: INTEGER
+  }
+
+  class PointsHistoryEntity <<db-table>> {
+    +user_id: INTEGER FK
+    +points: INTEGER
+    +action: TEXT
+    +description: TEXT
+    +created_at: TIMESTAMP
+  }
+
+  PointsRouter --> UserPointsEntity : reads/updates
+  PointsRouter --> PointsHistoryEntity : inserts
+  PointsRouter --> RewardEntity : reads
+}
+
+' ═══════════════════════════════════════
+' AI ROUTER
+' ═══════════════════════════════════════
+package "AI Router /api/ai" #E3F2FD {
+
+  class AIRouter <<router>> {
+    --
+    +POST /plan-coach(req, res): void
+    +POST /chat(req, res): void
+    +POST /speak(req, res): void
+    +POST /transcribe(req, res): void
+  }
+
+  class PlanCoachService <<service>> {
+    -RECOMMENDATION_SERVICE: string
+    -MIN_VISIT_HRS: number
+    -FOOD_TAGS: Set<string>
+    -CITY_CENTRE: Record<string, number[]>
+    --
+    +runPlanCoach(params): Promise<CoachResult>
+    +stopsToPlanActivities(stops): Activity[]
+    -haversineKm(lat1, lon1, lat2, lon2): number
+    -transportFromKm(km): TransportInfo
+    -fmtHour(h): string
+    -inferStopType(spot, arrivalHour): string
+    -mapActivityIcon(stopType, categories): string
+    -retimeOrderedSpotsFallback(orderedSpots, ctx): DayPlan
+    -fetchCatalogMerged(city, nearLat, nearLon): Promise<Spot[]>
+    -catalogById(list): Record<string, Spot>
+    -interestScore(spot, interests): number
+    -catalogPromptBlock(catalog, interests, maxLines): string
+    -resolveStartCoords(city, startLat, startLon): number[]
+    -parseDaySchedules(raw): Schedule[]
+    -recomputeBudgets(planDays, totalBudget, coachSpendOffset): DayPlan[]
+    -cloneDayIds(planDays): DayPlan[]
+    -initSchedulesFromRaw(schedulesRaw, dayCount): Schedule[]
+    -parseYmd(str): Date
+    -formatTripDayLabel(d): string
+    -addCalendarDays(d, n): Date
+    -formatYmd(d): string
+    -sumRecordExtraSpend(operations): number
+    -opsRequirePlanRebuild(operations): boolean
+    -applySequentialOperations(planDays, schedulesRaw, operations): DayPlan[]
+    -suggestIdsForEmptyDays(dayIds, catalog, interests, allowedIds, warnings): string[]
+    -detectDroppedIds(orderedIds, itinerary): string[]
+    -flaskRetimeDay(body): Promise<any>
+    -stripJsonFence(text): string
+    -buildReplyWithNotices(reply, warnings, modelNotice, modelFlag): string
+  }
+
+  class CoachResult <<interface>> {
+    +success: boolean
+    +reply: string
+    +plan_days_preview: DayPlan[]
+    +optimization_warnings: string[]
+    +day_schedules_preview: any | null
+    +end_date_preview: string | null
+    +coach_extra_spend_total_preview: number
+  }
+
+  class TransportInfo <<interface>> {
+    +mode: string
+    +duration_min: number
+    +cost_egp: number
+    +distance_km: number
+    +costs: object | null
+    +directions_url: string
+  }
+
+  class GroqLLMService <<external-service>> {
+    +chatEndpoint: string
+    +audioEndpoint: string
+    +transcribeEndpoint: string
+    --
+    +chatCompletion(messages, model): Promise<string>
+    +textToSpeech(text, voice): Promise<Buffer>
+    +transcribe(audio, mimeType): Promise<string>
+  }
+
+  AIRouter --> PlanCoachService : uses for /plan-coach
+  AIRouter --> GroqLLMService : calls for /chat /speak /transcribe
+  PlanCoachService --> CoachResult : returns
+  PlanCoachService --> TransportInfo : produces
+  PlanCoachService --> RecommendationFlaskService : calls /retime-day
+}
+
+' ═══════════════════════════════════════
+' TTS ROUTER
+' ═══════════════════════════════════════
+package "TTS Router /api/tts" #FFF8E1 {
+
+  class TTSRouter <<router>> {
+    -VOICES: Record<string, string>
+    --
+    +POST /(req, res): void
+    -splitIntoChunks(text, maxLen): string[]
+    -fetchChunk(chunk, voice): Promise<string | null>
+    -combineWavChunks(chunks): string
+  }
+
+  TTSRouter --> GroqLLMService : generates script + audio
+}
+
+' ═══════════════════════════════════════
+' RECOGNITION ROUTER
+' ═══════════════════════════════════════
+package "Recognition Router /api/recognition" #F3E5F5 {
+
+  class RecognitionRouter <<router>> {
+    -CV_SERVICE: string
+    --
+    +POST /analyze(req, res): void
+    +GET /health(req, res): void
+  }
+
+  class CVFlaskService <<external-service>> {
+    +endpoint: string
+    --
+    +recognize(image, modelType): Promise<CVResult>
+    +health(): Promise<HealthResult>
+  }
+
+  class CVResult <<interface>> {
+    +recognized: boolean
+    +model_label: string
+    +confidence: number
+    +message?: string
+  }
+
+  class AttractionEntity <<db-table>> {
+    +id: SERIAL PK
+    +model_label: TEXT
+  }
+
+  RecognitionRouter --> CVFlaskService : forwards image
+  RecognitionRouter --> AttractionEntity : looks up by model_label
+  RecognitionRouter --> CVResult : processes response
+}
+
+' ═══════════════════════════════════════
+' RECOMMENDATIONS ROUTER
+' ═══════════════════════════════════════
+package "Recommendations Router /api/recommendations" #EFEBE9 {
+
+  class RecommendationsRouter <<router>> {
+    -RECOMMENDATION_SERVICE: string
+    --
+    +GET /attractions(req, res): void
+    +GET /health(req, res): void
+    +POST /itinerary(req, res): void
+    +POST /budget-split(req, res): void
+  }
+
+  class RecommendationFlaskService <<external-service>> {
+    +endpoint: string
+    --
+    +getAttractions(query): Promise<Spot[]>
+    +generateItinerary(params): Promise<DayPlan[]>
+    +budgetSplit(params): Promise<Fractions>
+    +retimeDay(body): Promise<Day>
+    +health(): Promise<HealthResult>
+  }
+
+  RecommendationsRouter --> RecommendationFlaskService : proxies all requests
+}
+
+@enduml

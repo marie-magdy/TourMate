@@ -136,7 +136,7 @@ export default function Login() {
             resizeMode="contain"
           />
           <Text style={styles.logoText}>TourMate</Text>
-          <Text style={styles.logoSubtitle}>Your Egyptian adventure awaits</Text>
+          <Text style={styles.logoSubtitle}>Your AI Travel Companion</Text>
         </View>
 
         <Text style={styles.title}>Sign in</Text>

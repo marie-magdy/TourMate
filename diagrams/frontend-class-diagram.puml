@@ -1,0 +1,763 @@
+@startuml TourMate_Diagram1
+title TourMate - Auth, User, Attractions & Admin
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #EEF4FF
+skinparam classBorderColor #336699
+skinparam classHeaderBackgroundColor #1a3a5c
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontColor #1a1a1a
+skinparam classAttributeIconSize 0
+skinparam arrowColor #444444
+skinparam shadowing false
+skinparam nodesep 50
+skinparam ranksep 70
+top to bottom direction
+
+' ═══════════════════════════════════════
+' AUTH & USER
+' ═══════════════════════════════════════
+package "Auth & User" #FFF8E1 {
+
+  class AppUser <<interface>> {
+    +id: number
+    +username: string
+    +email: string
+    +role: string
+    +voice_chat_enabled: boolean
+  }
+
+  class AppContextType <<interface>> {
+    +user: AppUser | null
+    +userId: number
+    +userReady: boolean
+    +voiceChatEnabled: boolean
+    +language: string
+    +currency: string
+    +isRTL: boolean
+    +exchangeRate: number
+    +currencySymbol: string
+    --
+    +setUser(user): void
+    +logout(): Promise<void>
+    +refreshFeatures(userId?): Promise<void>
+    +setLanguage(lang): void
+    +t(key): string
+    +setCurrency(c): void
+    +convertPrice(price): string
+  }
+
+  class AppProvider <<class>> {
+    -user: AppUser | null
+    -userReady: boolean
+    -language: string
+    -currency: string
+    -exchangeRates: Record<string, number>
+    -voiceChatEnabled: boolean
+    --
+    +refreshFeatures(uid?): Promise<void>
+    -loadUser(): Promise<void>
+    -loadPreferences(): Promise<void>
+    -fetchRates(): Promise<void>
+    -logout(): Promise<void>
+    -convertPrice(priceInEGP): string
+    -t(key): string
+  }
+
+  class LoginScreen <<screen>> {
+    -email: string
+    -password: string
+    -loading: boolean
+    -googleLoading: boolean
+    --
+    +handleLogin(): Promise<void>
+    +handleGoogleLogin(token): Promise<void>
+  }
+
+  class SignUpScreen <<screen>> {
+    -username: string
+    -email: string
+    -password: string
+    -loading: boolean
+    --
+    +handleSignUp(): Promise<void>
+  }
+
+  class SplashScreen <<screen>> {
+    -logoReady: boolean
+    --
+    +checkAndRedirect(): Promise<string>
+  }
+
+  class OnboardingScreen <<screen>> {
+    -currentPage: number
+    --
+    +goNext(page): void
+  }
+
+  AppProvider ..|> AppContextType : implements
+  AppProvider --> AppUser : manages
+  AppContextType --> AppUser : contains
+  LoginScreen --> AppProvider : uses
+  LoginScreen --> AppUser : authenticates
+  SignUpScreen --> AppProvider : uses
+  SplashScreen --> AppUser : checks session
+}
+
+' ═══════════════════════════════════════
+' ATTRACTIONS & ADMIN
+' ═══════════════════════════════════════
+package "Attractions & Admin" #F3E5F5 {
+
+  class Attraction <<interface>> {
+    +id: number
+    +name: string
+    +city: string
+    +city_name?: string
+    +categories?: string[]
+    +description: string
+    +primary_image: string
+    +rating: number
+    +price_from: number
+    +opening_hours?: string
+    +is_popular?: boolean
+    +latitude?: number
+    +longitude?: number
+    +virtual_tour_url?: string | null
+  }
+
+  class Spot <<interface>> {
+    +id: string
+    +name: string
+    +image_url: string
+    +price_from: number
+    +rating: number
+    +category: string
+    +city: string
+    +description: string
+  }
+
+  class FilterState <<interface>> {
+    +categories: string[]
+    +maxPrice: number | null
+    +minRating: number
+  }
+
+  class FilterSheetProps <<interface>> {
+    +visible: boolean
+    +initial: FilterState
+    --
+    +onApply(f: FilterState): void
+    +onClose(): void
+  }
+
+  class AttractionSheetProps <<interface>> {
+    +attraction: Attraction | null
+    +visible: boolean
+    +userId?: number | null
+    --
+    +onClose(): void
+    +onRemove?(id): void
+  }
+
+  class Stats <<interface>> {
+    +total_users: number
+    +total_attractions: number
+    +total_favorites: number
+    +total_points: number
+    +top_attractions: TopAttraction[]
+  }
+
+  class User <<interface>> {
+    +id: number
+    +username: string
+    +email: string
+    +role: string
+    +voice_chat_enabled?: boolean
+    +points: number
+    +total_earned: number
+    +favorites_count: number
+    +created_at: string
+  }
+
+  class AdminDashboardScreen <<screen>> {
+    -users: User[]
+    -stats: Stats
+    --
+    +fetchStats(): Promise<void>
+    +fetchUsers(): Promise<void>
+    +updatePoints(userId, pts): Promise<void>
+  }
+
+  class AdminAttractionsScreen <<screen>> {
+    -attractions: Attraction[]
+    --
+    +fetchAttractions(): Promise<void>
+    +deleteAttraction(id): Promise<void>
+  }
+
+  class AddAttractionScreen <<screen>> {
+    -name: string
+    -city: string
+    -categories: string[]
+    --
+    +handleSubmit(): Promise<void>
+  }
+
+  class HomeScreen <<screen>> {
+    -attractions: Attraction[]
+    -searchResults: Attraction[]
+    -forecast: DayForecast[]
+    --
+    +fetchAttractions(): Promise<void>
+    +handleSearch(text): void
+  }
+
+  class FavoritesScreen <<screen>> {
+    -favorites: Attraction[]
+    --
+    +fetchFavorites(): Promise<void>
+    +removeFavorite(id): Promise<void>
+  }
+
+  class PickSpotsScreen <<screen>> {
+    -spots: Spot[]
+    -selected: string[]
+    --
+    +fetchSpots(): Promise<void>
+    +toggleSpot(id): void
+  }
+
+  class AttractionScreen <<screen>> {
+    -attraction: Attraction | null
+    --
+    +fetchAttraction(id): Promise<void>
+  }
+
+  FilterSheetProps --> FilterState : uses
+  AttractionSheetProps --> Attraction : references
+  AdminDashboardScreen --> Stats : displays
+  AdminDashboardScreen --> User : manages
+  AdminAttractionsScreen --> Attraction : manages
+  AddAttractionScreen --> Attraction : creates
+  HomeScreen --> Attraction : displays
+  HomeScreen --> FilterSheetProps : uses
+  FavoritesScreen --> Attraction : displays
+  PickSpotsScreen --> Spot : displays
+  AttractionScreen --> Attraction : displays
+  AttractionScreen --> AttractionSheetProps : uses
+}
+
+' ═══════════════════════════════════════
+' REWARDS
+' ═══════════════════════════════════════
+package "Rewards" #FCE4EC {
+
+  class UserPoints <<interface>> {
+    +points: number
+    +total_earned: number
+  }
+
+  class Reward <<interface>> {
+    +id: number
+    +title: string
+    +description: string
+    +points_required: number
+    +category: string
+    +icon: string
+  }
+
+  class HistoryItem <<interface>> {
+    +id: number
+    +points: number
+    +action: string
+    +description: string
+    +created_at: string
+  }
+
+  class RewardsScreen <<screen>> {
+    -rewards: Reward[]
+    -history: HistoryItem[]
+    -userPoints: UserPoints
+    --
+    +fetchRewards(): Promise<void>
+    +redeemReward(id): Promise<void>
+    +fetchHistory(): Promise<void>
+  }
+
+  RewardsScreen --> Reward : displays
+  RewardsScreen --> HistoryItem : displays
+  RewardsScreen --> UserPoints : shows
+  User --> UserPoints : has
+  User --> Reward : redeems
+  User --> HistoryItem : has history
+}
+
+@enduml
+
+@startuml TourMate_Diagram2
+title TourMate - Booking, Planning & Itinerary
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #EEF4FF
+skinparam classBorderColor #336699
+skinparam classHeaderBackgroundColor #1a3a5c
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontColor #1a1a1a
+skinparam classAttributeIconSize 0
+skinparam arrowColor #444444
+skinparam shadowing false
+skinparam nodesep 50
+skinparam ranksep 70
+top to bottom direction
+
+' ═══════════════════════════════════════
+' BOOKING
+' ═══════════════════════════════════════
+package "Booking" #FFF3E0 {
+
+  class Hotel <<interface>> {
+    +id: number
+    +name: string
+    +city: string
+    +image_url?: string
+    +price_per_night?: number
+    +stars?: number
+    +rating?: number
+    +bookingUrl?: string
+    +checkIn?: string
+    +checkOut?: string
+  }
+
+  class Flight <<interface>> {
+    +airline: string
+    +flightNumber: string
+    +departure: string
+    +arrival: string
+    +departureTime: string
+    +arrivalTime: string
+    +duration: string
+    +class: string
+    +price: number
+    +bookingUrl?: string
+  }
+
+  class BookingStore <<class>> {
+    +selectedHotel: Hotel | null
+    +selectedFlight: Flight | null
+    --
+    +setSelectedHotel(hotel: Hotel): void
+    +setSelectedFlight(flight: Flight): void
+    +updateHotelBookingUrl(url: string): void
+    +updateFlightBookingUrl(url: string): void
+  }
+
+  class BookedFlightDetails <<interface>> {
+    +airline: string
+    +flightNumber: string
+    +departureTime: string
+    +arrivalTime: string
+    +price: string
+    +bookingUrl: string
+  }
+
+  class BookedHotelDetails <<interface>> {
+    +name: string
+    +checkIn: string
+    +checkOut: string
+    +pricePerNight: string
+    +bookingUrl: string
+  }
+
+  class FlightPlatform <<interface>> {
+    +id: string
+    +name: string
+    +tagline: string
+    +rating: number
+    +badge: string
+    +iconColor: string
+    +bgColor: string
+    --
+    +buildUrl(from, to, depart, ret): string
+  }
+
+  class HotelPlatform <<interface>> {
+    +id: string
+    +name: string
+    +tagline: string
+    +rating: number
+    +badge: string
+    +iconColor: string
+    +bgColor: string
+    --
+    +buildUrl(city, checkin, checkout): string
+  }
+
+  class CityIntroScreen <<screen>> {
+    -flightDetails: BookedFlightDetails
+    -hotelDetails: BookedHotelDetails
+    -flightBooked: boolean
+    -hotelBooked: boolean
+    --
+    +handleConfirm(): void
+  }
+
+  BookingStore --> Hotel : stores
+  BookingStore --> Flight : stores
+  FlightPlatform --> BookedFlightDetails : produces
+  HotelPlatform --> BookedHotelDetails : produces
+  CityIntroScreen --> FlightPlatform : lists
+  CityIntroScreen --> HotelPlatform : lists
+  CityIntroScreen --> BookingStore : writes to
+  CityIntroScreen --> BookedFlightDetails : collects
+  CityIntroScreen --> BookedHotelDetails : collects
+}
+
+' ═══════════════════════════════════════
+' PLANNING & ITINERARY
+' ═══════════════════════════════════════
+package "Planning & Itinerary" #E8F5E9 {
+
+  class Activity <<interface>> {
+    +id: string
+    +time: string
+    +title: string
+    +icon: string
+    +category: string
+    +latitude?: number
+    +longitude?: number
+    +duration_hrs?: number
+    +cost_egp?: number
+    +description?: string
+    +rating?: number
+    +address?: string
+    +open_hour?: number
+    +close_hour?: number
+    +price_from?: number
+    +detour_note?: string
+  }
+
+  class RecommendationStop <<interface>> {
+    +id?: string
+    +time: string
+    +departure_time?: string
+    +type: string
+    +name: string
+    +latitude?: number
+    +longitude?: number
+    +duration_hrs?: number
+    +cost_egp?: number
+    +travel_duration_min?: number
+    +rating?: number
+    +open?: number
+    +close?: number
+    +price_from?: number
+  }
+
+  class DayPlan <<interface>> {
+    +day: number
+    +date: string
+    +activities: Activity[]
+    +budget_spent?: number
+    +budget_remaining?: number
+    +summary?: string
+  }
+
+  class SavedPlan <<interface>> {
+    +id: number
+    +city: string
+    +start_date: string
+    +end_date: string
+    +budget: string
+    +created_at: string
+    +name?: string
+    +itinerary?: DayPlan[]
+    +flight_details?: BookedFlightDetails
+    +hotel_details?: BookedHotelDetails
+  }
+
+  class DayForecast <<interface>> {
+    +date: string
+    +day: string
+    +maxTemp: number
+    +minTemp: number
+    +iconColor: string
+    +label: string
+  }
+
+  class PlanScreen <<screen>> {
+    -selectedCity: City
+    -startDate: Date
+    -endDate: Date
+    -budget: number
+    -selectedInterests: string[]
+    -forecast: DayForecast[]
+    --
+    +handleNext(): void
+    +fetchForecast(): Promise<void>
+  }
+
+  class ItineraryScreen <<screen>> {
+    -days: DayPlan[]
+    -activeDay: number
+    -planSaved: boolean
+    -flightForm: BookedFlightDetails
+    -hotelForm: BookedHotelDetails
+    --
+    +upsertPlanToServer(override?): Promise<string>
+    +deleteActivity(day, id): void
+    +sendPlanCoachMessage(preset?): Promise<void>
+  }
+
+  class SavedPlansScreen <<screen>> {
+    -plans: SavedPlan[]
+    --
+    +fetchPlans(): Promise<void>
+    +deletePlan(id): Promise<void>
+  }
+
+  RecommendationStop --> Activity : converts to
+  DayPlan "1" *-- "many" Activity : contains
+  SavedPlan "1" *-- "many" DayPlan : contains
+  SavedPlan --> BookedFlightDetails : has
+  SavedPlan --> BookedHotelDetails : has
+  PlanScreen --> DayForecast : displays
+  PlanScreen --> BookingStore : reads hotel
+  ItineraryScreen --> DayPlan : manages
+  ItineraryScreen --> BookingStore : reads flight/hotel
+  ItineraryScreen --> SavedPlan : saves to
+  ItineraryScreen --> BookedFlightDetails : edits
+  ItineraryScreen --> BookedHotelDetails : edits
+  SavedPlansScreen --> SavedPlan : displays
+}
+
+' ═══════════════════════════════════════
+' SETTINGS
+' ═══════════════════════════════════════
+package "Settings" #EFEBE9 {
+
+  class SettingRowProps <<interface>> {
+    +label: string
+    +value?: string
+    +showArrow?: boolean
+    +danger?: boolean
+    --
+    +onPress?(): void
+  }
+
+  class ToggleRowProps <<interface>> {
+    +label: string
+    +value: boolean
+    --
+    +onToggle(v): void
+  }
+
+  class SettingsScreen <<screen>> {
+    -voiceChatEnabled: boolean
+    -language: string
+    -currency: string
+    --
+    +handleLogout(): Promise<void>
+    +handleChangePassword(): Promise<void>
+    +handleEditProfile(): Promise<void>
+  }
+
+  SettingsScreen --> SettingRowProps : renders
+  SettingsScreen --> ToggleRowProps : renders
+}
+
+@enduml
+
+@startuml TourMate_Diagram3
+title TourMate - Map, Navigation, AI Chat & UI Components
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #EEF4FF
+skinparam classBorderColor #336699
+skinparam classHeaderBackgroundColor #1a3a5c
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontColor #1a1a1a
+skinparam classAttributeIconSize 0
+skinparam arrowColor #444444
+skinparam shadowing false
+skinparam nodesep 50
+skinparam ranksep 70
+top to bottom direction
+
+' ═══════════════════════════════════════
+' MAP & NAVIGATION
+' ═══════════════════════════════════════
+package "Map & Navigation" #E3F2FD {
+
+  class Place <<interface>> {
+    +id: string
+    +name: string
+    +latitude: number
+    +longitude: number
+    +type?: string
+    +address?: string
+    +distance_km?: number
+  }
+
+  class RoutePoint <<interface>> {
+    +latitude: number
+    +longitude: number
+  }
+
+  class SearchResult <<interface>> {
+    +place_id: string
+    +display_name: string
+    +lat: string
+    +lon: string
+    +type?: string
+  }
+
+  class WalkableBanner <<interface>> {
+    +visible: boolean
+    +place: Place | null
+    +distance_km: number
+  }
+
+  class PlannedActivity <<interface>> {
+    +id: string
+    +time: string
+    +title: string
+    +latitude?: number
+    +longitude?: number
+    +duration_hrs?: number
+    +cost_egp?: number
+  }
+
+  class PlannedDay <<interface>> {
+    +day: number
+    +date: string
+    +activities: PlannedActivity[]
+  }
+
+  class MappedStop <<interface>> {
+    +day: number
+    +date: string
+    +dayOrder: number
+    +key: string
+    +globalOrder?: number
+  }
+
+  class StopLegInfo <<interface>> {
+    +distanceText: string
+    +durationText: string
+    +distanceKm: number
+    +durationMin: number
+  }
+
+  class MapScreen <<screen>> {
+    -userLocation: RoutePoint | null
+    -searchResults: SearchResult[]
+    -routeCoords: RoutePoint[]
+    -stopLegs: Record<string, StopLegInfo>
+    -walkableBanner: WalkableBanner
+    -plannedDays: PlannedDay[]
+    --
+    +fetchRoute(): Promise<void>
+    +searchPlaces(query): Promise<void>
+    +selectPlace(result): void
+    +verifyWalk(): Promise<void>
+  }
+
+  WalkableBanner --> Place : references
+  PlannedDay "1" *-- "many" PlannedActivity : contains
+  MappedStop --|> PlannedActivity : extends
+  MapScreen --> RoutePoint : uses
+  MapScreen --> SearchResult : displays
+  MapScreen --> WalkableBanner : shows
+  MapScreen --> PlannedDay : renders stops
+  MapScreen --> StopLegInfo : calculates
+  MapScreen --> MappedStop : maps
+}
+
+' ═══════════════════════════════════════
+' AI CHAT
+' ═══════════════════════════════════════
+package "AI Chat" #F1F8E9 {
+
+  class Message <<interface>> {
+    +id: string
+    +role: "assistant" | "user"
+    +content: string
+    +timestamp: Date
+    +image?: string
+  }
+
+  class TourMateAIScreen <<screen>> {
+    -messages: Message[]
+    -inputText: string
+    -isLoading: boolean
+    -voiceMode: boolean
+    --
+    +sendMessage(text?, isVoice?): Promise<void>
+    +clearConversation(): void
+  }
+
+  class MessageBubble <<component>> {
+    +message: Message
+    --
+    +render(): JSX
+  }
+
+  TourMateAIScreen "1" *-- "many" Message : manages
+  TourMateAIScreen --> MessageBubble : renders
+  MessageBubble --> Message : displays
+}
+
+' ═══════════════════════════════════════
+' UI COMPONENTS
+' ═══════════════════════════════════════
+package "UI Components" #EFEBE9 {
+
+  class TabItem <<interface>> {
+    +name: string
+    +label: string
+    +iconDefault: string
+    +iconActive: string
+    +route: string
+  }
+
+  class BottomTab <<component>> {
+    +active: string
+    -tabs: TabItem[]
+    --
+    +render(): JSX
+  }
+
+  class AttractionSheet <<component>> {
+    +attraction: Attraction | null
+    +visible: boolean
+    +userId?: number | null
+    --
+    +onClose(): void
+    +onRemove?(id): void
+    +fetchAttractionDetails(): Promise<void>
+  }
+
+  class ScreenWrapper <<component>> {
+    +children: ReactNode
+    --
+    +render(): JSX
+  }
+
+  class DesertTriangles <<component>> {
+    --
+    +render(): JSX
+  }
+
+  BottomTab "1" *-- "many" TabItem : contains
+}
+
+' ═══════════════════════════════════════
+' CROSS-COMPONENT RELATIONS
+' ═══════════════════════════════════════
+BottomTab --> MapScreen : navigates to
+BottomTab --> TourMateAIScreen : navigates to
+ItineraryScreen --> MapScreen : show on map
+PlanScreen --> ItineraryScreen : navigates to
+
+@enduml
