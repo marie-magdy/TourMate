@@ -942,8 +942,8 @@ if (row.hotel_details) {
             allDays.push({ day: d + 1, date: label, activities: [] });
           }
 
-        } catch (err) {
-          console.error(`[DAY ${d + 1}] fetch failed:`, err);
+        } catch (_) {
+          // console.error(`[DAY ${d + 1}] fetch failed:`, err);
           allDays.push({ day: d + 1, date: label, activities: [] });
         }
       }

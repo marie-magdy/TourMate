@@ -1288,25 +1288,47 @@ def select_anchors(scored_df: pd.DataFrame, liked_ids_set: set,
         #     0.65 * (ordered["final_score"] / max_s) +
         #     0.35 * (1.0 - ordered["_dist_start"] / max_d)
         # )
-        ordered["_isolation"] = ordered.apply(
-            lambda r: pool.apply(
-                lambda p: _haversine_fallback(
-                    float(r["latitude"]), float(r["longitude"]),
-                    float(p["latitude"]), float(p["longitude"])
-                )["distance_km"],
-                axis=1
-            ).nsmallest(10).mean(),
-            axis=1,
-        )
-        max_iso = ordered["_isolation"].max() or 1.0
+        # ordered["_isolation"] = ordered.apply(
+        #     lambda r: pool.apply(
+        #         lambda p: _haversine_fallback(
+        #             float(r["latitude"]), float(r["longitude"]),
+        #             float(p["latitude"]), float(p["longitude"])
+        #         )["distance_km"],
+        #         axis=1
+        #     ).nsmallest(10).mean(),
+        #     axis=1,
+        # )
+        # max_iso = ordered["_isolation"].max() or 1.0
+        # ordered["_anchor0_val"] = (
+        #     0.50 * (ordered["final_score"] / max_s) +
+        #     0.30 * (1.0 - ordered["_dist_start"] / max_d) +
+        #     0.20 * (1.0 - ordered["_isolation"] / max_iso)
+        # )
+        lats = ordered["latitude"].astype(float).values
+        lons = ordered["longitude"].astype(float).values
+        lats_r = np.radians(lats)
+        lons_r = np.radians(lons)
+        n_pts  = len(lats_r)
+        density = np.zeros(n_pts)
+        for i in range(n_pts):
+            dlat = lats_r - lats_r[i]
+            dlon = lons_r - lons_r[i]
+            a    = (np.sin(dlat/2)**2
+                    + np.cos(lats_r[i]) * np.cos(lats_r) * np.sin(dlon/2)**2)
+            dist = 6371.0 * 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+            dist[i] = np.inf   # exclude self
+            density[i] = (dist <= 6.0).sum()  # count attractions within 5km
+
+        max_density = density.max() or 1.0
+        ordered["_density"] = density
         ordered["_anchor0_val"] = (
             0.50 * (ordered["final_score"] / max_s) +
             0.30 * (1.0 - ordered["_dist_start"] / max_d) +
-            0.20 * (1.0 - ordered["_isolation"] / max_iso)
+            0.20 * (ordered["_density"] / max_density)  # dense areas win, Abu Qir loses
         )
         ordered = (ordered
                    .sort_values("_anchor0_val", ascending=False)
-                   .drop(columns=["_dist_start", "_anchor0_val"])
+                   .drop(columns=["_dist_start", "_anchor0_val","_density"])
                    .reset_index(drop=True))
         log.info("ANCHOR", f"start=({start_lat:.4f},{start_lon:.4f}) → first candidate: '{ordered.iloc[0]['name']}'", verbosity=2)
 
