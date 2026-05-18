@@ -16,6 +16,7 @@ import psycopg2.pool
 import threading
 from dataclasses import dataclass, field, replace as _dc_replace
 from sklearn.metrics.pairwise import cosine_similarity
+from collections import deque
 
 # Load .env if present
 try:
@@ -2027,6 +2028,12 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 add_meal("breakfast", user.current_lat, user.current_lon, 0.5,
                          dest_lat=_anchor_lat, dest_lon=_anchor_lon)
         breakfast_done = True
+
+    # ── TSP from post-breakfast position ────────────────────────────────────────
+    ordered = nearest_neighbor_route(selected_df, prev_lat, prev_lon)
+    _liked_in_order = [a["name"] for a in ordered if str(a["attraction_id"]) in today_liked_ids]
+    if _liked_in_order:
+        log.section("ROUTE", f"liked in pool: {_liked_in_order}")
 
     # ── Main scheduling loop ────────────────────────────────────────────────────
     # _open_wait holds liked places parked because they aren't open yet.
