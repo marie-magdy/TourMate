@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Write-Output \\(Get-Location\\).Path)"
+    ]
+  }
+}
