@@ -102,9 +102,10 @@ describe('Admin Attractions screen', () => {
     const trashIcons = await findAllByText('icon:trash-can');
     fireEvent.press(trashIcons[0]);
 
-    // Confirm dialog Confirm button.
-    const confirmBtn = await findByText('Confirm');
-    fireEvent.press(confirmBtn);
+    // Confirm dialog uses "Delete" as the confirm-action label.
+    const confirmButtons = await findAllByText('Delete');
+    // First is the trash icon's text (handled), second is the modal action.
+    fireEvent.press(confirmButtons[confirmButtons.length - 1]);
 
     await waitFor(() => {
       const deleteCall = (global.fetch as jest.Mock).mock.calls.find(

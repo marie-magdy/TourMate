@@ -96,7 +96,8 @@ describe('Admin Dashboard', () => {
 
   it('confirms before deleting a user and calls DELETE /admin/users/:id', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _msg, buttons: any) => {
-      buttons.find((b: any) => b.text === 'Delete').onPress();
+      const btn = Array.isArray(buttons) ? buttons.find((b: any) => b.text === 'Delete') : undefined;
+      btn?.onPress?.();
     });
 
     setupFetch();
@@ -117,7 +118,10 @@ describe('Admin Dashboard', () => {
 
   it('PUTs role change when Promote is confirmed', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _msg, buttons: any) => {
-      buttons.find((b: any) => b.text === 'Promote' || b.text === 'Demote').onPress();
+      const btn = Array.isArray(buttons)
+        ? buttons.find((b: any) => b.text === 'Promote' || b.text === 'Demote')
+        : undefined;
+      btn?.onPress?.();
     });
 
     setupFetch();
@@ -138,7 +142,10 @@ describe('Admin Dashboard', () => {
 
   it('PUTs voice-access change when Enable Voice is confirmed', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _msg, buttons: any) => {
-      buttons.find((b: any) => b.text === 'Enable' || b.text === 'Disable').onPress();
+      const btn = Array.isArray(buttons)
+        ? buttons.find((b: any) => b.text === 'Enable' || b.text === 'Disable')
+        : undefined;
+      btn?.onPress?.();
     });
 
     setupFetch();
