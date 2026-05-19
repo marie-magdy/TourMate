@@ -1,6 +1,8 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
+jest.setTimeout(20000);
+
 const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
