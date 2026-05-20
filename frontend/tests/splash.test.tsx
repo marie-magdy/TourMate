@@ -1,7 +1,10 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
-jest.setTimeout(20000);
+// The splash screen waits 3.5s in real time before navigating. Stay generous
+// here — when the full suite runs in parallel a cold module load can push past
+// 20s. The config-level cap is 60s.
+jest.setTimeout(60000);
 
 const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({

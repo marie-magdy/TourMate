@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 const mockQuery = jest.fn();
-jest.unstable_mockModule('../db.js', () => ({
+jest.unstable_mockModule('../src/db.js', () => ({
   default: { query: mockQuery }
 }));
 
@@ -25,7 +25,7 @@ afterAll(() => {
 
 const { default: request } = await import('supertest');
 const { default: express } = await import('express');
-const { default: router } = await import('./auth.js');
+const { default: router } = await import('../src/routes/auth.js');
 
 const app = express();
 app.use(express.json());

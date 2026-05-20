@@ -2,14 +2,14 @@ import { jest } from '@jest/globals';
 
 // Mock pool
 const mockQuery = jest.fn();
-jest.unstable_mockModule('../db.js', () => ({
+jest.unstable_mockModule('../src/db.js', () => ({
   default: { query: mockQuery }
 }));
 
 // ⚠️ Imports MUST come after mocks
 const { default: request } = await import('supertest');
 const { default: express } = await import('express');
-const { default: router } = await import('./admin.js');
+const { default: router } = await import('../src/routes/admin.js');
 
 const app = express();
 app.use(express.json());
