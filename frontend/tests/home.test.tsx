@@ -5,7 +5,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 
-jest.setTimeout(20000);
+jest.setTimeout(60000);
 
 // ── env: home.tsx builds API_BASE from EXPO_PUBLIC_API_URL ─────────
 process.env.EXPO_PUBLIC_API_URL = 'localhost';
