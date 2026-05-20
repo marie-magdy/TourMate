@@ -1,0 +1,253 @@
+@startuml TourMate_ERD_1_Users
+
+!theme plain
+skinparam linetype ortho
+skinparam ranksep 60
+skinparam nodesep 50
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFEFE
+  BorderColor #444444
+  HeaderBackgroundColor #2C3E50
+  HeaderFontColor #FFFFFF
+  FontSize 11
+  AttributeFontSize 10
+}
+hide empty methods
+hide circle
+
+title TourMate — Diagram 1: User & Points
+
+entity "users" as users {
+  * <u>id</u> : integer <<PK>>
+  --
+  * email : varchar <<UNIQUE>>
+  * password : varchar
+  username : varchar
+  green_points : integer
+  role : varchar
+  voice_chat_enabled : boolean
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "user_points" as user_points {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK, UNIQUE>>
+  points : integer
+  total_earned : integer
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "user_feature_flags" as user_feature_flags {
+  * <u>user_id</u> : integer <<PK, FK>>
+  --
+  voice_chat_enabled : boolean
+  updated_at : timestamp
+}
+
+entity "points_history" as points_history {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK>>
+  * points : integer
+  * action : varchar
+  description : text
+  created_at : timestamp
+}
+
+entity "walk_awards" as walk_awards {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK>>
+  attraction_id : varchar
+  points : integer
+  distance_m : integer
+  awarded_at : timestamp
+}
+
+entity "rewards" as rewards {
+  * <u>id</u> : integer <<PK>>
+  --
+  * title : varchar
+  description : text
+  * points_required : integer
+  category : varchar
+  icon : text
+  is_available : boolean
+}
+
+entity "user_rewards" as user_rewards {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK>>
+  # reward_id : integer <<FK>>
+  redeemed_at : timestamp
+}
+
+users ||--|| user_points : "has points"
+users ||--|| user_feature_flags : "has flags"
+users ||--o{ points_history : "earns"
+users ||--o{ walk_awards : "receives"
+users ||--o{ user_rewards : "redeems"
+rewards ||--o{ user_rewards : "redeemed via"
+
+@enduml
+
+@startuml TourMate_ERD_2_Attractions
+
+!theme plain
+skinparam linetype ortho
+skinparam ranksep 60
+skinparam nodesep 50
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFEFE
+  BorderColor #444444
+  HeaderBackgroundColor #1A5276
+  HeaderFontColor #FFFFFF
+  FontSize 11
+  AttributeFontSize 10
+}
+hide empty methods
+hide circle
+
+title TourMate — Diagram 2: Attractions & Categories
+
+entity "cities" as cities {
+  * <u>city_id</u> : integer <<PK>>
+  --
+  * name : varchar
+  * country : varchar
+  image_url : text
+}
+
+entity "attractions" as attractions {
+  * <u>id</u> : integer <<PK>>
+  --
+  * name : varchar
+  description : text
+  rating : numeric
+  popularity : numeric
+  total_reviews : integer
+  price_min : numeric
+  price_max : numeric
+  price_range : varchar
+  admission_egp : numeric
+  admission_egp_foreigner : double
+  # city_id : integer <<FK>>
+  district : varchar
+  address : varchar
+  latitude : numeric
+  longitude : numeric
+  opening_hours : varchar
+  open_hour : integer
+  close_hour : integer
+  avg_visit_hrs : double
+  is_outdoor : boolean
+  is_popular : boolean
+  crowd_label : varchar
+  crowd_pattern : varchar
+  meal_slot : text
+  sub_type : varchar
+  model_label : varchar
+  attraction_id : varchar
+  categories : text
+  created_at : timestamp
+  updated_at : timestamp
+}
+
+entity "attraction_images" as attraction_images {
+  * <u>id</u> : integer <<PK>>
+  --
+  # attraction_id : integer <<FK>>
+  * image_url : text
+  is_primary : boolean
+  created_at : timestamp
+}
+
+entity "attraction_categories" as attraction_categories {
+  * <u>attraction_id</u> : integer <<PK, FK>>
+  * <u>category_id</u> : integer <<PK, FK>>
+}
+
+entity "categories" as categories {
+  * <u>category_id</u> : integer <<PK>>
+  --
+  * name : varchar
+}
+
+cities ||--o{ attractions : "contains"
+attractions ||--o{ attraction_images : "has"
+attractions ||--o{ attraction_categories : "tagged via"
+categories ||--o{ attraction_categories : "used in"
+
+@enduml
+
+@startuml TourMate_ERD_3_Activity
+
+!theme plain
+skinparam linetype ortho
+skinparam ranksep 60
+skinparam nodesep 50
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FEFEFE
+  BorderColor #444444
+  HeaderBackgroundColor #145A32
+  HeaderFontColor #FFFFFF
+  FontSize 11
+  AttributeFontSize 10
+}
+hide empty methods
+hide circle
+
+title TourMate — Diagram 3: User Activity
+
+entity "users" as users {
+  * <u>id</u> : integer <<PK>>
+  --
+  * email : varchar
+  username : varchar
+}
+
+entity "attractions" as attractions {
+  * <u>id</u> : integer <<PK>>
+  --
+  * name : varchar
+  # city_id : integer <<FK>>
+}
+
+entity "favorites" as favorites {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK>>
+  # attraction_id : integer <<FK>>
+  created_at : timestamp
+}
+
+entity "saved_plans" as saved_plans {
+  * <u>id</u> : integer <<PK>>
+  --
+  # user_id : integer <<FK>>
+  name : text
+  city : text
+  start_date : text
+  end_date : text
+  budget : text
+  day_hours : text
+  interests : jsonb
+  spot_ids : jsonb
+  itinerary : jsonb
+  flight_details : jsonb
+  hotel_details : jsonb
+  created_at : timestamp
+}
+
+users ||--o{ favorites : "marks"
+attractions ||--o{ favorites : "saved in"
+users ||--o{ saved_plans : "saves"
+
+@enduml
