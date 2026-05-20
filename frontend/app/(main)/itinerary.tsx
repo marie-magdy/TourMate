@@ -30,7 +30,7 @@ const PLAN_COACH_SUGGESTIONS = [
   'Remove one whole day from the trip',
 ];
 
-function simplifyCoachWarning(w: string): string {
+export function simplifyCoachWarning(w: string): string {
   const t = String(w || '').trim();
   if (!t) return '';
 
