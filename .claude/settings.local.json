@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Write-Output \\(Get-Location\\).Path)"
+      "PowerShell(Write-Output \\(Get-Location\\).Path)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Jom\\\\Documents\\\\GitHub\\\\TourMate\\\\frontend\" -Recurse -Include \"*.tsx\", \"*.ts\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(npm test -- --testPathPattern=\"tests/AttractionSheet\" 2>&1)",
+      "Bash(pip --version)",
+      "Bash(python -c \"import flask; import PIL; import numpy; print\\('ok'\\)\")",
+      "Bash(python -c \"import tensorflow\")",
+      "Bash(python -c \"import pytest; print\\(pytest.__version__\\)\")",
+      "Bash(pip install *)",
+      "Bash(python -m pytest test_app.py -v)",
+      "Bash(python -m pytest tests/test_app.py -v)",
+      "Bash(git mv *)"
     ]
   }
 }
