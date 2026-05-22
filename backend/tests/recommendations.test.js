@@ -11,7 +11,7 @@ const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
 // ── Imports AFTER the mock ────────────────────────────────────────────
-const { default: router } = await import('./recommendations.js');
+const { default: router } = await import('../src/routes/recommendations.js');
 const { default: request } = await import('supertest');
 const express = (await import('express')).default;
 

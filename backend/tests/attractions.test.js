@@ -19,7 +19,7 @@ const mockFs = {
   unlinkSync: jest.fn(),
 };
 
-await jest.unstable_mockModule('../db.js', () => ({
+await jest.unstable_mockModule('../src/db.js', () => ({
   default: { query: mockQuery },
 }));
 
@@ -28,7 +28,7 @@ await jest.unstable_mockModule('fs', () => ({
 }));
 
 // ── Imports AFTER the mocks ───────────────────────────────────────────
-const { default: router } = await import('./attractions.js');
+const { default: router } = await import('../src/routes/attractions.js');
 const { default: request } = await import('supertest');
 const express = (await import('express')).default;
 
