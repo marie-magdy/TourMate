@@ -31,11 +31,11 @@ except ImportError:
 DB_URL = os.getenv("DATABASE_URL")
 
 ALL_CATEGORIES = [
-    "ancient", "bakery", "beach", "cafe", "coastal", "cultural",
-    "dessert", "experience", "family", "food", "grills", "historical",
+    "ancient", "bakery", "beach", "cafe", "cinema", "coastal", "cultural",
+    "dessert", "entertainment", "experience", "family", "food", "grills", "historical",
     "indoor", "international", "landmark", "local", "mall", "modern",
     "museum", "nature", "nile view", "outdoor", "park", "religious",
-    "restaurant", "seafood", "shopping", "viewpoint", "waterfront",
+    "restaurant", "seafood", "shopping", "theater", "viewpoint", "waterfront",
 ]
 CAT_INDEX = {cat: i for i, cat in enumerate(ALL_CATEGORIES)}
 N_DIMS    = len(ALL_CATEGORIES)
@@ -51,6 +51,7 @@ INTEREST_CATEGORY_MAP = {
     "nightlife": ["modern", "restaurant", "cafe", "viewpoint", "waterfront"],
     "family": ["family", "park", "museum", "outdoor", "cultural"],
     "culture": ["cultural", "museum", "historical", "local", "religious"],
+    "entertainment": ["entertainment", "cinema", "theater"],
 }
 
 CITY_COORDS = {
@@ -255,7 +256,7 @@ class _Logger:
     def warn(self, tag: str, msg: str) -> None:
         cy = self._c(self._YLW, self._BLD)
         r  = self._r()
-        print(f"  {cy}⚠  [{tag}]{r} {msg}")
+        print(f"  {cy}[!] [{tag}]{r} {msg}")
 
     def summary(self, day_index: int, n_days: int,
                 att_stops: list, meal_stops: list,
@@ -281,15 +282,15 @@ class _Logger:
         if missed:
             print(f"  {cy}Missed liked ({len(missed)}):{r}")
             for m in missed:
-                print(f"    {cy}✗{r}  {m['name']}  [{m.get('reason', '?')}]")
+                print(f"    {cy}[X]{r}  {m['name']}  [{m.get('reason', '?')}]")
         st = stats
         print(f"  {'─' * (W - 4)}")
         print(
-            f"  ⏱  {st['total_hours']}h used"
-            f"  |  📍 {st['total_distance_km']} km"
+            f"  time: {st['total_hours']}h used"
+            f"  |  dist: {st['total_distance_km']} km"
         )
         print(
-            f"  💰 Att+Meals {int(st['cost_attractions_meals'])} EGP"
+            f"  cost: Att+Meals {int(st['cost_attractions_meals'])} EGP"
             f"  + Transport {int(st['cost_transport_egp'])} EGP"
             f"  = {int(st['total_cost_egp'])} EGP"
             f"  (remaining {int(st['budget_remaining'])} EGP)"
@@ -611,7 +612,44 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
     filtered = scored[base_mask & (scored["cosine_sim"] > 0)].copy()
     if filtered.empty:
         filtered = scored[base_mask].copy()
+    else:
+        # Always include short free walks (corniche, promenades) regardless of
+        # cosine_sim — "coastal" scores 0 against history/museum interests but
+        # these places fill evening gaps when everything else is closed.
+        _walk_mask = (
+            (scored["admission_egp"] == 0)
+            & (scored["avg_visit_hrs"] <= 1.0)
+            & scored["categories"].apply(
+                lambda cats: "coastal" in set(cats)
+            )
+        )
+        _extra = scored[base_mask & _walk_mask & ~scored.index.isin(filtered.index)]
+        if not _extra.empty:
+            filtered = pd.concat([filtered, _extra]).drop_duplicates(subset="attraction_id").reset_index(drop=True)
     filtered = filtered.sort_values("final_score", ascending=False).reset_index(drop=True)
+
+    # ── 6b. Supplement when interest pool is too small ────────────────────────
+    # e.g. "entertainment" yields only 2 venues — fall back to default interests
+    # so the day fills normally rather than ending after 2 stops.
+    _DEFAULT_FALLBACK_INTERESTS = ["history", "nature", "culture", "family", "adventure"]
+    if len(filtered) < MIN_CLUSTER_SIZE:
+        _fallback_cats: set[str] = set()
+        for _fi in _DEFAULT_FALLBACK_INTERESTS:
+            _fallback_cats.update(INTEREST_CATEGORY_MAP.get(_fi, []))
+        _fallback_mask = scored["categories"].apply(
+            lambda cats: bool(_fallback_cats & set(cats))
+        )
+        supplement = scored[
+            base_mask
+            & _fallback_mask
+            & ~scored["attraction_id"].astype(str).isin(filtered["attraction_id"].astype(str))
+        ].sort_values("final_score", ascending=False)
+        if not supplement.empty:
+            filtered = (
+                pd.concat([filtered, supplement])
+                .drop_duplicates(subset="attraction_id")
+                .reset_index(drop=True)
+            )
 
     # ── 7. Force-include liked attractions ────────────────────────────────────
     liked_mask = att_ids.isin(_valid_liked) & ~att_ids.isin(visited_set)
@@ -629,7 +667,7 @@ def score_all_attractions(user: UserProfile, df: pd.DataFrame,
     filtered["is_forced"] = filtered["attraction_id"].astype(str).isin(_valid_liked_set)
 
     # ── 8. Beach / mall dedup ─────────────────────────────────────────────────
-    beach_tags = {"beach", "coastal"}
+    beach_tags = {"beach"}
     is_beach   = filtered["categories"].apply(lambda cats: any(c in beach_tags for c in cats))
     unforced_beach = filtered[is_beach & ~filtered["is_forced"]].index.tolist()
     if len(unforced_beach) > 1:
@@ -1902,7 +1940,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
 
     beach_added  = False
     mall_added   = False
-    BEACH_CATS   = {"beach", "coastal"}
+    BEACH_CATS   = {"beach"}
     MALL_CATS    = {"mall", "shopping"}
     FOOD_CATS    = {"restaurant", "cafe", "food", "seafood", "grills",
                     "local", "international", "bakery", "dessert"}
@@ -1951,7 +1989,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             remaining    = remaining[belongs_mask | liked_mask].copy()
             log.info("QUEUE", f"geo-filter: {belongs_mask.sum()} of {len(belongs_mask)} attractions belong to Day {day_index+1}", verbosity=2)
 
-        # Score by proximity + final_score + knapsack priority
+        # Score by proximity + final_score, with isolation penalty
         remaining["_dist"] = remaining.apply(
             lambda r: _haversine_fallback(
                 from_lat, from_lon,
@@ -1961,13 +1999,34 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         )
         max_dist  = remaining["_dist"].max() or 1.0
         max_score = remaining["final_score"].max() or 1.0
+
+        # Look-ahead isolation penalty: penalise candidates that sit in a small
+        # isolated cluster (< _ISO_MIN_N unvisited neighbours within _ISO_R km).
+        # This steers the engine away from dead-end pockets (e.g. Montaza) when
+        # denser, better-connected areas are reachable at similar distance.
+        _ISO_R       = 5.0   # km radius to count neighbours
+        _ISO_MIN_N   = 3     # minimum neighbours to be considered "connected"
+        _ISO_PENALTY = 0.15  # score penalty for isolated candidates
+        _coords = remaining[["latitude", "longitude"]].values.astype(float)
+        _isolated = np.array([
+            sum(
+                1 for j in range(len(_coords))
+                if i != j and _haversine_fallback(
+                    float(_coords[i][0]), float(_coords[i][1]),
+                    float(_coords[j][0]), float(_coords[j][1])
+                )["distance_km"] <= _ISO_R
+            ) < _ISO_MIN_N
+            for i in range(len(_coords))
+        ], dtype=float)
+        remaining["_isolated"] = _isolated
+
         remaining["_routing_score"] = (
-            0.60 * (1 - remaining["_dist"] / max_dist) +
-            0.25 * (remaining["final_score"] / max_score) +
-            0.15 * remaining["_knapsack_selected"].astype(float)
+            0.80 * (1 - remaining["_dist"] / max_dist) +
+            0.20 * (remaining["final_score"] / max_score) -
+            _ISO_PENALTY * remaining["_isolated"]
         )
         remaining = remaining.sort_values("_routing_score", ascending=False).drop(
-            columns=["_dist", "_routing_score"]
+            columns=["_dist", "_routing_score", "_isolated"]
         )
         return deque(remaining.to_dict("records"))
 
@@ -2346,6 +2405,16 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         travel_hrs       = float(transport.get("duration_min", 0) or 0) / 60.0
         remaining_budget = user.budget_egp - total_cost - total_transport
 
+        # ── Late-day distance cap ────────────────────────────────────────────────
+        # After 16:00, don't travel >10 km to the next stop unless it is liked.
+        if (not is_liked
+                and curr_hr >= 16.0
+                and transport.get("distance_km", 0) > 10.0):
+            log.skip(att["name"],
+                     f"late-day cap: {transport['distance_km']:.1f} km at {_fmt(curr_hr)} "
+                     f"(max 10 km after 16:00)")
+            continue
+
         if not is_liked and float(att["price_avg"]) > remaining_budget:
             log.skip(att["name"], f"over budget ({att['price_avg']:.0f} EGP, {remaining_budget:.0f} left)", verbosity=2)
             continue
@@ -2458,52 +2527,100 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     att_count  = sum(1 for s in itinerary if s["type"] == "Attraction")
     is_last_day = (day_index == n_days - 1)
 
-    if time_left() > 1.5 and (att_count < 5 or is_last_day):
+    remaining_budget = user.budget_egp - total_cost - total_transport
+    if time_left() > MIN_VISIT_HRS and remaining_budget > 0:
         already_in = {str(s["id"]) for s in itinerary}
 
         if is_last_day:
-            # Use full city pool — no radius cap on last day
-            fallback_df = scored[
+            # Build full candidate pool (no radius yet)
+            _ld_pool = scored[
                 ~scored["attraction_id"].astype(str).isin(already_in)
+                & ~scored["attraction_id"].astype(str).isin(other_day_liked)
                 & ~scored["categories"].apply(
                     lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
                 )
             ].copy()
+            # Inject free coastal walks not already in pool
+            _walk_extra = scored[
+                ~scored["attraction_id"].astype(str).isin(already_in)
+                & ~scored["attraction_id"].astype(str).isin(other_day_liked)
+                & (scored["admission_egp"] == 0)
+                & (scored["avg_visit_hrs"] <= 1.5)
+                & scored["categories"].apply(
+                    lambda cats: "coastal" in set(cats)
+                )
+                & ~scored["attraction_id"].astype(str).isin(
+                    _ld_pool["attraction_id"].astype(str)
+                )
+            ]
+            if not _walk_extra.empty:
+                _ld_pool = pd.concat([_ld_pool, _walk_extra]).drop_duplicates(subset="attraction_id").reset_index(drop=True)
+
+            # Progressive radius expansion from current position
+            if not _ld_pool.empty:
+                _ld_pool["_fb_dist"] = _ld_pool.apply(
+                    lambda r: _haversine_fallback(
+                        prev_lat, prev_lon,
+                        float(r["latitude"]), float(r["longitude"])
+                    )["distance_km"],
+                    axis=1,
+                )
+                _ld_radius = 6.0
+                fallback_df = pd.DataFrame()
+                while fallback_df.empty:
+                    fallback_df = _ld_pool[_ld_pool["_fb_dist"] <= _ld_radius].copy()
+                    if fallback_df.empty:
+                        _ld_radius += 2.0
+                        if _ld_radius > 60.0:
+                            fallback_df = _ld_pool.copy()
+                            break
+                fallback_df = fallback_df.drop(columns=["_fb_dist"])
+            else:
+                fallback_df = pd.DataFrame()
+                _ld_radius = 0.0
+
             log.section("ROUTE",
-                f"last-day global fill — {time_left():.1f}h left, "
-                f"{len(fallback_df)} unvisited attractions citywide")
+                f"last-day fill — {time_left():.1f}h left, "
+                f"{len(fallback_df)} unvisited within {_ld_radius:.0f} km")
         else:
-            FALLBACK_RADIUS_KM = 6.0
-            log.section("ROUTE",
-                f"fallback — only {att_count} attraction(s), "
-                f"expanding to {FALLBACK_RADIUS_KM:.0f} km around anchor")
-            fallback_df = scored[
+            _fb_pool = scored[
                 ~scored["attraction_id"].astype(str).isin(already_in)
+                & ~scored["attraction_id"].astype(str).isin(other_day_liked)
                 & ~scored["categories"].apply(
                     lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
                 )
             ].copy()
-            if not fallback_df.empty:
-                fallback_df["_fb_dist"] = fallback_df.apply(
+            if not _fb_pool.empty:
+                _fb_pool["_fb_dist"] = _fb_pool.apply(
                     lambda r: _haversine_fallback(
                         _anchor_lat, _anchor_lon,
                         float(r["latitude"]), float(r["longitude"])
                     )["distance_km"],
                     axis=1,
                 )
-                fallback_df = fallback_df[
-                    fallback_df["_fb_dist"] <= FALLBACK_RADIUS_KM
-                ].drop(columns=["_fb_dist"])
+                _fb_radius = 2.0
+                fallback_df = pd.DataFrame()
+                while fallback_df.empty:
+                    fallback_df = _fb_pool[_fb_pool["_fb_dist"] <= _fb_radius].copy()
+                    if fallback_df.empty:
+                        _fb_radius += 2.0
+                        if _fb_radius > 30.0:
+                            fallback_df = _fb_pool.copy()
+                            break
+                fallback_df = fallback_df.drop(columns=["_fb_dist"])
+            else:
+                fallback_df = pd.DataFrame()
+                _fb_radius = 0.0
+            log.section("ROUTE",
+                f"fallback — only {att_count} attraction(s), "
+                f"up to {_fb_radius:.0f} km from anchor ({len(fallback_df)} candidates)")
+
 
         if not fallback_df.empty:
             fallback_ordered = nearest_neighbor_route(fallback_df, prev_lat, prev_lon)
             for att in fallback_ordered:
                 if time_left() <= 0:
                     break
-                if is_last_day and sum(
-                    1 for s in itinerary if s["type"] == "Attraction"
-                ) >= 7:
-                    break  # cap at 7 attractions total on last day
                 att_cats = set(att["categories"])
                 is_liked = str(att["attraction_id"]) in liked_ids_set
                 if att_cats & BEACH_CATS and beach_added and not is_liked: continue
@@ -2726,8 +2843,8 @@ def print_itinerary(result, user=None):
         # Map & directions links
         directions = stop.get("directions_url", "")
         osm        = stop.get("osm_url", "")
-        if directions: print(f"     🗺  Directions → {directions}")
-        if osm:        print(f"     📍 OSM pin    → {osm}")
+        if directions: print(f"     Directions -> {directions}")
+        if osm:        print(f"     OSM pin    -> {osm}")
 
         if "crowd_label" in stop:
             print(f"     Crowd: {stop['crowd_label']} ({stop.get('crowd_pattern','')})")
@@ -2754,10 +2871,10 @@ def test_liked_validation(df: pd.DataFrame, att_matrix: np.ndarray) -> None:
 
     Assertions
     ----------
-    1. liked_ids=['ATT087','ATT102'] in Alexandria → forced list is exactly
-       {'ATT087','ATT102'} (Corniche Alexandria + Montaza Royal Gardens).
-    2. Adding ATT065 (Giftun Island, Hurghada) → it is rejected; forced list
-       stays {'ATT087','ATT102'}.
+    1. liked_ids=['ATT050','ATT057'] in Alexandria → forced list is exactly
+       {'ATT050','ATT057'} (Bibliotheca Alexandrina + Corniche Promenade).
+    2. Adding ATT065 (cross-city ID) → it is rejected; forced list
+       stays {'ATT050','ATT057'}.
     3. An ID that doesn't exist in the DB at all → rejected.
     4. is_forced column in score_all_attractions output reflects exactly the
        validated set — no more, no less.
@@ -2765,9 +2882,9 @@ def test_liked_validation(df: pd.DataFrame, att_matrix: np.ndarray) -> None:
     city = "alexandria"
 
     # ── Test 1 & 4: both valid Alexandria IDs ────────────────────────────────
-    valid = _validate_liked_ids(["ATT087", "ATT102"], df, city)
-    assert set(valid) == {"ATT087", "ATT102"}, (
-        f"[TEST FAIL] Expected {{'ATT087','ATT102'}}, got {set(valid)}"
+    valid = _validate_liked_ids(["ATT050", "ATT057"], df, city)
+    assert set(valid) == {"ATT050", "ATT057"}, (
+        f"[TEST FAIL] Expected {{'ATT050','ATT057'}}, got {set(valid)}"
     )
 
     user = UserProfile(
@@ -2775,31 +2892,31 @@ def test_liked_validation(df: pd.DataFrame, att_matrix: np.ndarray) -> None:
         preferred_categories=["outdoor", "historical"],
         budget_egp=1000, available_hours=8,
         current_lat=31.2001, current_lon=29.9187,
-        liked_ids=["ATT087", "ATT102"], visited_ids=[],
+        liked_ids=["ATT050", "ATT057"], visited_ids=[],
     )
     scored = score_all_attractions(user, df, att_matrix)
     forced_ids = set(scored[scored["is_forced"]]["attraction_id"].astype(str).tolist())
-    assert forced_ids == {"ATT087", "ATT102"}, (
-        f"[TEST FAIL] is_forced mismatch: expected {{'ATT087','ATT102'}}, got {forced_ids}"
+    assert forced_ids == {"ATT050", "ATT057"}, (
+        f"[TEST FAIL] is_forced mismatch: expected {{'ATT050','ATT057'}}, got {forced_ids}"
     )
 
     # ── Test 2: cross-city ID is rejected ────────────────────────────────────
-    valid2 = _validate_liked_ids(["ATT087", "ATT102", "ATT065"], df, city)
-    assert "ATT065" not in valid2, (
-        "[TEST FAIL] ATT065 (Giftun Island / Hurghada) should be rejected for alexandria"
+    valid2 = _validate_liked_ids(["ATT050", "ATT057", "ATT001"], df, city)
+    assert "ATT001" not in valid2, (
+        "[TEST FAIL] ATT001 (Pyramids of Giza / Cairo) should be rejected for alexandria"
     )
-    assert set(valid2) == {"ATT087", "ATT102"}, (
-        f"[TEST FAIL] After cross-city rejection, expected {{'ATT087','ATT102'}}, got {set(valid2)}"
+    assert set(valid2) == {"ATT050", "ATT057"}, (
+        f"[TEST FAIL] After cross-city rejection, expected {{'ATT050','ATT057'}}, got {set(valid2)}"
     )
 
     # ── Test 3: unknown ID is rejected ───────────────────────────────────────
-    valid3 = _validate_liked_ids(["ATT087", "ATT_DOES_NOT_EXIST"], df, city)
+    valid3 = _validate_liked_ids(["ATT050", "ATT_DOES_NOT_EXIST"], df, city)
     assert "ATT_DOES_NOT_EXIST" not in valid3, (
         "[TEST FAIL] Non-existent ID should be rejected"
     )
-    assert "ATT087" in valid3, "[TEST FAIL] Valid ID dropped alongside unknown one"
+    assert "ATT050" in valid3, "[TEST FAIL] Valid ID dropped alongside unknown one"
 
-    print("[TEST] test_liked_validation PASSED — forced list matches exactly {'ATT087','ATT102'}")
+    print("[TEST] test_liked_validation PASSED — forced list matches exactly {'ATT050','ATT057'}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
