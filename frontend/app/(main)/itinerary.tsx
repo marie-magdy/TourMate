@@ -310,19 +310,13 @@ export default function ItineraryScreen() {
 
   const city = params.city ?? 'Hurghada';
   const [fetchedInterests, setFetchedInterests] = useState<string[] | null>(null);
-<<<<<<< HEAD
-  const [fetchedSpotIds, setFetchedSpotIds] = useState<string[] | null>(null);
+  const [fetchedSpotIds, setFetchedSpotIds] = useState<number[] | null>(null);
   const interests = fetchedInterests ?? (params.interests?.split(',')?.filter(Boolean) ?? []);
   const spotIdsForApi =
     fetchedSpotIds ??
-    (params.spotIds?.split(',').filter(Boolean) ?? []);
-=======
-  const [fetchedSpotIds, setFetchedSpotIds]     = useState<number[] | null>(null);
-  const interests = fetchedInterests ?? (params.interests?.split(',')?.filter(Boolean) ?? []);
-  const spotIdsForApi =
-    fetchedSpotIds ??
-    (params.spotIds?.split(',').map(s => parseInt(s, 10)).filter(n => !Number.isNaN(n)) ?? []);
->>>>>>> notification
+    (params.spotIds?.split(',')
+      .map(s => parseInt(s, 10))
+      .filter(n => !Number.isNaN(n)) ?? []);
   const startDate = params.startDate ?? new Date().toISOString();
   const endDate   = params.endDate   ?? new Date().toISOString();
 
@@ -335,23 +329,13 @@ export default function ItineraryScreen() {
 
   const userLocationRef = useRef<{ lat: number; lon: number } | null>(null);
 
-<<<<<<< HEAD
   const [days, setDays] = useState<DayPlan[]>([]);
   const [activeDay, setActiveDay] = useState(0);
-  const [likedIdSet, setLikedIdSet] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
   /** True once bookmark saved, or when opened from an existing saved plan */
   const [planSaved, setPlanSaved] = useState(() => Boolean(existingPlanId));
-=======
-  const [days, setDays]               = useState<DayPlan[]>([]);
-  const [activeDay, setActiveDay]     = useState(0);
-  const [loading, setLoading]         = useState(true);
-  const [saving, setSaving]           = useState(false);
-  const [planSaving, setPlanSaving]   = useState(false);
-  const [planSaved, setPlanSaved]     = useState(() => Boolean(existingPlanId));
->>>>>>> notification
   const [serverPlanId, setServerPlanId] = useState<string | undefined>(existingPlanId);
 
   // Plan coach
@@ -589,7 +573,6 @@ export default function ItineraryScreen() {
       if (seenIds.has(rawId)) return;
       seenIds.add(rawId);
       activities.push({
-<<<<<<< HEAD
         id: rawId,
         time: stop.time,
         title: stop.name,
@@ -606,15 +589,6 @@ export default function ItineraryScreen() {
         open_hour: stop.open,
         close_hour: stop.close,
         price_from: stop.price_from,
-        detour_note: (stop as any).detour_note ?? '',
-=======
-        id: rawId, time: stop.time, title: stop.name,
-        latitude: stop.latitude, longitude: stop.longitude,
-        duration_hrs: stop.duration_hrs, cost_egp: stop.cost_egp,
-        transport: stop.transport, description: stop.description,
-        rating: stop.rating, address: stop.address, categories: stop.categories,
-        image_url: stop.image_url, open_hour: stop.open, close_hour: stop.close, price_from: stop.price_from,
->>>>>>> notification
         icon: (() => {
           if (stop.type.includes('Breakfast')) return 'breakfast';
           if (stop.type.includes('Lunch'))     return 'food';
@@ -697,12 +671,7 @@ export default function ItineraryScreen() {
       const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
       const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
-<<<<<<< HEAD
-      const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
-      setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
 
-=======
->>>>>>> notification
       const scheduledLikedIds = new Set<string>();
 
       let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
@@ -852,53 +821,15 @@ export default function ItineraryScreen() {
     }
   };
 
-<<<<<<< HEAD
-=======
   // ── Delete activity ───────────────────────────────────────────────
   const deleteActivity = (dayIndex: number, activityId: string): void => {
-    setDays(prev => prev.map((d, i) => i === dayIndex ? { ...d, activities: d.activities.filter(a => a.id !== activityId) } : d));
+    setDays(prev => prev.map((d, i) =>
+      i === dayIndex
+        ? { ...d, activities: d.activities.filter(a => a.id !== activityId) }
+        : d
+    ));
   };
 
-  // ── upsertPlanToServer ────────────────────────────────────────────
-  const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string | undefined> => {
-    const targetId         = serverPlanId ?? existingPlanId;
-    const itineraryPayload = itineraryOverride ?? days;
-    const sf = useBookingStore.getState().selectedFlight;
-    const sh = useBookingStore.getState().selectedHotel;
-    const payload = {
-      city, start_date: startDate.toString().split('T')[0], end_date: effectiveEndDate,
-      budget: params.budget, day_hours: JSON.stringify(effectiveDaySchedules),
-      interests, spot_ids: spotIdsForApi, itinerary: itineraryPayload,
-      user_id: userId ?? 1, flight_details: sf ?? null, hotel_details: sh ?? null,
-    };
-    try {
-      if (targetId) {
-        const res  = await fetch(`${API_BASE}/plans/item/${targetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        const ct   = res.headers.get('content-type') ?? '';
-        if (!ct.includes('application/json')) throw new Error(`Unexpected response (${res.status})`);
-        const data = await res.json();
-        if (data.success) return String(targetId);
-        throw new Error(data.message);
-      }
-      const res  = await fetch(`${API_BASE}/plans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const ct   = res.headers.get('content-type') ?? '';
-      if (!ct.includes('application/json')) throw new Error(`Unexpected response (${res.status})`);
-      const data = await res.json();
-      if (data.success && data.data?.id) { const nid = String(data.data.id); setServerPlanId(nid); return nid; }
-      throw new Error(data.message);
-    } catch (err) { console.error('Save plan error:', err); return undefined; }
-  };
-
-  const savePlan = async (): Promise<void> => {
-    if (planSaving) return;
-    setPlanSaving(true);
-    const planId = await upsertPlanToServer();
-    setPlanSaving(false);
-    if (planId) setPlanSaved(true);
-    else Alert.alert('Could not save', 'Something went wrong. Please try again.');
-  };
-
->>>>>>> notification
   // ── Plan coach ────────────────────────────────────────────────────
   const sendPlanCoachMessage = async (preset?: string): Promise<void> => {
     const raw  = typeof preset === 'string' ? preset : planCoachInput;
@@ -1480,7 +1411,6 @@ const styles = StyleSheet.create({
   headerTitle:  { fontSize: 17, fontWeight: '800', color: '#2C1810' },
   backIcon:     { fontSize: 22, fontWeight: '700', color: Theme.colors.text },
   dayTabsScroll: { backgroundColor: Theme.colors.card, maxHeight: 70 },
-<<<<<<< HEAD
   dayTabs: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
 
   dayTab: {
@@ -1662,59 +1592,8 @@ activityIcon: {},
     fontWeight: '500',
     marginTop: 5,
   },
-  detourNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 4,
-    marginTop: 5,
-    backgroundColor: '#FFF8EE',
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  detourNoteText: {
-    fontSize: 11,
-    color: '#A06020',
-    flexShrink: 1,
-    lineHeight: 15,
-  },
 
   deleteBtn: { padding: 8, marginTop: 4 },
-=======
-  dayTabs:       { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  dayTab:        { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 12, alignItems: 'center', position: 'relative' },
-  dayTabActive:  { backgroundColor: Theme.colors.background },
-  dayTabLabel:   { fontSize: 14, fontWeight: '600', color: Theme.colors.muted },
-  dayTabLabelActive: { color: Theme.colors.primary },
-  dayTabDate:    { fontSize: 11, color: Theme.colors.muted, marginTop: 2 },
-  dayTabDateActive: { color: Theme.colors.primary },
-  dayTabUnderline:  { position: 'absolute', bottom: 0, left: 10, right: 10, height: 2, backgroundColor: Theme.colors.primary, borderRadius: 1 },
-  daySummaryCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Theme.colors.card, borderRadius: 12, padding: 12, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: Theme.colors.primary },
-  daySummaryText: { flex: 1, fontSize: 13, color: Theme.colors.text, lineHeight: 18, fontStyle: 'italic' },
-  container:      { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  activityRow:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4, minHeight: 52 },
-  activityTimeCol:{ width: 48, paddingTop: 4 },
-  activityTime:   { fontSize: 12, color: Theme.colors.muted, fontWeight: '500' },
-  activityLine:   { width: 24, alignItems: 'center', paddingTop: 6 },
-  activityDot:    { width: 10, height: 10, borderRadius: 5, backgroundColor: Theme.colors.primary, borderWidth: 2, borderColor: Theme.colors.background },
-  activityConnector: { width: 2, flex: 1, backgroundColor: '#E8DCCF', marginTop: 2 },
-  activityContent:   { flex: 1, backgroundColor: Theme.colors.card, borderRadius: 12, padding: 12, marginLeft: 8, marginBottom: 8, shadowColor: Theme.colors.hero, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  activityTitle:     { fontSize: 14, fontWeight: '600', color: Theme.colors.text, marginBottom: 4 },
-  activityCatsRow:   { flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginBottom: 5 },
-  activityCatPill:   { backgroundColor: Theme.colors.background, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
-  activityCatText:   { fontSize: 10, fontWeight: '600', color: Theme.colors.primary, textTransform: 'capitalize' },
-  activityMeta:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  activityMetaChip:  { backgroundColor: '#F3F0EC', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
-  activityMetaChipCost: { backgroundColor: Theme.colors.background },
-  activityMetaChipFree: { backgroundColor: '#EAF6EC' },
-  activityMetaText:     { fontSize: 11, fontWeight: '600', color: Theme.colors.muted },
-  activityMetaTextCost: { color: Theme.colors.primary },
-  activityMetaTextFree: { color: '#27AE60' },
-  activityIconBox:   { width: 36, height: 36, borderRadius: 10, backgroundColor: Theme.colors.background, justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginTop: 4 },
-  activityTapHint:   { fontSize: 11, color: Theme.colors.primary, fontWeight: '500', marginTop: 5 },
-  activityIcon:      {},
-  deleteBtn:  { padding: 8, marginTop: 4 },
->>>>>>> notification
   deleteIcon: { fontSize: 12, color: Theme.colors.muted },
   budgetCard:      { backgroundColor: Theme.colors.card, borderRadius: 16, padding: 16, marginBottom: 12, shadowColor: Theme.colors.hero, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   budgetRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
