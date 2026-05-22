@@ -3,20 +3,22 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { scheduleItineraryNotifications, cancelItineraryNotifications } from '../../notifications';
+import { storeActivePlanForBackground, clearActivePlanFromBackground } from '../../utils/planNotificationsBackground';
+
+const NOTIF_IDS_STORAGE_KEY = (planId: string) => `@itinerary_notif_ids_${planId}`;
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, SafeAreaView, Modal, TextInput,
   Alert, Dimensions, KeyboardAvoidingView, Platform, Keyboard,
-  FlatList, Pressable,Linking
+  FlatList, Pressable, Linking
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 import { Attraction } from '../../constants/types';
 import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
-import BottomTab from '@/components/BottomTab';
 import { useBookingStore, Hotel, Flight } from '@/store/bookingStore';
-
 
 const { height: screenHeight } = Dimensions.get('window');
 const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
@@ -33,23 +35,13 @@ const PLAN_COACH_SUGGESTIONS = [
 export function simplifyCoachWarning(w: string): string {
   const t = String(w || '').trim();
   if (!t) return '';
-
-  // Budget overage
-  // Example: "This day's stops cost about 281 EGP ... above the roughly 250 EGP day budget ..."
   const mBudget = t.match(/cost about\s+(\d+)\s*EGP[\s\S]*above the roughly\s+(\d+)\s*EGP/i);
   if (mBudget) return `Budget: ~${mBudget[1]} EGP (over ~${mBudget[2]} EGP/day).`;
-
-  // Dropped stops due to time window
-  // Example: "Day 1: 1 stop(s) could not fit your day hours and were removed in the preview: 123…"
   const mDrop = t.match(/^Day\s+(\d+):\s+(\d+)\s+stop\(s\)[\s\S]*removed[\s\S]*:\s*(.+)$/i);
-  if (mDrop) return `Day ${mDrop[1]}: removed ${mDrop[2]} stop(s) that didn’t fit the time window (${mDrop[3]}).`;
-
-  // Route not optimized
+  if (mDrop) return `Day ${mDrop[1]}: removed ${mDrop[2]} stop(s) that didn't fit the time window (${mDrop[3]}).`;
   if (t.toLowerCase().includes('not route-optimized') || t.toLowerCase().includes('more driving distance')) {
     return 'Note: this change increases travel time compared to an optimized route.';
   }
-
-  // Default: keep but shorten long text
   return t.length > 120 ? `${t.slice(0, 117)}…` : t;
 }
 
@@ -137,22 +129,19 @@ const getCategoryIcon = (iconType: string, size = 20) => {
   return <MaterialCommunityIcons name={entry.name} size={size} color={entry.color} />;
 };
 
-// ── Travel Connector (shown between stops) ────────────────────────────
+// ── Travel Connector ──────────────────────────────────────────────────
 const TravelConnector: React.FC<{ transport: any }> = ({ transport }) => {
-  const dur      = transport?.duration_min ? `${Math.round(transport.duration_min)} min` : null;
-  const mode     = transport?.mode ?? '';
-  const costs    = transport?.costs;
-  const isWalk = mode === 'Walk';
+  const dur     = transport?.duration_min ? `${Math.round(transport.duration_min)} min` : null;
+  const mode    = transport?.mode ?? '';
+  const costs   = transport?.costs;
+  const isWalk  = mode === 'Walk';
   const costText = isWalk
     ? 'Free · walking'
-    : costs
-      ? `${costs.taxi_low}–${costs.taxi_high} EGP · Taxi`
-      : null;
+    : costs ? `${costs.taxi_low}–${costs.taxi_high} EGP · Taxi` : null;
   const parts = [dur, costText].filter(Boolean).join('  ·  ');
   const travelIcon = isWalk
     ? <MaterialCommunityIcons name="walk"     size={14} color="#A06020" />
     : <MaterialCommunityIcons name="car-side" size={14} color="#A06020" />;
-
   return (
     <View style={travelStyles.connector}>
       <View style={travelStyles.line} />
@@ -167,10 +156,10 @@ const TravelConnector: React.FC<{ transport: any }> = ({ transport }) => {
 
 const travelStyles = StyleSheet.create({
   connector: { flexDirection: 'row', alignItems: 'center', marginLeft: 60, marginVertical: 2, marginRight: 16 },
-  line:   { flex: 1, height: 1, backgroundColor: '#EEE' },
-  badge:  { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#F9F5F0', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, marginHorizontal: 6 },
-  icon:   { fontSize: 13 },
-  text:   { fontSize: 11, fontWeight: '600', color: '#A06020' },
+  line:  { flex: 1, height: 1, backgroundColor: '#EEE' },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#F9F5F0', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, marginHorizontal: 6 },
+  icon:  { fontSize: 13 },
+  text:  { fontSize: 11, fontWeight: '600', color: '#A06020' },
 });
 
 // ── Starting Location Row ─────────────────────────────────────────────
@@ -179,9 +168,7 @@ const StartRow: React.FC<{ time: string; label?: string; onPress: () => void }> 
     <View style={startStyles.timeCol}>
       <Text style={startStyles.time}>{formatTime12(time)}</Text>
     </View>
-    <View style={startStyles.line}>
-      <View style={startStyles.dot} />
-    </View>
+    <View style={startStyles.line}><View style={startStyles.dot} /></View>
     <TouchableOpacity style={startStyles.card} onPress={onPress} activeOpacity={0.7}>
       <MaterialCommunityIcons name="map-marker" size={18} color="#E67E22" />
       <Text style={startStyles.label} numberOfLines={1}>{label ?? 'Your Location'}</Text>
@@ -195,11 +182,11 @@ const startStyles = StyleSheet.create({
   timeCol:  { width: 48, paddingTop: 4 },
   time:     { fontSize: 12, color: '#999', fontWeight: '500' },
   editHint: { fontSize: 13, color: '#E67E22', marginLeft: 'auto' },
-  line:    { width: 24, alignItems: 'center', paddingTop: 6 },
-  dot:     { width: 14, height: 14, borderRadius: 7, backgroundColor: '#E67E22', borderWidth: 3, borderColor: '#FFF3E0' },
-  card:    { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF3E0', borderRadius: 12, padding: 10, marginLeft: 8 },
-  icon:    { fontSize: 16 },
-  label:   { fontSize: 14, fontWeight: '700', color: '#E67E22' },
+  line:     { width: 24, alignItems: 'center', paddingTop: 6 },
+  dot:      { width: 14, height: 14, borderRadius: 7, backgroundColor: '#E67E22', borderWidth: 3, borderColor: '#FFF3E0' },
+  card:     { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF3E0', borderRadius: 12, padding: 10, marginLeft: 8 },
+  icon:     { fontSize: 16 },
+  label:    { fontSize: 14, fontWeight: '700', color: '#E67E22' },
 });
 
 // ── End of Day Row ────────────────────────────────────────────────────
@@ -208,9 +195,7 @@ const EndOfDayRow: React.FC<{ time?: string }> = ({ time }) => (
     <View style={eodStyles.timeCol}>
       {time ? <Text style={eodStyles.time}>{formatTime12(time)}</Text> : null}
     </View>
-    <View style={eodStyles.line}>
-      <View style={eodStyles.dot} />
-    </View>
+    <View style={eodStyles.line}><View style={eodStyles.dot} /></View>
     <View style={eodStyles.card}>
       <MaterialCommunityIcons name="moon-waning-crescent" size={18} color="#3949AB" />
       <Text style={eodStyles.label}>End of Day</Text>
@@ -317,168 +302,167 @@ export default function ItineraryScreen() {
   }>();
   const existingPlanId = params.planId ? String(params.planId) : undefined;
 
-  const {
-  selectedHotel,
-  selectedFlight,
-  setSelectedHotel,
-  setSelectedFlight,
-} = useBookingStore();
-
+  // ── Booking store — reactive subscription ─────────────────────────
+  const selectedFlight    = useBookingStore(s => s.selectedFlight);
+  const selectedHotel     = useBookingStore(s => s.selectedHotel);
+  const setSelectedFlight = useBookingStore(s => s.setSelectedFlight);
+  const setSelectedHotel  = useBookingStore(s => s.setSelectedHotel);
 
   const city = params.city ?? 'Hurghada';
   const [fetchedInterests, setFetchedInterests] = useState<string[] | null>(null);
-  const [fetchedSpotIds, setFetchedSpotIds] = useState<string[] | null>(null);
+  const [fetchedSpotIds, setFetchedSpotIds] = useState<number[] | null>(null);
   const interests = fetchedInterests ?? (params.interests?.split(',')?.filter(Boolean) ?? []);
   const spotIdsForApi =
     fetchedSpotIds ??
-    (params.spotIds?.split(',').filter(Boolean) ?? []);
+    (params.spotIds?.split(',')
+      .map(s => parseInt(s, 10))
+      .filter(n => !Number.isNaN(n)) ?? []);
   const startDate = params.startDate ?? new Date().toISOString();
-  const endDate = params.endDate ?? new Date().toISOString();
+  const endDate   = params.endDate   ?? new Date().toISOString();
 
   const baseDaySchedules = useMemo((): { start_hour: number; end_hour: number }[] => {
     try {
       const j = JSON.parse(params.daySchedules || '[]');
       return Array.isArray(j) ? j : [];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }, [params.daySchedules]);
 
   const userLocationRef = useRef<{ lat: number; lon: number } | null>(null);
 
   const [days, setDays] = useState<DayPlan[]>([]);
   const [activeDay, setActiveDay] = useState(0);
-  const [likedIdSet, setLikedIdSet] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
   /** True once bookmark saved, or when opened from an existing saved plan */
   const [planSaved, setPlanSaved] = useState(() => Boolean(existingPlanId));
   const [serverPlanId, setServerPlanId] = useState<string | undefined>(existingPlanId);
-  const [showAIChat, setShowAIChat] = useState(false);
-  const [planCoachInput, setPlanCoachInput] = useState('');
+
+  // Plan coach
+  const [showAIChat, setShowAIChat]               = useState(false);
+  const [planCoachInput, setPlanCoachInput]       = useState('');
   const [planCoachMessages, setPlanCoachMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
-  const [planCoachLoading, setPlanCoachLoading] = useState(false);
+  const [planCoachLoading, setPlanCoachLoading]   = useState(false);
   const planCoachListRef = useRef<FlatList<{ role: 'user' | 'assistant'; content: string }>>(null);
-  const [planCoachPreview, setPlanCoachPreview] = useState<{
+  const [planCoachPreview, setPlanCoachPreview]   = useState<{
     days: DayPlan[];
     warnings: string[];
     day_schedules?: { start_hour: number; end_hour: number }[] | null;
     end_date?: string | null;
     coach_extra_spend?: number | null;
   } | null>(null);
-  const [coachDaySchedules, setCoachDaySchedules] = useState<
-    { start_hour: number; end_hour: number }[] | null
-  >(null);
-  const [coachEndDate, setCoachEndDate] = useState<string | null>(null);
+  const [coachDaySchedules, setCoachDaySchedules] = useState<{ start_hour: number; end_hour: number }[] | null>(null);
+  const [coachEndDate, setCoachEndDate]           = useState<string | null>(null);
   const [coachExtraSpendEgp, setCoachExtraSpendEgp] = useState(0);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [userId, setUserId]                       = useState<number | null>(null);
 
   const effectiveDaySchedules = coachDaySchedules ?? baseDaySchedules;
   const effectiveEndDate = (coachEndDate ?? endDate).toString().split('T')[0];
 
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
-  // ── Full attraction sheet (photo gallery, audio guide, etc.) ─────────
-  const [sheetAttraction, setSheetAttraction]   = useState<Attraction | null>(null);
+  // Attraction sheet
+  const [sheetAttraction, setSheetAttraction]         = useState<Attraction | null>(null);
   const [showAttractionSheet, setShowAttractionSheet] = useState(false);
-  const [sheetLoading, setSheetLoading]         = useState(false);
-  const [userLocation, setUserLocation]         = useState<{ latitude: number; longitude: number } | null>(null);
+  const [sheetLoading, setSheetLoading]               = useState(false);
+  const [userLocation, setUserLocation]               = useState<{ latitude: number; longitude: number } | null>(null);
 
-// ── State ──────────────────────────────────────────────────────────
-const [flightExpanded, setFlightExpanded] = useState(false);
-const [hotelExpanded, setHotelExpanded] = useState(false);
-const [editingFlight, setEditingFlight] = useState(false);
-const [editingHotel, setEditingHotel] = useState(false);
-const [flightForm, setFlightForm] = useState({
-  airline: '', flightNumber: '', departureTime: '',
-  arrivalTime: '', price: '', bookingUrl: '',
-});
-const [hotelForm, setHotelForm] = useState({
-  name: '', checkIn: '', checkOut: '', pricePerNight: '', bookingUrl: '',
-});
+  // Booking UI
+  const [flightExpanded, setFlightExpanded] = useState(false);
+  const [hotelExpanded, setHotelExpanded]   = useState(false);
+  const [editingFlight, setEditingFlight]   = useState(false);
+  const [editingHotel, setEditingHotel]     = useState(false);
+  const [flightForm, setFlightForm] = useState({ airline: '', flightNumber: '', departureTime: '', arrivalTime: '', price: '', bookingUrl: '' });
+  const [hotelForm, setHotelForm]   = useState({ name: '', checkIn: '', checkOut: '', pricePerNight: '', bookingUrl: '' });
 
-// ── Read store ONCE on mount ────────────────────────────────────────
-useEffect(() => {
-  const f = useBookingStore.getState().selectedFlight;
-  const h = useBookingStore.getState().selectedHotel;
-  if (f) setFlightForm({
-    airline: f.airline ?? '',
-    flightNumber: f.flightNumber ?? '',
-    departureTime: f.departureTime ?? '',
-    arrivalTime: f.arrivalTime ?? '',
-    price: String(f.price ?? ''),
-    bookingUrl: f.bookingUrl ?? '',
-  });
-  if (h) setHotelForm({
-    name: h.name ?? '',
-    checkIn: h.checkIn ?? '',
-    checkOut: h.checkOut ?? '',
-    pricePerNight: String(h.price_per_night ?? ''),
-    bookingUrl: h.bookingUrl ?? '',
-  });
+  // Location modal
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [locationLabel, setLocationLabel]         = useState(params.startLabel ?? 'Your Location');
+  const [locationInput, setLocationInput]         = useState('');
+  const [locationSearching, setLocationSearching] = useState(false);
 
-  // Clean up store when leaving so it doesn't bleed into other plans
-  return () => {
-    useBookingStore.setState({ selectedFlight: null, selectedHotel: null });
-  };
-}, []);
+  // ── Cleanup store on unmount ──────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      useBookingStore.setState({ selectedFlight: null, selectedHotel: null });
+    };
+  }, []);
 
-  // Capture userLocation once for "Get There"
+  // ── Capture user location for "Get There" ────────────────────────
   useEffect(() => {
     if (params.startLat && params.startLon) {
       setUserLocation({ latitude: parseFloat(params.startLat), longitude: parseFloat(params.startLon) });
     } else {
       Location.requestForegroundPermissionsAsync().then(({ status }) => {
         if (status === 'granted') {
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(loc => {
-            setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-          }).catch(() => {});
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+            .then(loc => setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }))
+            .catch(() => {});
         }
       }).catch(() => {});
     }
   }, []);
 
-  // Fetch full attraction and open the rich sheet
-  const openAttractionSheet = async (activity: Activity) => {
-    setSheetLoading(true);
-    try {
-      const res  = await fetch(`${API_BASE}/attractions/${activity.id}`);
-      const data = await res.json();
-      if (data.success && data.data) {
-        setSheetAttraction(data.data);
-        setShowAttractionSheet(true);
-      } else {
-        setSelectedActivity(activity);
-      }
-    } catch {
-      setSelectedActivity(activity);
-    } finally {
-      setSheetLoading(false);
-    }
-  };
-
-  const [showLocationModal, setShowLocationModal] = useState(false);
-  const [locationLabel, setLocationLabel] = useState(params.startLabel ?? 'Your Location');
-  const [locationInput, setLocationInput] = useState('');
-  const [locationSearching, setLocationSearching] = useState(false);
-
-  // Load userId from AsyncStorage on mount
+  // ── Load userId ───────────────────────────────────────────────────
   useEffect(() => {
-    const loadUserId = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('user');
-        const id = raw ? JSON.parse(raw).id : 1;
-        setUserId(id);
-      } catch (err) {
-        console.error('UserId load error:', err);
-        setUserId(1);
-      }
-    };
-    loadUserId();
+    AsyncStorage.getItem('user')
+      .then(raw => setUserId(raw ? JSON.parse(raw).id : 1))
+      .catch(() => setUserId(1));
   }, []);
 
-  // Load saved plan by id (no regeneration), else hydrate from params, else generate from recommender
+  // ── Notification scheduling — registers OS-level alerts that fire even when the app is closed
+  useEffect(() => {
+    if (loading || !days.length) return;
+
+    const activities = days[activeDay]?.activities ?? [];
+    if (!activities.length) return;
+
+    const planDate = new Date(startDate);
+    planDate.setDate(planDate.getDate() + activeDay);
+    const planId = `${city}-${startDate}-${activeDay}`;
+    const idsKey = NOTIF_IDS_STORAGE_KEY(planId);
+
+    const scheduledActivities = activities
+      .filter(a => a.time && a.id !== 'start' && a.id !== 'end')
+      .map(a => ({
+        id: String(a.id),
+        time: a.time,
+        title: a.title,
+        category: a.category ?? 'attraction',
+      }));
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const prevRaw = await AsyncStorage.getItem(idsKey);
+        const prevIds: string[] = prevRaw ? JSON.parse(prevRaw) : [];
+        if (prevIds.length) await cancelItineraryNotifications(prevIds);
+
+        const newIds = await scheduleItineraryNotifications(scheduledActivities, planDate, 10);
+        if (cancelled) {
+          await cancelItineraryNotifications(newIds);
+          return;
+        }
+        await AsyncStorage.setItem(idsKey, JSON.stringify(newIds));
+        console.log(`[Itinerary] Scheduled ${newIds.length} notifications for plan ${planId}`);
+      } catch (err) {
+        console.warn('[Itinerary] Failed to schedule notifications:', err);
+      }
+    })();
+
+    storeActivePlanForBackground({
+      id: planId,
+      userId: userId?.toString() ?? '1',
+      startDate: planDate.toISOString(),
+      activities: scheduledActivities,
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, days, activeDay, startDate, city, userId]);
+
+  // ── Load plan: from server / params / generate ────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -492,89 +476,59 @@ useEffect(() => {
               const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
               userLocationRef.current = { lat: loc.coords.latitude, lon: loc.coords.longitude };
             }
-          } catch (_) {
-            /* GPS unavailable — recommender falls back to city centre */
-          }
+          } catch (_) {}
         }
       };
 
+      // 1. Load existing saved plan by ID
       try {
         if (existingPlanId) {
           const res = await fetch(`${API_BASE}/plans/item/${existingPlanId}`);
-          const ct = res.headers.get('content-type') ?? '';
+          const ct  = res.headers.get('content-type') ?? '';
           if (res.ok && ct.includes('application/json')) {
             const data = await res.json();
-            const row = data.success ? data.data : null;
-            const it = row?.itinerary;
-            const parsedIt =
-              typeof it === 'string'
-                ? JSON.parse(it)
-                : Array.isArray(it)
-                  ? it
-                  : null;
+            const row  = data.success ? data.data : null;
+            const it   = row?.itinerary;
+            const parsedIt = typeof it === 'string' ? JSON.parse(it) : Array.isArray(it) ? it : null;
             if (!cancelled && Array.isArray(parsedIt) && parsedIt.length > 0) {
               setDays(parsedIt as DayPlan[]);
               setServerPlanId(String(row.id));
               setPlanSaved(true);
-                // ← Add this block here
-if (row.flight_details) {
-  const fd = typeof row.flight_details === 'string'
-    ? JSON.parse(row.flight_details)
-    : row.flight_details;
-  useBookingStore.getState().setSelectedFlight(fd);
-}
-if (row.hotel_details) {
-  const hd = typeof row.hotel_details === 'string'
-    ? JSON.parse(row.hotel_details)
-    : row.hotel_details;
-  useBookingStore.getState().setSelectedHotel(hd);
-}
-
+              if (row.flight_details) {
+                const fd = typeof row.flight_details === 'string' ? JSON.parse(row.flight_details) : row.flight_details;
+                useBookingStore.getState().setSelectedFlight(fd);
+              }
+              if (row.hotel_details) {
+                const hd = typeof row.hotel_details === 'string' ? JSON.parse(row.hotel_details) : row.hotel_details;
+                useBookingStore.getState().setSelectedHotel(hd);
+              }
               if (row.interests != null) {
-                const fi = Array.isArray(row.interests)
-                  ? row.interests.map(String)
-                  : typeof row.interests === 'string'
-                    ? JSON.parse(row.interests)
-                    : [];
+                const fi = Array.isArray(row.interests) ? row.interests.map(String)
+                  : typeof row.interests === 'string' ? JSON.parse(row.interests) : [];
                 if (Array.isArray(fi)) setFetchedInterests(fi.map(String));
               }
               if (row.spot_ids != null) {
-                const raw = row.spot_ids;
-                const arr = Array.isArray(raw)
-                  ? raw
-                  : typeof raw === 'string'
-                    ? JSON.parse(raw)
-                    : [];
-                if (Array.isArray(arr))
-                  setFetchedSpotIds(arr.map((x: unknown) => Number(x)).filter(n => !Number.isNaN(n)));
+                const arr = Array.isArray(row.spot_ids) ? row.spot_ids
+                  : typeof row.spot_ids === 'string' ? JSON.parse(row.spot_ids) : [];
+                if (Array.isArray(arr)) setFetchedSpotIds(arr.map((x: unknown) => Number(x)).filter(n => !Number.isNaN(n)));
               }
               if (row.day_hours != null) {
                 try {
-                  const dh =
-                    typeof row.day_hours === 'string' ? JSON.parse(row.day_hours) : row.day_hours;
+                  const dh = typeof row.day_hours === 'string' ? JSON.parse(row.day_hours) : row.day_hours;
                   if (Array.isArray(dh))
-                    setCoachDaySchedules(
-                      dh.map((s: { start_hour?: number; end_hour?: number }) => ({
-                        start_hour: Number(s?.start_hour ?? 9),
-                        end_hour: Number(s?.end_hour ?? 21),
-                      })),
-                    );
+                    setCoachDaySchedules(dh.map((s: any) => ({ start_hour: Number(s?.start_hour ?? 9), end_hour: Number(s?.end_hour ?? 21) })));
                 } catch (_) {}
               }
-              if (row.end_date) {
-                const ed = String(row.end_date).split('T')[0];
-                setCoachEndDate(ed);
-              }
+              if (row.end_date) setCoachEndDate(String(row.end_date).split('T')[0]);
               await primeLocation();
               setLoading(false);
               return;
             }
           }
         }
-      } catch (_) {
-        /* fall through to params / generate */
-      }
+      } catch (_) {}
 
+      // 2. Hydrate from passed savedItinerary param
       try {
         const raw = params.savedItinerary;
         if (raw && String(raw).trim() && String(raw) !== 'undefined') {
@@ -587,30 +541,32 @@ if (row.hotel_details) {
             return;
           }
         }
-      } catch (_) {
-        /* generate */
-      }
+      } catch (_) {}
 
+      // 3. Generate fresh
       await primeLocation();
       if (!cancelled) await generatePlan();
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Convert one day's API stops → Activity[]
+  // ── Fetch attraction sheet ────────────────────────────────────────
+  const openAttractionSheet = async (activity: Activity) => {
+    setSheetLoading(true);
+    try {
+      const res  = await fetch(`${API_BASE}/attractions/${activity.id}`);
+      const data = await res.json();
+      if (data.success && data.data) { setSheetAttraction(data.data); setShowAttractionSheet(true); }
+      else setSelectedActivity(activity);
+    } catch { setSelectedActivity(activity); }
+    finally { setSheetLoading(false); }
+  };
+
+  // ── stopsToActivities ─────────────────────────────────────────────
   const stopsToActivities = (stops: RecommendationStop[]): Activity[] => {
     const activities: Activity[] = [];
-    if (stops.length > 0) {
-      activities.push({
-        id: 'start',
-        time: stops[0].departure_time ?? '',
-        title: 'Your Location',
-        icon: '📍',
-        category: 'start',
-      });
-    }
+    if (stops.length > 0)
+      activities.push({ id: 'start', time: stops[0].departure_time ?? '', title: 'Your Location', icon: '📍', category: 'start' });
     const seenIds = new Set<string>();
     stops.forEach((stop, index) => {
       const rawId = stop.id ?? `rec-${index}`;
@@ -633,7 +589,6 @@ if (row.hotel_details) {
         open_hour: stop.open,
         close_hour: stop.close,
         price_from: stop.price_from,
-        detour_note: (stop as any).detour_note ?? '',
         icon: (() => {
           if (stop.type.includes('Breakfast')) return 'breakfast';
           if (stop.type.includes('Lunch'))     return 'food';
@@ -641,15 +596,13 @@ if (row.hotel_details) {
           if (stop.type.includes('Coffee'))    return 'coffee';
           if (stop.type.includes('Attraction')) {
             const FOOD_CATS = new Set(['restaurant','cafe','food','seafood','grills','local','international','bakery','dessert']);
-            const isFood = stop.categories?.some(c => FOOD_CATS.has(c.toLowerCase()));
-            return isFood ? 'food' : 'attraction';
+            return stop.categories?.some(c => FOOD_CATS.has(c.toLowerCase())) ? 'food' : 'attraction';
           }
           return 'default';
         })(),
         category: stop.type,
       });
     });
-
     if (stops.length > 0) {
       const last = stops[stops.length - 1];
       let endTime = '';
@@ -660,11 +613,10 @@ if (row.hotel_details) {
       }
       activities.push({ id: 'end', time: endTime, title: 'End of Day', icon: '🌙', category: 'end' });
     }
-
     return activities;
   };
 
-  // ── Location helpers ─────────────────────────────────────────────────
+  // ── Location helpers ──────────────────────────────────────────────
   const applyGPS = async (): Promise<void> => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -674,9 +626,7 @@ if (row.hotel_details) {
       setLocationLabel('Your Location');
       setShowLocationModal(false);
       generatePlan();
-    } catch {
-      Alert.alert('Error', 'Could not get GPS location.');
-    }
+    } catch { Alert.alert('Error', 'Could not get GPS location.'); }
   };
 
   const applyAddress = async (): Promise<void> => {
@@ -684,24 +634,20 @@ if (row.hotel_details) {
     if (!query) return;
     setLocationSearching(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'TourMate/1.0' } });
+      const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, { headers: { 'User-Agent': 'TourMate/1.0' } });
       const data = await res.json();
       if (!data.length) { Alert.alert('Not found', 'Could not find that address. Try being more specific.'); return; }
       const { lat, lon, display_name } = data[0];
       userLocationRef.current = { lat: parseFloat(lat), lon: parseFloat(lon) };
-      const shortLabel = display_name.split(',').slice(0, 2).join(', ');
-      setLocationLabel(shortLabel);
+      setLocationLabel(display_name.split(',').slice(0, 2).join(', '));
       setLocationInput('');
       setShowLocationModal(false);
       generatePlan();
-    } catch {
-      Alert.alert('Error', 'Could not geocode address.');
-    } finally {
-      setLocationSearching(false);
-    }
+    } catch { Alert.alert('Error', 'Could not geocode address.'); }
+    finally { setLocationSearching(false); }
   };
 
+  // ── generatePlan ──────────────────────────────────────────────────
   const generatePlan = async (): Promise<void> => {
     setLoading(true);
     setCoachDaySchedules(null);
@@ -714,12 +660,9 @@ if (row.hotel_details) {
       };
       const start    = parseDate(startDate);
       const end      = parseDate(endDate);
-      const dayCount = Math.max(1, Math.round(
-        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-      ) + 1);
+      const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
       const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-      const totalBudget = Number(params.budget ?? 1000);
+      const totalBudget  = Number(params.budget ?? 1000);
 
       const allDays: DayPlan[]   = [];
       const visitedIds: string[] = [];
@@ -728,8 +671,6 @@ if (row.hotel_details) {
       const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
       const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
       const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
-      const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
-      setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
 
       const scheduledLikedIds = new Set<string>();
 
@@ -742,64 +683,33 @@ if (row.hotel_details) {
         const label = `${MONTH_LABELS[dayDate.getMonth()]} ${dayDate.getDate()}`;
 
         const remainingBudget = totalBudget - cumulativeSpent;
-        const remainingDays   = dayCount - d;
-        const budgetToday     = Math.floor(remainingBudget / remainingDays);
-
-        const dayVisited = visitedIds.filter(id =>
-          !likedIds0.includes(id) || scheduledLikedIds.has(id)
-        );
+        const budgetToday     = Math.floor(remainingBudget / (dayCount - d));
+        const dayVisited      = visitedIds.filter(id => !likedIds0.includes(id) || scheduledLikedIds.has(id));
 
         try {
-          const daySchedule =
-            effectiveDaySchedules[d] ??
-            effectiveDaySchedules[effectiveDaySchedules.length - 1];
-
+          const daySchedule = effectiveDaySchedules[d] ?? effectiveDaySchedules[effectiveDaySchedules.length - 1];
           let startHour = daySchedule?.start_hour ?? 9;
           let endHour   = daySchedule?.end_hour ?? 21;
-          let availableHoursToday = endHour - startHour;
-
-          if (endHour <= startHour) {
-            endHour += 24;
-          }
+          const availableHoursToday = endHour - startHour;
+          if (endHour <= startHour) endHour += 24;
 
           const itineraryPayload: Record<string, any> = {
-            user_id: 1,
-            name: 'TourMate User',
-            city,
-            interests,
-            budget_egp: budgetToday,
-            available_hours: availableHoursToday,
-            liked_ids: likedIds0,
-            visited_ids: dayVisited,
+            user_id: 1, name: 'TourMate User', city, interests,
+            budget_egp: budgetToday, available_hours: availableHoursToday,
+            liked_ids: likedIds0, visited_ids: dayVisited,
             top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
-            browse_n: 5,
-            start_hour: startHour,
-            end_hour: endHour,
+            browse_n: 5, start_hour: startHour, end_hour: endHour,
             is_foreigner: params.isForeigner === 'true',
-            day_index: d,
-            n_days: dayCount,
-            ...(userLocationRef.current && {
-              current_lat: userLocationRef.current.lat,
-              current_lon: userLocationRef.current.lon,
-            }),
+            day_index: d, n_days: dayCount,
+            ...(userLocationRef.current && { current_lat: userLocationRef.current.lat, current_lon: userLocationRef.current.lon }),
             ...(d > 0 && areaHint ? areaHint : {}),
             ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
           };
 
-          console.log(`[ITINERARY] Day ${d + 1} API payload:`);
-          console.log('  liked_ids (added):', addedIds0);
-          console.log('  liked_ids (favorited):', favIds0);
-          console.log('  liked_ids (merged):', likedIds0);
-          console.log('  visited_ids (dayVisited):', dayVisited);
-          console.log('  budget_egp:', budgetToday, '| available_hours:', availableHoursToday);
-          if (d > 0 && areaHint) console.log('  areaHint:', areaHint);
-
           const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itineraryPayload),
           });
-
           const payload = await response.json();
 
           if (payload.success && payload.data?.itinerary?.length) {
@@ -807,50 +717,32 @@ if (row.hotel_details) {
             const itinerary = data.itinerary as RecommendationStop[];
             const daySpent  = Number(data.stats?.total_cost_egp ?? 0);
             cumulativeSpent += daySpent;
-
-            allDays.push({
-              day:              d + 1,
-              date:             label,
-              activities:       stopsToActivities(itinerary),
-              budget_spent:     daySpent,
-              budget_remaining: totalBudget - cumulativeSpent,
-            });
+            allDays.push({ day: d + 1, date: label, activities: stopsToActivities(itinerary), budget_spent: daySpent, budget_remaining: totalBudget - cumulativeSpent });
 
             const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
             for (const stop of itinerary) {
               if (!stop.id) continue;
-              if (likedIds0.includes(stop.id)) {
-                scheduledLikedIds.add(stop.id);
-                console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id})`);
-              }
+              if (likedIds0.includes(stop.id)) scheduledLikedIds.add(stop.id);
               if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
               const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
-              if (isMeal && stop.categories) {
-                stop.categories
-                  .map(c => c.toLowerCase())
-                  .filter(c => CUISINE_DIVERSITY_CATS.has(c) && !eatenMealCategories.includes(c))
-                  .forEach(c => eatenMealCategories.push(c));
-              }
+              if (isMeal && stop.categories)
+                stop.categories.map(c => c.toLowerCase()).filter(c => CUISINE_DIVERSITY_CATS.has(c) && !eatenMealCategories.includes(c)).forEach(c => eatenMealCategories.push(c));
             }
 
             if (d === 0 && data.recommended_attractions?.length) {
-              const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
+              const recs = data.recommended_attractions as Array<{ latitude?: number; longitude?: number }>;
               const withCoords = recs.filter(r => r.latitude && r.longitude);
               if (withCoords.length) {
-                const centerLat = withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length;
-                const centerLon = withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length;
-                areaHint = { preferred_area_lat: centerLat, preferred_area_lon: centerLon, preferred_area_radius_km: 5 };
-                console.log('[ITINERARY] Built area hint for Day 2+:', areaHint);
+                areaHint = {
+                  preferred_area_lat: withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length,
+                  preferred_area_lon: withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length,
+                  preferred_area_radius_km: 5,
+                };
               }
             }
-
           } else {
             allDays.push({ day: d + 1, date: label, activities: [] });
           }
-
-          const pendingLiked = likedIds0.filter(id => !scheduledLikedIds.has(id));
-          console.log(`[LIKED] After Day ${d + 1} — scheduled: [${[...scheduledLikedIds].join(', ')}] | still pending: [${pendingLiked.join(', ')}]`);
-
         } catch (_) {
           allDays.push({ day: d + 1, date: label, activities: [] });
         }
@@ -858,44 +750,30 @@ if (row.hotel_details) {
 
       const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
         const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-          const R = 6371;
-          const dLat = (lat2 - lat1) * Math.PI / 180;
-          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const R = 6371, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
           const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
           return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         };
-        const isRealActivity = (a: Activity) => a.id !== 'start' && a.id !== 'end' && a.category !== 'transport';
-        const result = days.map(d => ({ ...d, activities: [...d.activities] }));
-
+        const isReal   = (a: Activity) => a.id !== 'start' && a.id !== 'end' && a.category !== 'transport';
+        const result   = days.map(d => ({ ...d, activities: [...d.activities] }));
         for (let earlyDay = 0; earlyDay < result.length - 1; earlyDay++) {
           for (let lateDay = earlyDay + 1; lateDay < result.length; lateDay++) {
             const lateActivities = result[lateDay].activities;
             for (let li = lateActivities.length - 1; li >= 0; li--) {
               const lateAct = lateActivities[li];
-              if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
-              if (!lateAct.latitude || !lateAct.longitude) continue;
-
-              const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
+              if (!likedIds.includes(lateAct.id) || !isReal(lateAct) || !lateAct.latitude || !lateAct.longitude) continue;
+              const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isReal(a) && a.latitude && a.longitude);
               if (!earlyLiked.length) continue;
-
-              let nearestAct: Activity | null = null;
-              let nearestDist = Infinity;
+              let nearestAct: Activity | null = null, nearestDist = Infinity;
               for (const ea of earlyLiked) {
-                const dist = haversineKm(ea.latitude!, ea.longitude!, lateAct.latitude, lateAct.longitude);
+                const dist = haversineKm(ea.latitude!, ea.longitude!, lateAct.latitude!, lateAct.longitude!);
                 if (dist < nearestDist) { nearestDist = dist; nearestAct = ea; }
               }
-              if (!nearestAct || nearestDist > 2) continue;
-
-              if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
-
-              const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
-              const earlyBudget = result[earlyDay].budget_remaining ?? 0;
-              if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
-
+              if (!nearestAct || nearestDist > 2 || result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
+              const earlySpent = result[earlyDay].activities.filter(isReal).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
+              if (earlySpent + (lateAct.cost_egp ?? 0) > (result[earlyDay].budget_remaining ?? 0) + earlySpent) continue;
               lateActivities.splice(li, 1);
-              const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
-              result[earlyDay].activities.splice(insertIdx, 0, lateAct);
-              console.log(`[ITINERARY] Consolidated '${lateAct.title}' → Day ${earlyDay + 1} (${nearestDist.toFixed(1)} km from '${nearestAct.title}')`);
+              result[earlyDay].activities.splice(result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1, 0, lateAct);
             }
           }
         }
@@ -917,98 +795,61 @@ if (row.hotel_details) {
     }
   };
 
-  // ── AI day summary ────────────────────────────────────────────────
+  // ── AI day summaries ──────────────────────────────────────────────
   const getDayOrdinal = (n: number): string => {
-    const words: Record<number, string> = {
-      1: 'first', 2: 'second', 3: 'third', 4: 'fourth',
-      5: 'fifth', 6: 'sixth', 7: 'seventh', 8: 'eighth',
-      9: 'ninth', 10: 'tenth',
-    };
+    const words: Record<number, string> = { 1:'first',2:'second',3:'third',4:'fourth',5:'fifth',6:'sixth',7:'seventh',8:'eighth',9:'ninth',10:'tenth' };
     if (words[n]) return words[n];
-    const suffix = n % 10 === 1 && n % 100 !== 11 ? 'st'
-                 : n % 10 === 2 && n % 100 !== 12 ? 'nd'
-                 : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th';
+    const suffix = n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th';
     return `${n}${suffix}`;
   };
 
   const generateDaySummaries = async (planDays: DayPlan[]): Promise<void> => {
     for (const day of planDays) {
-      const stops = day.activities
-        .filter(a => a.id !== 'start' && a.id !== 'end')
-        .map(a => a.title);
+      const stops = day.activities.filter(a => a.id !== 'start' && a.id !== 'end').map(a => a.title);
       if (!stops.length) continue;
-
       const prompt =
-  `You are a local from ${city} who loves your city. ` +
-  `Tell a story of this specific journey: ${stops.join(' -> ')}. ` +
-  `make it 60 words max` +
-  `Start with "On your ${getDayOrdinal(day.day)} day...", walk through every single location, and explain why the food choices (like seafood or traditional grills) are the heart of the experience here. ` +
-  `End the day at ${stops[stops.length - 1]} with a reason why it's the perfect finish. ` +
-  `Make it sound like a person talking, not a list. No emojis.`;
+        `You are a local from ${city} who loves your city. ` +
+        `Tell a story of this specific journey: ${stops.join(' -> ')}. make it 60 words max` +
+        `Start with "On your ${getDayOrdinal(day.day)} day...", walk through every single location, and explain why the food choices (like seafood or traditional grills) are the heart of the experience here. ` +
+        `End the day at ${stops[stops.length - 1]} with a reason why it's the perfect finish. Make it sound like a person talking, not a list. No emojis.`;
       try {
-        const res = await fetch(`${API_BASE}/ai/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
-        });
+        const res  = await fetch(`${API_BASE}/ai/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }) });
         const data = await res.json();
-        if (data.success && data.message) {
-          setDays(prev => prev.map(d =>
-            d.day === day.day ? { ...d, summary: data.message.trim() } : d
-          ));
-        }
-      } catch {
-        // Summary is optional — silently skip on error
-      }
+        if (data.success && data.message)
+          setDays(prev => prev.map(d => d.day === day.day ? { ...d, summary: data.message.trim() } : d));
+      } catch {}
     }
+  };
+
+  // ── Delete activity ───────────────────────────────────────────────
+  const deleteActivity = (dayIndex: number, activityId: string): void => {
+    setDays(prev => prev.map((d, i) =>
+      i === dayIndex
+        ? { ...d, activities: d.activities.filter(a => a.id !== activityId) }
+        : d
+    ));
   };
 
   // ── Plan coach ────────────────────────────────────────────────────
   const sendPlanCoachMessage = async (preset?: string): Promise<void> => {
-    const raw =
-      typeof preset === 'string' ? preset : planCoachInput;
+    const raw  = typeof preset === 'string' ? preset : planCoachInput;
     const text = (typeof raw === 'string' ? raw : String(raw ?? '')).trim();
     if (!text || planCoachLoading) return;
-
     setPlanCoachPreview(null);
     if (typeof preset === 'string') setPlanCoachInput('');
-
-    const startLat =
-      params.startLat != null ? parseFloat(String(params.startLat)) : userLocation?.latitude;
-    const startLon =
-      params.startLon != null ? parseFloat(String(params.startLon)) : userLocation?.longitude;
-
+    const startLat = params.startLat != null ? parseFloat(String(params.startLat)) : userLocation?.latitude;
+    const startLon = params.startLon != null ? parseFloat(String(params.startLon)) : userLocation?.longitude;
     const nextMessages = [...planCoachMessages, { role: 'user' as const, content: text }];
     setPlanCoachMessages(nextMessages);
     setPlanCoachInput('');
     setPlanCoachLoading(true);
-
     try {
-      const res = await fetch(`${API_BASE}/ai/plan-coach`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: nextMessages,
-          plan_days: days,
-          city,
-          interests,
-          day_schedules: effectiveDaySchedules,
-          is_foreigner: params.isForeigner === 'true',
-          start_lat: Number.isFinite(startLat) ? startLat : undefined,
-          start_lon: Number.isFinite(startLon) ? startLon : undefined,
-          budget: Number(params.budget ?? 0),
-          start_date: startDate.toString().split('T')[0],
-          existing_coach_extra_spend_egp: coachExtraSpendEgp,
-        }),
+      const res  = await fetch(`${API_BASE}/ai/plan-coach`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: nextMessages, plan_days: days, city, interests, day_schedules: effectiveDaySchedules, is_foreigner: params.isForeigner === 'true', start_lat: Number.isFinite(startLat) ? startLat : undefined, start_lon: Number.isFinite(startLon) ? startLon : undefined, budget: Number(params.budget ?? 0), start_date: startDate.toString().split('T')[0], existing_coach_extra_spend_egp: coachExtraSpendEgp }),
       });
       const data = await res.json();
-      if (!data.success) {
-        setPlanCoachMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: data.error || 'Something went wrong. Try again.' },
-        ]);
-        return;
-      }
+      if (!data.success) { setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: data.error || 'Something went wrong. Try again.' }]); return; }
       setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: String(data.reply || '') }]);
       if (Array.isArray(data.plan_days_preview) && data.plan_days_preview.length > 0) {
         setPlanCoachPreview({
@@ -1016,178 +857,52 @@ if (row.hotel_details) {
           warnings: Array.isArray(data.optimization_warnings) ? data.optimization_warnings : [],
           day_schedules: Array.isArray(data.day_schedules_preview) ? data.day_schedules_preview : null,
           end_date: data.end_date_preview != null ? String(data.end_date_preview) : null,
-          coach_extra_spend:
-            typeof data.coach_extra_spend_total_preview === 'number'
-              ? data.coach_extra_spend_total_preview
-              : null,
+          coach_extra_spend: typeof data.coach_extra_spend_total_preview === 'number' ? data.coach_extra_spend_total_preview : null,
         });
       }
-    } catch {
-      setPlanCoachMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: 'Network error. Check your connection and try again.' },
-      ]);
-    } finally {
-      setPlanCoachLoading(false);
-    }
+    } catch { setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: 'Network error. Check your connection and try again.' }]); }
+    finally { setPlanCoachLoading(false); }
   };
 
   const applyPlanCoachPreview = (): void => {
     if (!planCoachPreview) return;
-    const appliedDaysSnapshot = planCoachPreview.days;
-    setDays(appliedDaysSnapshot);
-    if (
-      Array.isArray(planCoachPreview.day_schedules) &&
-      planCoachPreview.day_schedules.length === planCoachPreview.days.length
-    ) {
+    const snapshot = planCoachPreview.days;
+    setDays(snapshot);
+    if (Array.isArray(planCoachPreview.day_schedules) && planCoachPreview.day_schedules.length === snapshot.length)
       setCoachDaySchedules(planCoachPreview.day_schedules);
-    }
-    if (planCoachPreview.end_date) {
-      setCoachEndDate(planCoachPreview.end_date);
-    }
-    if (planCoachPreview.coach_extra_spend != null) {
-      setCoachExtraSpendEgp(planCoachPreview.coach_extra_spend);
-    }
-    setActiveDay(prev =>
-      Math.min(prev, Math.max(0, planCoachPreview.days.length - 1)),
-    );
+    if (planCoachPreview.end_date) setCoachEndDate(planCoachPreview.end_date);
+    if (planCoachPreview.coach_extra_spend != null) setCoachExtraSpendEgp(planCoachPreview.coach_extra_spend);
+    setActiveDay(prev => Math.min(prev, Math.max(0, snapshot.length - 1)));
     setPlanCoachPreview(null);
-    setPlanCoachMessages(prev => [
-      ...prev,
-      { role: 'assistant', content: 'Changes applied to your plan.' },
-    ]);
+    setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: 'Changes applied to your plan.' }]);
     void (async () => {
       setPlanSaving(true);
-      const id = await upsertPlanToServer(appliedDaysSnapshot);
+      const id = await upsertPlanToServer(snapshot);
       setPlanSaving(false);
-      if (id) {
-        setServerPlanId(id);
-        setPlanSaved(true);
-      }
+      if (id) { setServerPlanId(id); setPlanSaved(true); }
     })();
   };
 
   useEffect(() => {
-    if (showAIChat && planCoachMessages.length > 0) {
-      requestAnimationFrame(() => {
-        planCoachListRef.current?.scrollToEnd({ animated: true });
-      });
-    }
+    if (showAIChat && planCoachMessages.length > 0)
+      requestAnimationFrame(() => planCoachListRef.current?.scrollToEnd({ animated: true }));
   }, [planCoachMessages, showAIChat]);
 
-  // ── Save / update plan on server (POST new or PUT when plan already exists) ──
-const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string | undefined> => {
-  const targetId = serverPlanId ?? existingPlanId;
-  const itineraryPayload = itineraryOverride ?? days;
-  const selectedFlight = useBookingStore.getState().selectedFlight;
-  const selectedHotel = useBookingStore.getState().selectedHotel;
-
-  const payload = {
-    city,
-    start_date: startDate.toString().split('T')[0],
-    end_date: effectiveEndDate,
-    budget: params.budget,
-    day_hours: JSON.stringify(effectiveDaySchedules),
-    interests,
-    spot_ids: spotIdsForApi,
-    itinerary: itineraryPayload,
-    user_id: userId ?? 1,
-    flight_details: selectedFlight ?? null,
-    hotel_details: selectedHotel ?? null,
-  };
-
-  try {
-    if (targetId) {
-      const res = await fetch(`${API_BASE}/plans/item/${targetId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/json')) {
-        const t = await res.text();
-        throw new Error(`Unexpected response (${res.status}): ${t.slice(0, 120)}`);
-      }
-      const data = await res.json();
-      if (data.success) return String(targetId);
-      throw new Error(data.message);
-    }
-
-    const res = await fetch(`${API_BASE}/plans`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const contentType = res.headers.get('content-type') ?? '';
-    if (!contentType.includes('application/json')) {
-      const text = await res.text();
-      throw new Error(`Unexpected response (${res.status}): ${text.slice(0, 120)}`);
-    }
-    const data = await res.json();
-    if (data.success && data.data?.id) {
-      const nid = String(data.data.id);
-      setServerPlanId(nid);
-      return nid;
-    }
-    throw new Error(data.message);
-  } catch (err) {
-    console.error('Save plan error:', err);
-    return undefined;
-  }
-};
-
-  const savePlan = async (): Promise<void> => {
-    if (planSaving) return;
-    setPlanSaving(true);
-    const planId = await upsertPlanToServer();
-    setPlanSaving(false);
-    if (planId) {
-      setPlanSaved(true);
-    } else {
-      Alert.alert('Could not save', 'Something went wrong. Please try again.');
-    }
-  };
-
+  // ── Navigation helpers ────────────────────────────────────────────
   const openMap = async (): Promise<void> => {
     setSaving(true);
     const planId = serverPlanId ?? existingPlanId ?? (await upsertPlanToServer());
     setSaving(false);
-
-    router.push({
-      pathname: '/(main)/map' as any,
-      params: {
-        city,
-        planId,
-        itineraryData: JSON.stringify(days),
-      },
-    });
+    router.push({ pathname: '/(main)/map' as any, params: { city, planId, itineraryData: JSON.stringify(days) } });
   };
 
-  const openTravelOptions = async (): Promise<void> => {
-    setSaving(true);
-    const planId = serverPlanId ?? existingPlanId ?? (await upsertPlanToServer());
-    setSaving(false);
-
-    router.push({
-      pathname: '/(main)/city-intro' as any,
-      params: {
-        city,
-        planId,
-        startDate: startDate.toString().split('T')[0],
-        endDate: effectiveEndDate,
-        budget: params.budget,
-      },
-    });
-  };
-
+  // ── Loading screen ────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E67E22" />
         <Text style={styles.loadingTitle}>Generating your plan...</Text>
-        <Text style={styles.loadingSubtitle}>
-          Creating a personalized plan for {city} based on your interests
-        </Text>
+        <Text style={styles.loadingSubtitle}>Creating a personalized plan for {city} based on your interests</Text>
       </View>
     );
   }
@@ -1203,42 +918,19 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('plan')}</Text>
-        <TouchableOpacity
-          style={styles.saveBtn}
-          onPress={savePlan}
-          disabled={planSaving}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={styles.saveBtn} onPress={savePlan} disabled={planSaving} activeOpacity={0.7}>
           {planSaving
             ? <ActivityIndicator size="small" color="#E67E22" />
-            : <MaterialCommunityIcons
-                name={planSaved ? 'bookmark-check' : 'bookmark-plus-outline'}
-                size={26}
-                color={planSaved ? '#27AE60' : '#E67E22'}
-              />
-          }
+            : <MaterialCommunityIcons name={planSaved ? 'bookmark-check' : 'bookmark-plus-outline'} size={26} color={planSaved ? '#27AE60' : '#E67E22'} />}
         </TouchableOpacity>
       </View>
 
       {/* ── Day tabs ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dayTabsScroll}
-        contentContainerStyle={styles.dayTabs}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayTabsScroll} contentContainerStyle={styles.dayTabs}>
         {days.map((day, index) => (
-          <TouchableOpacity
-            key={`day-${day.day}`}
-            style={[styles.dayTab, activeDay === index && styles.dayTabActive]}
-            onPress={() => setActiveDay(index)}
-          >
-            <Text style={[styles.dayTabLabel, activeDay === index && styles.dayTabLabelActive]}>
-              Day {day.day}
-            </Text>
-            <Text style={[styles.dayTabDate, activeDay === index && styles.dayTabDateActive]}>
-              {day.date}
-            </Text>
+          <TouchableOpacity key={`day-${day.day}`} style={[styles.dayTab, activeDay === index && styles.dayTabActive]} onPress={() => setActiveDay(index)}>
+            <Text style={[styles.dayTabLabel, activeDay === index && styles.dayTabLabelActive]}>Day {day.day}</Text>
+            <Text style={[styles.dayTabDate, activeDay === index && styles.dayTabDateActive]}>{day.date}</Text>
             {activeDay === index && <View style={styles.dayTabUnderline} />}
           </TouchableOpacity>
         ))}
@@ -1259,45 +951,33 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
           </View>
         )}
 
-        {currentDay?.activities.map((activity, index) => {
-          if (activity.category === 'start') {
-            return <StartRow key={activity.id} time={activity.time} label={locationLabel} onPress={() => setShowLocationModal(true)} />;
-          }
-          if (activity.category === 'end') {
-            return <EndOfDayRow key={activity.id} time={activity.time} />;
-          }
+        {currentDay?.activities.map((activity) => {
+          if (activity.category === 'start') return <StartRow key={activity.id} time={activity.time} label={locationLabel} onPress={() => setShowLocationModal(true)} />;
+          if (activity.category === 'end')   return <EndOfDayRow key={activity.id} time={activity.time} />;
           return (
             <React.Fragment key={activity.id}>
-              {activity.transport && (
-                <TravelConnector transport={activity.transport} />
-              )}
+              {activity.transport && <TravelConnector transport={activity.transport} />}
               <ActivityRow
                 activity={activity}
                 isLiked={likedIdSet.has(activity.id.replace(/^ATT0*/i, ''))}
                 onPress={() => {
                   const hasRealId = activity.id && !activity.id.startsWith('rec-') && activity.id !== 'start' && activity.id !== 'end';
-                  if (hasRealId) {
-                    openAttractionSheet(activity);
-                  } else {
-                    setSelectedActivity(activity);
-                  }
+                  if (hasRealId) openAttractionSheet(activity);
+                  else setSelectedActivity(activity);
                 }}
               />
             </React.Fragment>
           );
         })}
 
+        {/* ── Budget card ── */}
         {currentDay && (() => {
-          const activityCost = (d: DayPlan) =>
-            d.activities
-              .filter(a => a.id !== 'start' && a.id !== 'end')
-              .reduce((sum, a) => sum + (a.cost_egp ?? 0) + (a.transport?.cost_egp ?? 0), 0);
+          const activityCost = (d: DayPlan) => d.activities.filter(a => a.id !== 'start' && a.id !== 'end').reduce((sum, a) => sum + (a.cost_egp ?? 0) + (a.transport?.cost_egp ?? 0), 0);
           const totalBudget    = Number(params.budget ?? 0);
           const daySpent       = activityCost(currentDay);
           const spentSoFar     = days.slice(0, activeDay + 1).reduce((sum, d) => sum + activityCost(d), 0);
           const totalRemaining = totalBudget - spentSoFar;
           const pct = Math.min(100, Math.max(0, (totalRemaining / Math.max(1, totalBudget)) * 100));
-
           return (
             <View style={styles.budgetCard}>
               <View style={styles.budgetRow}>
@@ -1307,16 +987,12 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
               <View style={styles.budgetDivider} />
               <View style={styles.budgetRow}>
                 <Text style={styles.budgetLabel}>Remaining budget</Text>
-                <Text style={[styles.budgetRemaining, totalRemaining < 0 && styles.budgetOver]}>
-                  {Math.round(totalRemaining)} EGP
-                </Text>
+                <Text style={[styles.budgetRemaining, totalRemaining < 0 && styles.budgetOver]}>{Math.round(totalRemaining)} EGP</Text>
               </View>
               {totalRemaining < 0 && (
                 <View style={styles.budgetWarning}>
                   <MaterialCommunityIcons name="alert" size={14} color="#92400E" />
-                  <Text style={styles.budgetWarningText}>
-                    You've gone over budget by {Math.abs(Math.round(totalRemaining))} EGP to keep your preferred stops. Increase the budget or remove an activity to stay within limits.
-                  </Text>
+                  <Text style={styles.budgetWarningText}>You've gone over budget by {Math.abs(Math.round(totalRemaining))} EGP to keep your preferred stops. Increase the budget or remove an activity to stay within limits.</Text>
                 </View>
               )}
               {totalRemaining >= 0 && (
@@ -1327,381 +1003,170 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
             </View>
           );
         })()}
-{/* ── Booking Details ── */}
-<View style={bookingStyles.container}>
 
-  {/* ── FLIGHT CARD ── */}
-  <TouchableOpacity
-    style={bookingStyles.dropdownHeader}
-    onPress={() => setFlightExpanded(p => !p)}
-    activeOpacity={0.8}
-  >
-    <View style={bookingStyles.dropdownLeft}>
-      <MaterialCommunityIcons name="airplane" size={18} color="#E67E22" />
-      <Text style={bookingStyles.dropdownTitle}>Flight Details</Text>
-      {selectedFlight && !flightExpanded && (
-        <View style={bookingStyles.filledBadge}>
-          <Text style={bookingStyles.filledBadgeText}>✓ Saved</Text>
-        </View>
-      )}
-    </View>
-    <MaterialCommunityIcons
-      name={flightExpanded ? 'chevron-up' : 'chevron-down'}
-      size={20}
-      color="#999"
-    />
-  </TouchableOpacity>
+        {/* ── Booking Details ── */}
+        <View style={bookingStyles.container}>
 
-  {flightExpanded && (
-    <View style={bookingStyles.dropdownBody}>
-      {selectedFlight && !editingFlight ? (
-        // ── Display mode ──
-        <View>
-          <View style={bookingStyles.detailRow}>
-            <Text style={bookingStyles.detailLabel}>Airline</Text>
-            <Text style={bookingStyles.detailValue}>{selectedFlight.airline}</Text>
-          </View>
-          <View style={bookingStyles.detailRow}>
-            <Text style={bookingStyles.detailLabel}>Flight No.</Text>
-            <Text style={bookingStyles.detailValue}>{selectedFlight.flightNumber}</Text>
-          </View>
-          {!!selectedFlight.departureTime && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Departure</Text>
-              <Text style={bookingStyles.detailValue}>{selectedFlight.departureTime}</Text>
+          {/* FLIGHT */}
+          <TouchableOpacity style={bookingStyles.dropdownHeader} onPress={() => setFlightExpanded(p => !p)} activeOpacity={0.8}>
+            <View style={bookingStyles.dropdownLeft}>
+              <MaterialCommunityIcons name="airplane" size={18} color="#E67E22" />
+              <Text style={bookingStyles.dropdownTitle}>Flight Details</Text>
+              {selectedFlight && !flightExpanded && (
+                <View style={bookingStyles.filledBadge}><Text style={bookingStyles.filledBadgeText}>✓ Saved</Text></View>
+              )}
             </View>
-          )}
-          {!!selectedFlight.arrivalTime && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Arrival</Text>
-              <Text style={bookingStyles.detailValue}>{selectedFlight.arrivalTime}</Text>
-            </View>
-          )}
-          {!!selectedFlight.price && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Price</Text>
-              <Text style={bookingStyles.detailValue}>{selectedFlight.price} EGP</Text>
-            </View>
-          )}
-          {!!selectedFlight.bookingUrl && (
-            <TouchableOpacity
-              style={bookingStyles.linkRow}
-              onPress={() => Linking.openURL(selectedFlight.bookingUrl!)}
-            >
-              <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
-              <Text style={bookingStyles.linkText} numberOfLines={1}>
-                {selectedFlight.bookingUrl}
-              </Text>
-              <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={bookingStyles.editBtn}
-            onPress={() => {
-              setFlightForm({
-                airline: selectedFlight.airline ?? '',
-                flightNumber: selectedFlight.flightNumber ?? '',
-                departureTime: selectedFlight.departureTime ?? '',
-                arrivalTime: selectedFlight.arrivalTime ?? '',
-                price: String(selectedFlight.price ?? ''),
-                bookingUrl: selectedFlight.bookingUrl ?? '',
-              });
-              setEditingFlight(true);
-            }}
-          >
-            <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
-            <Text style={bookingStyles.editBtnText}>Edit</Text>
+            <MaterialCommunityIcons name={flightExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#999" />
           </TouchableOpacity>
-        </View>
-      ) : (
-        // ── Edit / Empty form ──
-        <View>
-          <View style={bookingStyles.inputRow}>
-            <View style={[bookingStyles.inputGroup, { flex: 1.5 }]}>
-              <Text style={bookingStyles.inputLabel}>Airline *</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="e.g. EgyptAir"
-                value={flightForm.airline}
-                onChangeText={v => setFlightForm(p => ({ ...p, airline: v }))}
-              />
-            </View>
-            <View style={[bookingStyles.inputGroup, { flex: 1 }]}>
-              <Text style={bookingStyles.inputLabel}>Flight No. *</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="e.g. MS302"
-                value={flightForm.flightNumber}
-                onChangeText={v => setFlightForm(p => ({ ...p, flightNumber: v }))}
-              />
-            </View>
-          </View>
 
-          <View style={bookingStyles.inputRow}>
-            <View style={bookingStyles.inputGroup}>
-              <Text style={bookingStyles.inputLabel}>Departure Time</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="e.g. 08:00 AM"
-                value={flightForm.departureTime}
-                onChangeText={v => setFlightForm(p => ({ ...p, departureTime: v }))}
-              />
-            </View>
-            <View style={bookingStyles.inputGroup}>
-              <Text style={bookingStyles.inputLabel}>Arrival Time</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="e.g. 10:30 AM"
-                value={flightForm.arrivalTime}
-                onChangeText={v => setFlightForm(p => ({ ...p, arrivalTime: v }))}
-              />
-            </View>
-          </View>
-
-          <View style={bookingStyles.inputGroup}>
-            <Text style={bookingStyles.inputLabel}>Total Price (EGP)</Text>
-            <TextInput
-              style={bookingStyles.input}
-              placeholder="e.g. 12000"
-              keyboardType="numeric"
-              value={flightForm.price}
-              onChangeText={v => setFlightForm(p => ({ ...p, price: v }))}
-            />
-          </View>
-
-          <View style={bookingStyles.inputGroup}>
-            <Text style={bookingStyles.inputLabel}>Booking URL</Text>
-            <TextInput
-              style={bookingStyles.input}
-              placeholder="e.g. https://www.google.com/flights/..."
-              value={flightForm.bookingUrl}
-              onChangeText={v => setFlightForm(p => ({ ...p, bookingUrl: v }))}
-              autoCapitalize="none"
-              keyboardType="url"
-            />
-          </View>
-
-          <View style={bookingStyles.formActions}>
-            <TouchableOpacity
-              style={bookingStyles.saveFormBtn}
-              onPress={async () => {
-                const updatedFlight: Flight = {
-                  airline: flightForm.airline,
-                  flightNumber: flightForm.flightNumber,
-                  departure: '',
-                  arrival: '',
-                  departureTime: flightForm.departureTime,
-                  arrivalTime: flightForm.arrivalTime,
-                  duration: '',
-                  class: 'Economy',
-                  price: parseFloat(flightForm.price) || 0,
-                  bookingUrl: flightForm.bookingUrl,
-                };
-                setEditingFlight(false);
-                setSelectedFlight(updatedFlight);
-                await upsertPlanToServer();
-              }}
-              disabled={!flightForm.airline.trim() || !flightForm.flightNumber.trim()}
-            >
-              <Text style={bookingStyles.saveFormBtnText}>Save Flight</Text>
-            </TouchableOpacity>
-            {selectedFlight && (
-              <TouchableOpacity
-                style={bookingStyles.cancelBtn}
-                onPress={() => setEditingFlight(false)}
-              >
-                <Text style={bookingStyles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      )}
-    </View>
-  )}
-
-  <View style={bookingStyles.divider} />
-
-  {/* ── HOTEL CARD ── */}
-  <TouchableOpacity
-    style={bookingStyles.dropdownHeader}
-    onPress={() => setHotelExpanded(p => !p)}
-    activeOpacity={0.8}
-  >
-    <View style={bookingStyles.dropdownLeft}>
-      <MaterialCommunityIcons name="bed" size={18} color="#E67E22" />
-      <Text style={bookingStyles.dropdownTitle}>Hotel Details</Text>
-      {selectedHotel && !hotelExpanded && (
-        <View style={bookingStyles.filledBadge}>
-          <Text style={bookingStyles.filledBadgeText}>✓ Saved</Text>
-        </View>
-      )}
-    </View>
-    <MaterialCommunityIcons
-      name={hotelExpanded ? 'chevron-up' : 'chevron-down'}
-      size={20}
-      color="#999"
-    />
-  </TouchableOpacity>
-
-  {hotelExpanded && (
-    <View style={bookingStyles.dropdownBody}>
-      {selectedHotel && !editingHotel ? (
-        // ── Display mode ──
-        <View>
-          <View style={bookingStyles.detailRow}>
-            <Text style={bookingStyles.detailLabel}>Hotel</Text>
-            <Text style={bookingStyles.detailValue}>{selectedHotel.name}</Text>
-          </View>
-          {!!selectedHotel.checkIn && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Check-in</Text>
-              <Text style={bookingStyles.detailValue}>{selectedHotel.checkIn}</Text>
+          {flightExpanded && (
+            <View style={bookingStyles.dropdownBody}>
+              {selectedFlight && !editingFlight ? (
+                <View>
+                  <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Airline</Text><Text style={bookingStyles.detailValue}>{selectedFlight.airline}</Text></View>
+                  <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Flight No.</Text><Text style={bookingStyles.detailValue}>{selectedFlight.flightNumber}</Text></View>
+                  {!!selectedFlight.departureTime && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Departure</Text><Text style={bookingStyles.detailValue}>{selectedFlight.departureTime}</Text></View>}
+                  {!!selectedFlight.arrivalTime   && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Arrival</Text><Text style={bookingStyles.detailValue}>{selectedFlight.arrivalTime}</Text></View>}
+                  {!!selectedFlight.price         && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Price</Text><Text style={bookingStyles.detailValue}>{selectedFlight.price} EGP</Text></View>}
+                  {!!selectedFlight.bookingUrl && (
+                    <TouchableOpacity style={bookingStyles.linkRow} onPress={() => Linking.openURL(selectedFlight.bookingUrl!)}>
+                      <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
+                      <Text style={bookingStyles.linkText} numberOfLines={1}>{selectedFlight.bookingUrl}</Text>
+                      <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={bookingStyles.editBtn} onPress={() => {
+                    setFlightForm({ airline: selectedFlight.airline ?? '', flightNumber: selectedFlight.flightNumber ?? '', departureTime: selectedFlight.departureTime ?? '', arrivalTime: selectedFlight.arrivalTime ?? '', price: String(selectedFlight.price ?? ''), bookingUrl: selectedFlight.bookingUrl ?? '' });
+                    setEditingFlight(true);
+                  }}>
+                    <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
+                    <Text style={bookingStyles.editBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View>
+                  <View style={bookingStyles.inputRow}>
+                    <View style={[bookingStyles.inputGroup, { flex: 1.5 }]}>
+                      <Text style={bookingStyles.inputLabel}>Airline *</Text>
+                      <TextInput style={bookingStyles.input} placeholder="e.g. EgyptAir" value={flightForm.airline} onChangeText={v => setFlightForm(p => ({ ...p, airline: v }))} />
+                    </View>
+                    <View style={[bookingStyles.inputGroup, { flex: 1 }]}>
+                      <Text style={bookingStyles.inputLabel}>Flight No. *</Text>
+                      <TextInput style={bookingStyles.input} placeholder="e.g. MS302" value={flightForm.flightNumber} onChangeText={v => setFlightForm(p => ({ ...p, flightNumber: v }))} />
+                    </View>
+                  </View>
+                  <View style={bookingStyles.inputRow}>
+                    <View style={bookingStyles.inputGroup}>
+                      <Text style={bookingStyles.inputLabel}>Departure Time</Text>
+                      <TextInput style={bookingStyles.input} placeholder="e.g. 08:00 AM" value={flightForm.departureTime} onChangeText={v => setFlightForm(p => ({ ...p, departureTime: v }))} />
+                    </View>
+                    <View style={bookingStyles.inputGroup}>
+                      <Text style={bookingStyles.inputLabel}>Arrival Time</Text>
+                      <TextInput style={bookingStyles.input} placeholder="e.g. 10:30 AM" value={flightForm.arrivalTime} onChangeText={v => setFlightForm(p => ({ ...p, arrivalTime: v }))} />
+                    </View>
+                  </View>
+                  <View style={bookingStyles.inputGroup}>
+                    <Text style={bookingStyles.inputLabel}>Total Price (EGP)</Text>
+                    <TextInput style={bookingStyles.input} placeholder="e.g. 12000" keyboardType="numeric" value={flightForm.price} onChangeText={v => setFlightForm(p => ({ ...p, price: v }))} />
+                  </View>
+                  <View style={bookingStyles.inputGroup}>
+                    <Text style={bookingStyles.inputLabel}>Booking URL</Text>
+                    <TextInput style={bookingStyles.input} placeholder="e.g. https://www.google.com/flights/..." value={flightForm.bookingUrl} onChangeText={v => setFlightForm(p => ({ ...p, bookingUrl: v }))} autoCapitalize="none" keyboardType="url" />
+                  </View>
+                  <View style={bookingStyles.formActions}>
+                    <TouchableOpacity style={bookingStyles.saveFormBtn} disabled={!flightForm.airline.trim() || !flightForm.flightNumber.trim()} onPress={async () => {
+                      setSelectedFlight({ airline: flightForm.airline, flightNumber: flightForm.flightNumber, departure: '', arrival: '', departureTime: flightForm.departureTime, arrivalTime: flightForm.arrivalTime, duration: '', class: 'Economy', price: parseFloat(flightForm.price) || 0, bookingUrl: flightForm.bookingUrl });
+                      setEditingFlight(false);
+                      await upsertPlanToServer();
+                    }}>
+                      <Text style={bookingStyles.saveFormBtnText}>Save Flight</Text>
+                    </TouchableOpacity>
+                    {selectedFlight && <TouchableOpacity style={bookingStyles.cancelBtn} onPress={() => setEditingFlight(false)}><Text style={bookingStyles.cancelBtnText}>Cancel</Text></TouchableOpacity>}
+                  </View>
+                </View>
+              )}
             </View>
           )}
-          {!!selectedHotel.checkOut && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Check-out</Text>
-              <Text style={bookingStyles.detailValue}>{selectedHotel.checkOut}</Text>
+
+          <View style={bookingStyles.divider} />
+
+          {/* HOTEL */}
+          <TouchableOpacity style={bookingStyles.dropdownHeader} onPress={() => setHotelExpanded(p => !p)} activeOpacity={0.8}>
+            <View style={bookingStyles.dropdownLeft}>
+              <MaterialCommunityIcons name="bed" size={18} color="#E67E22" />
+              <Text style={bookingStyles.dropdownTitle}>Hotel Details</Text>
+              {selectedHotel && !hotelExpanded && (
+                <View style={bookingStyles.filledBadge}><Text style={bookingStyles.filledBadgeText}>✓ Saved</Text></View>
+              )}
             </View>
-          )}
-          {!!selectedHotel.price_per_night && (
-            <View style={bookingStyles.detailRow}>
-              <Text style={bookingStyles.detailLabel}>Per Night</Text>
-              <Text style={bookingStyles.detailValue}>{selectedHotel.price_per_night} EGP</Text>
-            </View>
-          )}
-          {!!selectedHotel.bookingUrl && (
-            <TouchableOpacity
-              style={bookingStyles.linkRow}
-              onPress={() => Linking.openURL(selectedHotel.bookingUrl!)}
-            >
-              <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
-              <Text style={bookingStyles.linkText} numberOfLines={1}>
-                {selectedHotel.bookingUrl}
-              </Text>
-              <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={bookingStyles.editBtn}
-            onPress={() => {
-              setHotelForm({
-                name: selectedHotel.name ?? '',
-                checkIn: selectedHotel.checkIn ?? '',
-                checkOut: selectedHotel.checkOut ?? '',
-                pricePerNight: String(selectedHotel.price_per_night ?? ''),
-                bookingUrl: selectedHotel.bookingUrl ?? '',
-              });
-              setEditingHotel(true);
-            }}
-          >
-            <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
-            <Text style={bookingStyles.editBtnText}>Edit</Text>
+            <MaterialCommunityIcons name={hotelExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#999" />
           </TouchableOpacity>
-        </View>
-      ) : (
-        // ── Edit / Empty form ──
-        <View>
-          <View style={bookingStyles.inputGroup}>
-            <Text style={bookingStyles.inputLabel}>Hotel Name *</Text>
-            <TextInput
-              style={bookingStyles.input}
-              placeholder="e.g. Marriott Hurghada"
-              value={hotelForm.name}
-              onChangeText={v => setHotelForm(p => ({ ...p, name: v }))}
-            />
-          </View>
 
-          <View style={bookingStyles.inputRow}>
-            <View style={bookingStyles.inputGroup}>
-              <Text style={bookingStyles.inputLabel}>Check-in</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="YYYY-MM-DD"
-                value={hotelForm.checkIn}
-                onChangeText={v => setHotelForm(p => ({ ...p, checkIn: v }))}
-              />
+          {hotelExpanded && (
+            <View style={bookingStyles.dropdownBody}>
+              {selectedHotel && !editingHotel ? (
+                <View>
+                  <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Hotel</Text><Text style={bookingStyles.detailValue}>{selectedHotel.name}</Text></View>
+                  {!!selectedHotel.checkIn      && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Check-in</Text><Text style={bookingStyles.detailValue}>{selectedHotel.checkIn}</Text></View>}
+                  {!!selectedHotel.checkOut     && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Check-out</Text><Text style={bookingStyles.detailValue}>{selectedHotel.checkOut}</Text></View>}
+                  {!!selectedHotel.price_per_night && <View style={bookingStyles.detailRow}><Text style={bookingStyles.detailLabel}>Per Night</Text><Text style={bookingStyles.detailValue}>{selectedHotel.price_per_night} EGP</Text></View>}
+                  {!!selectedHotel.bookingUrl && (
+                    <TouchableOpacity style={bookingStyles.linkRow} onPress={() => Linking.openURL(selectedHotel.bookingUrl!)}>
+                      <MaterialCommunityIcons name="link-variant" size={14} color="#E67E22" />
+                      <Text style={bookingStyles.linkText} numberOfLines={1}>{selectedHotel.bookingUrl}</Text>
+                      <MaterialCommunityIcons name="open-in-new" size={14} color="#E67E22" />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={bookingStyles.editBtn} onPress={() => {
+                    setHotelForm({ name: selectedHotel.name ?? '', checkIn: selectedHotel.checkIn ?? '', checkOut: selectedHotel.checkOut ?? '', pricePerNight: String(selectedHotel.price_per_night ?? ''), bookingUrl: selectedHotel.bookingUrl ?? '' });
+                    setEditingHotel(true);
+                  }}>
+                    <MaterialCommunityIcons name="pencil-outline" size={14} color="#E67E22" />
+                    <Text style={bookingStyles.editBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View>
+                  <View style={bookingStyles.inputGroup}>
+                    <Text style={bookingStyles.inputLabel}>Hotel Name *</Text>
+                    <TextInput style={bookingStyles.input} placeholder="e.g. Marriott Hurghada" value={hotelForm.name} onChangeText={v => setHotelForm(p => ({ ...p, name: v }))} />
+                  </View>
+                  <View style={bookingStyles.inputRow}>
+                    <View style={bookingStyles.inputGroup}>
+                      <Text style={bookingStyles.inputLabel}>Check-in</Text>
+                      <TextInput style={bookingStyles.input} placeholder="YYYY-MM-DD" value={hotelForm.checkIn} onChangeText={v => setHotelForm(p => ({ ...p, checkIn: v }))} />
+                    </View>
+                    <View style={bookingStyles.inputGroup}>
+                      <Text style={bookingStyles.inputLabel}>Check-out</Text>
+                      <TextInput style={bookingStyles.input} placeholder="YYYY-MM-DD" value={hotelForm.checkOut} onChangeText={v => setHotelForm(p => ({ ...p, checkOut: v }))} />
+                    </View>
+                  </View>
+                  <View style={bookingStyles.inputGroup}>
+                    <Text style={bookingStyles.inputLabel}>Price Per Night (EGP)</Text>
+                    <TextInput style={bookingStyles.input} placeholder="e.g. 1500" keyboardType="numeric" value={hotelForm.pricePerNight} onChangeText={v => setHotelForm(p => ({ ...p, pricePerNight: v }))} />
+                  </View>
+                  <View style={bookingStyles.inputGroup}>
+                    <Text style={bookingStyles.inputLabel}>Booking URL</Text>
+                    <TextInput style={bookingStyles.input} placeholder="e.g. https://www.booking.com/..." value={hotelForm.bookingUrl} onChangeText={v => setHotelForm(p => ({ ...p, bookingUrl: v }))} autoCapitalize="none" keyboardType="url" />
+                  </View>
+                  <View style={bookingStyles.formActions}>
+                    <TouchableOpacity style={bookingStyles.saveFormBtn} disabled={!hotelForm.name.trim()} onPress={async () => {
+                      setSelectedHotel({ id: selectedHotel?.id ?? Date.now(), name: hotelForm.name, city, stars: selectedHotel?.stars ?? 4, price_per_night: parseFloat(hotelForm.pricePerNight) || 0, image_url: selectedHotel?.image_url ?? '', rating: selectedHotel?.rating ?? 4.5, bookingUrl: hotelForm.bookingUrl, checkIn: hotelForm.checkIn, checkOut: hotelForm.checkOut });
+                      setEditingHotel(false);
+                      await upsertPlanToServer();
+                    }}>
+                      <Text style={bookingStyles.saveFormBtnText}>Save Hotel</Text>
+                    </TouchableOpacity>
+                    {selectedHotel && <TouchableOpacity style={bookingStyles.cancelBtn} onPress={() => setEditingHotel(false)}><Text style={bookingStyles.cancelBtnText}>Cancel</Text></TouchableOpacity>}
+                  </View>
+                </View>
+              )}
             </View>
-            <View style={bookingStyles.inputGroup}>
-              <Text style={bookingStyles.inputLabel}>Check-out</Text>
-              <TextInput
-                style={bookingStyles.input}
-                placeholder="YYYY-MM-DD"
-                value={hotelForm.checkOut}
-                onChangeText={v => setHotelForm(p => ({ ...p, checkOut: v }))}
-              />
-            </View>
-          </View>
-
-          <View style={bookingStyles.inputGroup}>
-            <Text style={bookingStyles.inputLabel}>Price Per Night (EGP)</Text>
-            <TextInput
-              style={bookingStyles.input}
-              placeholder="e.g. 1500"
-              keyboardType="numeric"
-              value={hotelForm.pricePerNight}
-              onChangeText={v => setHotelForm(p => ({ ...p, pricePerNight: v }))}
-            />
-          </View>
-
-          <View style={bookingStyles.inputGroup}>
-            <Text style={bookingStyles.inputLabel}>Booking URL</Text>
-            <TextInput
-              style={bookingStyles.input}
-              placeholder="e.g. https://www.booking.com/..."
-              value={hotelForm.bookingUrl}
-              onChangeText={v => setHotelForm(p => ({ ...p, bookingUrl: v }))}
-              autoCapitalize="none"
-              keyboardType="url"
-            />
-          </View>
-
-          <View style={bookingStyles.formActions}>
-            <TouchableOpacity
-              style={bookingStyles.saveFormBtn}
-              onPress={async () => {
-                const updatedHotel: Hotel = {
-                  id: selectedHotel?.id ?? Date.now(),
-                  name: hotelForm.name,
-                  city,
-                  stars: selectedHotel?.stars ?? 4,
-                  price_per_night: parseFloat(hotelForm.pricePerNight) || 0,
-                  image_url: selectedHotel?.image_url ?? '',
-                  rating: selectedHotel?.rating ?? 4.5,
-                  bookingUrl: hotelForm.bookingUrl,
-                  checkIn: hotelForm.checkIn,
-                  checkOut: hotelForm.checkOut,
-                };
-                setEditingHotel(false);
-                setSelectedHotel(updatedHotel);
-                await upsertPlanToServer();
-              }}
-              disabled={!hotelForm.name.trim()}
-            >
-              <Text style={bookingStyles.saveFormBtnText}>Save Hotel</Text>
-            </TouchableOpacity>
-            {selectedHotel && (
-              <TouchableOpacity
-                style={bookingStyles.cancelBtn}
-                onPress={() => setEditingHotel(false)}
-              >
-                <Text style={bookingStyles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          )}
         </View>
-      )}
-    </View>
-  )}
 
-</View>
-
-{/* ── AI Plan Coach ── */}
-        <TouchableOpacity
-          style={styles.aiBubble}
-          onPress={() => setShowAIChat(true)}
-          activeOpacity={0.85}
-        >
+        {/* ── AI Plan Coach bubble ── */}
+        <TouchableOpacity style={styles.aiBubble} onPress={() => setShowAIChat(true)} activeOpacity={0.85}>
           <View style={styles.aiAvatar}>
             <MaterialCommunityIcons name="robot-outline" size={24} color="#E67E22" />
           </View>
@@ -1713,31 +1178,18 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* ── Next Step buttons ── */}
+      {/* ── Bottom bar ── */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.nextBtn, saving && styles.nextBtnDisabled]}
-          onPress={openMap}
-          disabled={saving}
-          activeOpacity={0.85}
-        >
-          {saving
-            ? <ActivityIndicator color="#FFF" />
-            : <Text style={styles.nextBtnText}>Show on map</Text>
-          }
+        <TouchableOpacity style={[styles.nextBtn, saving && styles.nextBtnDisabled]} onPress={openMap} disabled={saving} activeOpacity={0.85}>
+          {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.nextBtnText}>Show on map</Text>}
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.homeBtn}
-          onPress={() => router.dismissAll()}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.homeBtn} onPress={() => router.dismissAll()} activeOpacity={0.85}>
           <MaterialCommunityIcons name="home-outline" size={18} color="#888" />
           <Text style={styles.homeBtnText}>Back to Home</Text>
         </TouchableOpacity>
       </View>
 
-      {/* ── Change Location Modal ── */}
+      {/* ── Location Modal ── */}
       <Modal visible={showLocationModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -1747,7 +1199,6 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
-
             <TouchableOpacity style={locStyles.gpsBtn} onPress={applyGPS}>
               <MaterialCommunityIcons name="crosshairs-gps" size={26} color="#E67E22" />
               <View>
@@ -1755,46 +1206,19 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                 <Text style={locStyles.gpsBtnSub}>Tap to detect automatically</Text>
               </View>
             </TouchableOpacity>
-
             <Text style={locStyles.orText}>— or enter an address —</Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder={`e.g. Cairo Tower, ${city}`}
-              placeholderTextColor="#AAA"
-              value={locationInput}
-              onChangeText={setLocationInput}
-              onSubmitEditing={applyAddress}
-              returnKeyType="search"
-            />
-
-            <TouchableOpacity
-              style={[styles.modalBtn, (!locationInput.trim() || locationSearching) && { opacity: 0.5 }]}
-              onPress={applyAddress}
-              disabled={!locationInput.trim() || locationSearching}
-            >
-              <Text style={styles.modalBtnText}>
-                {locationSearching ? 'Searching...' : 'Set Location & Regenerate'}
-              </Text>
+            <TextInput style={styles.input} placeholder={`e.g. Cairo Tower, ${city}`} placeholderTextColor="#AAA" value={locationInput} onChangeText={setLocationInput} onSubmitEditing={applyAddress} returnKeyType="search" />
+            <TouchableOpacity style={[styles.modalBtn, (!locationInput.trim() || locationSearching) && { opacity: 0.5 }]} onPress={applyAddress} disabled={!locationInput.trim() || locationSearching}>
+              <Text style={styles.modalBtnText}>{locationSearching ? 'Searching...' : 'Set Location & Regenerate'}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* ── Plan coach modal ── */}
+      {/* ── Plan Coach Modal ── */}
       <Modal visible={showAIChat} animationType="slide" transparent onRequestClose={() => setShowAIChat(false)}>
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-        >
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => {
-              Keyboard.dismiss();
-              setShowAIChat(false);
-            }}
-          />
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); setShowAIChat(false); }} />
           <View style={styles.planCoachSheet}>
             <View style={styles.planCoachGrabber} />
             <View style={styles.modalHeader}>
@@ -1802,12 +1226,7 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                 <MaterialCommunityIcons name="map-search-outline" size={22} color="#E67E22" />
                 <Text style={styles.modalTitle}>Plan coach</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setShowAIChat(false);
-                }}
-              >
+              <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowAIChat(false); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -1822,30 +1241,18 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                   <Text style={styles.planCoachPreviewTitle}>Proposed changes</Text>
                   {planCoachPreview.warnings.length > 0 && (
                     <View style={styles.planCoachWarnList}>
-                      {planCoachPreview.warnings
-                        .map(simplifyCoachWarning)
-                        .filter(Boolean)
-                        .slice(0, 3)
-                        .map((w, i) => (
-                          <Text key={i} style={styles.planCoachWarnItem}>
-                            {w}
-                          </Text>
-                        ))}
+                      {planCoachPreview.warnings.map(simplifyCoachWarning).filter(Boolean).slice(0, 3).map((w, i) => (
+                        <Text key={i} style={styles.planCoachWarnItem}>{w}</Text>
+                      ))}
                     </View>
                   )}
-                  <Text style={styles.planCoachPreviewHint}>
-                    Your plan will not change until you press Apply.
-                  </Text>
+                  <Text style={styles.planCoachPreviewHint}>Your plan will not change until you press Apply.</Text>
                 </View>
                 <View style={styles.planCoachPreviewActions}>
                   <TouchableOpacity style={styles.planCoachApplyBtn} onPress={applyPlanCoachPreview} activeOpacity={0.85}>
                     <Text style={styles.planCoachApplyBtnText}>Apply</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.planCoachDiscardBtn}
-                    onPress={() => setPlanCoachPreview(null)}
-                    activeOpacity={0.85}
-                  >
+                  <TouchableOpacity style={styles.planCoachDiscardBtn} onPress={() => setPlanCoachPreview(null)} activeOpacity={0.85}>
                     <Text style={styles.planCoachDiscardBtnText}>Discard</Text>
                   </TouchableOpacity>
                 </View>
@@ -1860,30 +1267,17 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
               contentContainerStyle={styles.planCoachListContent}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.planCoachBubble,
-                    item.role === 'user' ? styles.planCoachBubbleUser : styles.planCoachBubbleAssistant,
-                  ]}
-                >
+                <View style={[styles.planCoachBubble, item.role === 'user' ? styles.planCoachBubbleUser : styles.planCoachBubbleAssistant]}>
                   <Text style={styles.planCoachBubbleText}>{item.content}</Text>
                 </View>
               )}
               ListEmptyComponent={
                 <View style={styles.planCoachEmptyWrap}>
-                  <Text style={styles.aiPlaceholder}>
-                    Tap a suggestion below or type your own — edits stay on database places for {city}.
-                  </Text>
+                  <Text style={styles.aiPlaceholder}>Tap a suggestion below or type your own — edits stay on database places for {city}.</Text>
                   <Text style={styles.planCoachSuggestionsTitle}>Try:</Text>
                   <View style={styles.planCoachSuggestionsGrid}>
                     {PLAN_COACH_SUGGESTIONS.map((label, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={styles.planCoachSuggestionChip}
-                        onPress={() => sendPlanCoachMessage(label)}
-                        activeOpacity={0.85}
-                        disabled={planCoachLoading}
-                      >
+                      <TouchableOpacity key={index} style={styles.planCoachSuggestionChip} onPress={() => sendPlanCoachMessage(label)} activeOpacity={0.85} disabled={planCoachLoading}>
                         <Text style={styles.planCoachSuggestionChipText}>{label}</Text>
                       </TouchableOpacity>
                     ))}
@@ -1893,52 +1287,31 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
             />
 
             <View style={styles.aiInputRow}>
-              <TextInput
-                style={styles.aiInput}
-                placeholder="Message plan coach..."
-                placeholderTextColor="#AAA"
-                value={planCoachInput}
-                onChangeText={setPlanCoachInput}
-                multiline
-                editable={!planCoachLoading}
-              />
-              <TouchableOpacity
-                style={[styles.aiSendBtn, planCoachLoading && { opacity: 0.6 }]}
-                onPress={() => void sendPlanCoachMessage()}
-                disabled={planCoachLoading}
-              >
-                {planCoachLoading ? (
-                  <ActivityIndicator size="small" color="#FFF" />
-                ) : (
-                  <Text style={styles.aiSendIcon}>→</Text>
-                )}
+              <TextInput style={styles.aiInput} placeholder="Message plan coach..." placeholderTextColor="#AAA" value={planCoachInput} onChangeText={setPlanCoachInput} multiline editable={!planCoachLoading} />
+              <TouchableOpacity style={[styles.aiSendBtn, planCoachLoading && { opacity: 0.6 }]} onPress={() => void sendPlanCoachMessage()} disabled={planCoachLoading}>
+                {planCoachLoading ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.aiSendIcon}>→</Text>}
               </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Full Attraction Sheet ── */}
-      <AttractionSheet
-        attraction={sheetAttraction}
-        visible={showAttractionSheet}
-        onClose={() => setShowAttractionSheet(false)}
-        userLocation={userLocation}
-      />
+      {/* ── Attraction Sheet ── */}
+      <AttractionSheet attraction={sheetAttraction} visible={showAttractionSheet} onClose={() => setShowAttractionSheet(false)} userLocation={userLocation} />
+
+      {/* Sheet loading overlay */}
+      {sheetLoading && (
+        <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#E67E22" />
+        </View>
+      )}
 
       {/* ── Activity Detail Modal ── */}
-      <Modal
-        visible={!!selectedActivity}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSelectedActivity(null)}
-      >
+      <Modal visible={!!selectedActivity} animationType="slide" transparent onRequestClose={() => setSelectedActivity(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedActivity(null)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={detailStyles.sheet}>
             <View style={detailStyles.header}>
-              <View style={detailStyles.iconBox}>
-                {getCategoryIcon(selectedActivity?.icon ?? 'default', 26)}
-              </View>
+              <View style={detailStyles.iconBox}>{getCategoryIcon(selectedActivity?.icon ?? 'default', 26)}</View>
               <View style={detailStyles.headerMid}>
                 <Text style={detailStyles.name} numberOfLines={2}>{selectedActivity?.title}</Text>
                 {!!selectedActivity?.rating && selectedActivity.rating > 0 && (
@@ -1952,24 +1325,17 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
-
             <View style={detailStyles.chipsRow}>
               {selectedActivity?.duration_hrs != null && (
                 <View style={[styles.activityMetaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <MaterialCommunityIcons name="clock-outline" size={12} color="#777" />
-                  <Text style={styles.activityMetaText}>
-                    {selectedActivity.duration_hrs >= 1
-                      ? `${selectedActivity.duration_hrs.toFixed(1)} hr`
-                      : `${Math.round(selectedActivity.duration_hrs * 60)} min`}
-                  </Text>
+                  <Text style={styles.activityMetaText}>{selectedActivity.duration_hrs >= 1 ? `${selectedActivity.duration_hrs.toFixed(1)} hr` : `${Math.round(selectedActivity.duration_hrs * 60)} min`}</Text>
                 </View>
               )}
               {selectedActivity?.cost_egp != null && selectedActivity.cost_egp > 0 && (
                 <View style={[styles.activityMetaChip, styles.activityMetaChipCost, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <MaterialCommunityIcons name="currency-usd" size={12} color="#E67E22" />
-                  <Text style={[styles.activityMetaText, styles.activityMetaTextCost]}>
-                    ~{Math.round(selectedActivity.cost_egp)} EGP
-                  </Text>
+                  <Text style={[styles.activityMetaText, styles.activityMetaTextCost]}>~{Math.round(selectedActivity.cost_egp)} EGP</Text>
                 </View>
               )}
               {selectedActivity?.cost_egp === 0 && (
@@ -1978,31 +1344,22 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
                 </View>
               )}
             </View>
-
             {selectedActivity?.categories && selectedActivity.categories.length > 0 && (
               <View style={detailStyles.tagsRow}>
                 {selectedActivity.categories.map((cat, i) => (
-                  <View key={i} style={detailStyles.tag}>
-                    <Text style={detailStyles.tagText}>{cat}</Text>
-                  </View>
+                  <View key={i} style={detailStyles.tag}><Text style={detailStyles.tagText}>{cat}</Text></View>
                 ))}
               </View>
             )}
-
             <ScrollView style={detailStyles.descScroll} showsVerticalScrollIndicator={false}>
-              {selectedActivity?.description ? (
-                <Text style={detailStyles.description}>{selectedActivity.description}</Text>
-              ) : (
-                <Text style={detailStyles.descriptionEmpty}>No description available.</Text>
-              )}
+              {selectedActivity?.description
+                ? <Text style={detailStyles.description}>{selectedActivity.description}</Text>
+                : <Text style={detailStyles.descriptionEmpty}>No description available.</Text>}
             </ScrollView>
-
             {!!selectedActivity?.address && (
               <View style={detailStyles.addressRow}>
                 <MaterialCommunityIcons name="map-marker" size={16} color="#888" />
-                <Text style={detailStyles.addressText} numberOfLines={2}>
-                  {selectedActivity.address}
-                </Text>
+                <Text style={detailStyles.addressText} numberOfLines={2}>{selectedActivity.address}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -2015,43 +1372,28 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
 
 // ── Detail modal styles ───────────────────────────────────────────────
 const detailStyles = StyleSheet.create({
-  sheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-    maxHeight: '85%',
-    width: '100%',
-    marginBottom: 0,
-  },
-  header:    { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
-  iconBox:   { width: 52, height: 52, borderRadius: 14, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  iconEmoji: {},
-  headerMid: { flex: 1 },
-  name:      { fontSize: 17, fontWeight: '700', color: '#1A1A1A', lineHeight: 22 },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  ratingStar:{ fontSize: 13, color: '#F5A623' },
-  ratingText:{ fontSize: 13, fontWeight: '700', color: '#F5A623' },
-  closeBtn:  { padding: 4 },
-  chipsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  tagsRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
-  tag:       { backgroundColor: '#F0F0F0', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  tagText:   { fontSize: 12, color: '#555', fontWeight: '500', textTransform: 'capitalize' },
-  descScroll:{ maxHeight: 160, marginBottom: 14 },
+  sheet:           { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20, maxHeight: '85%', width: '100%', marginBottom: 0 },
+  header:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  iconBox:         { width: 52, height: 52, borderRadius: 14, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  headerMid:       { flex: 1 },
+  name:            { fontSize: 17, fontWeight: '700', color: '#1A1A1A', lineHeight: 22 },
+  ratingRow:       { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  ratingStar:      { fontSize: 13, color: '#F5A623' },
+  ratingText:      { fontSize: 13, fontWeight: '700', color: '#F5A623' },
+  closeBtn:        { padding: 4 },
+  chipsRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  tagsRow:         { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  tag:             { backgroundColor: '#F0F0F0', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  tagText:         { fontSize: 12, color: '#555', fontWeight: '500', textTransform: 'capitalize' },
+  descScroll:      { maxHeight: 160, marginBottom: 14 },
   description:     { fontSize: 14, color: '#444', lineHeight: 22 },
   descriptionEmpty:{ fontSize: 14, color: '#BBB', fontStyle: 'italic' },
-  addressRow:{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  addressPin:{ fontSize: 14, marginTop: 1 },
-  addressText:{ flex: 1, fontSize: 13, color: '#666', lineHeight: 18 },
+  addressRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
+  addressText:     { flex: 1, fontSize: 13, color: '#666', lineHeight: 18 },
 });
 
 const locStyles = StyleSheet.create({
   gpsBtn:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF3E0', borderRadius: 12, padding: 14, marginBottom: 16 },
-  gpsBtnIcon:  { fontSize: 24 },
   gpsBtnTitle: { fontSize: 14, fontWeight: '700', color: '#E67E22' },
   gpsBtnSub:   { fontSize: 12, color: '#999', marginTop: 2 },
   orText:      { textAlign: 'center', color: '#BBB', fontSize: 12, marginBottom: 14 },
@@ -2060,64 +1402,14 @@ const locStyles = StyleSheet.create({
 // ── Styles ────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Theme.colors.background },
-
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    paddingHorizontal: 40,
-  },
-  loadingTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Theme.colors.text,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  loadingSubtitle: {
-    fontSize: 14,
-    color: Theme.colors.muted,
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-
-  // Header
- header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0E2C8',
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#2C1810',
-  },
-  backIcon: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  // Day tabs
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Theme.colors.background, paddingHorizontal: 40 },
+  loadingTitle:     { fontSize: 20, fontWeight: '700', color: Theme.colors.text, marginTop: 16, textAlign: 'center' },
+  loadingSubtitle:  { fontSize: 14, color: Theme.colors.muted, marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F0E2C8' },
+  backBtn:      { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  saveBtn:      { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  headerTitle:  { fontSize: 17, fontWeight: '800', color: '#2C1810' },
+  backIcon:     { fontSize: 22, fontWeight: '700', color: Theme.colors.text },
   dayTabsScroll: { backgroundColor: Theme.colors.card, maxHeight: 70 },
   dayTabs: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
 
@@ -2300,601 +1592,100 @@ activityIcon: {},
     fontWeight: '500',
     marginTop: 5,
   },
-  detourNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 4,
-    marginTop: 5,
-    backgroundColor: '#FFF8EE',
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  detourNoteText: {
-    fontSize: 11,
-    color: '#A06020',
-    flexShrink: 1,
-    lineHeight: 15,
-  },
 
   deleteBtn: { padding: 8, marginTop: 4 },
   deleteIcon: { fontSize: 12, color: Theme.colors.muted },
-
-  budgetCard: {
-    backgroundColor: Theme.colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: Theme.colors.hero,
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  budgetRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  budgetLabel: {
-    fontSize: 13,
-    color: Theme.colors.muted,
-    fontWeight: '500',
-  },
-  budgetSpent: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-  budgetRemaining: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#27AE60',
-  },
-  budgetOver: {
-    color: '#E74C3C',
-  },
-
-  budgetWarning: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 7,
-    backgroundColor: '#FFF3E0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#F5D98B',
-  },
-
-  budgetWarningText: {
-    flex: 1,
-    fontSize: 12,
-    color: Theme.colors.hero,
-    lineHeight: 18,
-  },
-
-  budgetDivider: {
-    height: 1,
-    backgroundColor: '#F5F5F5',
-    marginVertical: 10,
-  },
-
-  budgetBar: {
-    height: 6,
-    backgroundColor: '#EEE',
-    borderRadius: 3,
-    marginTop: 12,
-    overflow: 'hidden',
-  },
-
-  budgetBarFill: {
-    height: 6,
-    backgroundColor: Theme.colors.primary,
-    borderRadius: 3,
-  },
-
-  aiBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.card,
-    borderRadius: 16,
-    padding: 14,
-    shadowColor: Theme.colors.hero,
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    marginBottom: 8,
-    gap: 12,
-  },
-
-  aiAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Theme.colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  aiAvatarIcon: { fontSize: 22 },
-
-  aiTextBubble: { flex: 1 },
-  aiText: {
-    fontSize: 14,
-    color: Theme.colors.muted,
-    lineHeight: 20,
-  },
-
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: Theme.colors.card,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    paddingBottom: 30,
-    gap: 10,
-    shadowColor: Theme.colors.hero,
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-
-  nextBtn: {
-    backgroundColor: Theme.colors.primary,
-    borderRadius: 30,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
+  budgetCard:      { backgroundColor: Theme.colors.card, borderRadius: 16, padding: 16, marginBottom: 12, shadowColor: Theme.colors.hero, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  budgetRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  budgetLabel:     { fontSize: 13, color: Theme.colors.muted, fontWeight: '500' },
+  budgetSpent:     { fontSize: 14, fontWeight: '700', color: Theme.colors.text },
+  budgetRemaining: { fontSize: 14, fontWeight: '700', color: '#27AE60' },
+  budgetOver:      { color: '#E74C3C' },
+  budgetWarning:   { flexDirection: 'row', alignItems: 'flex-start', gap: 7, backgroundColor: '#FFF3E0', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginTop: 12, borderWidth: 1, borderColor: '#F5D98B' },
+  budgetWarningText:{ flex: 1, fontSize: 12, color: Theme.colors.hero, lineHeight: 18 },
+  budgetDivider:   { height: 1, backgroundColor: '#F5F5F5', marginVertical: 10 },
+  budgetBar:       { height: 6, backgroundColor: '#EEE', borderRadius: 3, marginTop: 12, overflow: 'hidden' },
+  budgetBarFill:   { height: 6, backgroundColor: Theme.colors.primary, borderRadius: 3 },
+  aiBubble:    { flexDirection: 'row', alignItems: 'center', backgroundColor: Theme.colors.card, borderRadius: 16, padding: 14, shadowColor: Theme.colors.hero, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3, marginBottom: 8, gap: 12 },
+  aiAvatar:    { width: 44, height: 44, borderRadius: 22, backgroundColor: Theme.colors.background, justifyContent: 'center', alignItems: 'center' },
+  aiTextBubble:{ flex: 1 },
+  aiText:      { fontSize: 14, color: Theme.colors.muted, lineHeight: 20 },
+  bottomBar:   { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: Theme.colors.card, paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 30, gap: 10, shadowColor: Theme.colors.hero, shadowOpacity: 0.08, shadowRadius: 10, elevation: 8 },
+  nextBtn:         { backgroundColor: Theme.colors.primary, borderRadius: 30, paddingVertical: 16, alignItems: 'center' },
   nextBtnDisabled: { backgroundColor: '#DDD' },
-  nextBtnText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  secondaryBtn: {
-    backgroundColor: Theme.colors.background,
-    borderRadius: 22,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: Theme.colors.primary,
-  },
-  secondaryBtnText: {
-    color: Theme.colors.primary,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  secondaryBtnSubtext: {
-    color: Theme.colors.muted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  homeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  homeBtnText: {
-    color: Theme.colors.muted,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-
-  modalSheet: {
-    backgroundColor: Theme.colors.card,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 20,
-    width: '100%',
-  },
-
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  modalClose: { fontSize: 18, color: Theme.colors.muted },
-
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Theme.colors.muted,
-    marginBottom: 6,
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: '#EEE',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 15,
-    color: Theme.colors.text,
-    marginBottom: 14,
-  },
-
-  modalBtn: {
-    backgroundColor: Theme.colors.primary,
-    borderRadius: 30,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 6,
-  },
-
-  modalBtnText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  aiModalTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  //aiModalIcon: { fontSize: 22 },
-  //aiPlaceholder: { fontSize: 14, color: '#999', lineHeight: 22, marginBottom: 12 },
-  planCoachEmptyWrap: { paddingBottom: 4 },
-  planCoachSuggestionsTitle: { fontSize: 13, color: '#999', fontWeight: '600', marginBottom: 10 },
-  planCoachSuggestionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  planCoachSuggestionChip: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#EEE',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  planCoachSuggestionChipText: { fontSize: 13, color: '#555', fontWeight: '500', maxWidth: 280 },
-  // aiResponseBox: {
-  //   backgroundColor: '#FFF3E0', borderRadius: 16, padding: 14, marginBottom: 16,
-  // },
-
+  nextBtnText:     { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  homeBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  homeBtnText: { color: Theme.colors.muted, fontSize: 14, fontWeight: '600' },
+  modalOverlay:{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalSheet:  { backgroundColor: Theme.colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20, width: '100%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle:  { fontSize: 17, fontWeight: '700', color: Theme.colors.text },
+  modalClose:  { fontSize: 18, color: Theme.colors.muted },
+  inputLabel:  { fontSize: 13, fontWeight: '600', color: Theme.colors.muted, marginBottom: 6 },
+  input:       { borderWidth: 1, borderColor: '#EEE', borderRadius: 12, padding: 14, fontSize: 15, color: Theme.colors.text, marginBottom: 14 },
+  modalBtn:    { backgroundColor: Theme.colors.primary, borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginTop: 6 },
+  modalBtnText:{ color: '#FFF', fontSize: 16, fontWeight: '700' },
+  aiModalTitle:{ flexDirection: 'row', alignItems: 'center', gap: 8 },
   aiModalIcon: { fontSize: 22 },
-
-  aiPlaceholder: {
-    fontSize: 14,
-    color: Theme.colors.muted,
-    lineHeight: 22,
-    marginBottom: 20,
-  },
-
-  aiResponseBox: {
-    backgroundColor: Theme.colors.background,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-  },
-
-  aiResponseText: {
-    fontSize: 14,
-    color: Theme.colors.text,
-    lineHeight: 22,
-  },
-
-  aiInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-
-  aiInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#EEE',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: Theme.colors.text,
-    maxHeight: 100,
-  },
-
-  aiSendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  aiSendIcon: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-    saveBtn: {
-  width: 40,
-  height: 40,
-  borderRadius: 20,
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-
-  planCoachSheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
-    width: '100%',
-    maxHeight: Math.round(screenHeight * 0.9),
-  },
-  planCoachGrabber: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#DEDEDE',
-    marginBottom: 10,
-  },
-  planCoachSubtitle: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 10,
-    lineHeight: 17,
-  },
-  planCoachList: {
-    maxHeight: Math.round(screenHeight * 0.42),
-    minHeight: 120,
-    marginBottom: 8,
-  },
-  planCoachListContent: {
-    paddingBottom: 8,
-    gap: 10,
-  },
-  planCoachBubble: {
-    maxWidth: '92%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-  },
-  planCoachBubbleUser: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#FFF3E0',
-  },
-  planCoachBubbleAssistant: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#F5F5F5',
-  },
-  planCoachBubbleText: {
-    fontSize: 14,
-    color: '#333',
-    lineHeight: 21,
-  },
-
-  planCoachPreviewBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    backgroundColor: '#FFFBEB',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    padding: 10,
-    marginBottom: 8,
-  },
-  planCoachPreviewMid: { flex: 1 },
-  planCoachPreviewTitle: { fontSize: 13, fontWeight: '800', color: '#92400E', marginBottom: 4 },
-  planCoachWarnList: { marginBottom: 4, gap: 4 },
-  planCoachWarnItem: { fontSize: 11, color: '#78350F', lineHeight: 16 },
-  planCoachPreviewHint: { fontSize: 10, color: '#A16207', fontStyle: 'italic' },
+  aiPlaceholder:   { fontSize: 14, color: Theme.colors.muted, lineHeight: 22, marginBottom: 20 },
+  aiResponseBox:   { backgroundColor: Theme.colors.background, borderRadius: 16, padding: 14, marginBottom: 16 },
+  aiResponseText:  { fontSize: 14, color: Theme.colors.text, lineHeight: 22 },
+  aiInputRow:  { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  aiInput:     { flex: 1, borderWidth: 1, borderColor: '#EEE', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: Theme.colors.text, maxHeight: 100 },
+  aiSendBtn:   { width: 44, height: 44, borderRadius: 22, backgroundColor: Theme.colors.primary, justifyContent: 'center', alignItems: 'center' },
+  aiSendIcon:  { color: '#FFF', fontSize: 18, fontWeight: '700' },
+  planCoachSheet:    { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 32 : 16, width: '100%', maxHeight: Math.round(screenHeight * 0.9) },
+  planCoachGrabber:  { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: '#DEDEDE', marginBottom: 10 },
+  planCoachSubtitle: { fontSize: 12, color: '#888', marginBottom: 10, lineHeight: 17 },
+  planCoachList:        { maxHeight: Math.round(screenHeight * 0.42), minHeight: 120, marginBottom: 8 },
+  planCoachListContent: { paddingBottom: 8, gap: 10 },
+  planCoachBubble:          { maxWidth: '92%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
+  planCoachBubbleUser:      { alignSelf: 'flex-end', backgroundColor: '#FFF3E0' },
+  planCoachBubbleAssistant: { alignSelf: 'flex-start', backgroundColor: '#F5F5F5' },
+  planCoachBubbleText:      { fontSize: 14, color: '#333', lineHeight: 21 },
+  planCoachEmptyWrap:       { paddingBottom: 4 },
+  planCoachSuggestionsTitle:{ fontSize: 13, color: '#999', fontWeight: '600', marginBottom: 10 },
+  planCoachSuggestionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  planCoachSuggestionChip:  { backgroundColor: '#FFF', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#EEE', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  planCoachSuggestionChipText: { fontSize: 13, color: '#555', fontWeight: '500', maxWidth: 280 },
+  planCoachPreviewBanner:  { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#FFFBEB', borderRadius: 14, borderWidth: 1, borderColor: '#FDE68A', padding: 10, marginBottom: 8 },
+  planCoachPreviewMid:     { flex: 1 },
+  planCoachPreviewTitle:   { fontSize: 13, fontWeight: '800', color: '#92400E', marginBottom: 4 },
+  planCoachWarnList:       { marginBottom: 4, gap: 4 },
+  planCoachWarnItem:       { fontSize: 11, color: '#78350F', lineHeight: 16 },
+  planCoachPreviewHint:    { fontSize: 10, color: '#A16207', fontStyle: 'italic' },
   planCoachPreviewActions: { justifyContent: 'center', gap: 8 },
-  planCoachApplyBtn: {
-    backgroundColor: '#E67E22',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  planCoachApplyBtnText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
-  planCoachDiscardBtn: {
-    backgroundColor: '#FFF',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
+  planCoachApplyBtn:       { backgroundColor: '#E67E22', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center' },
+  planCoachApplyBtnText:   { color: '#FFF', fontSize: 12, fontWeight: '800' },
+  planCoachDiscardBtn:     { backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
   planCoachDiscardBtnText: { color: '#666', fontSize: 12, fontWeight: '700' },
+  secondaryBtn:     { backgroundColor: Theme.colors.background, borderRadius: 22, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5, borderColor: Theme.colors.primary },
+  secondaryBtnText: { color: Theme.colors.primary, fontSize: 15, fontWeight: '700' },
 });
+
 const bookingStyles = StyleSheet.create({
-  container: {
-    marginBottom: 20,
-    backgroundColor: Theme.colors.card,
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-
-  dropdownHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-  },
-
-  dropdownLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-
-  dropdownTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  filledBadge: {
-    backgroundColor: '#F0FBF4',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-
-  filledBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#27AE60',
-  },
-
-  dropdownBody: {
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: Theme.colors.border,
-    marginVertical: 8,
-  },
-
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    gap: 10,
-  },
-
-  detailLabel: {
-    fontSize: 13,
-    color: Theme.colors.muted,
-    fontWeight: '600',
-  },
-
-  detailValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 14,
-    fontWeight: '700',
-    color: Theme.colors.text,
-  },
-
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Theme.colors.gold,
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 14,
-  },
-
-  linkText: {
-    flex: 1,
-    fontSize: 12,
-    color: Theme.colors.primary,
-    fontWeight: '600',
-  },
-
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    backgroundColor: '#FFF8F0',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FDDCB5',
-  },
-
-  editBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#E67E22',
-  },
-
-  inputRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-
-  inputGroup: {
-    flex: 1,
-    marginBottom: 14,
-  },
-
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Theme.colors.muted,
-    marginBottom: 5,
-  },
-
-  input: {
-    backgroundColor: '#F8F8F8',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: Theme.colors.text,
-    borderWidth: 1,
-    borderColor: '#EBEBEB',
-  },
-
-  formActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-  },
-
-  saveFormBtn: {
-    flex: 1,
-    backgroundColor: Theme.colors.primary,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-
-  saveFormBtnText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  cancelBtn: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-
-  cancelBtnText: {
-    color: Theme.colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  container:    { marginBottom: 20, backgroundColor: Theme.colors.card, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: Theme.colors.border, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  dropdownHeader:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
+  dropdownLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  dropdownTitle: { fontSize: 15, fontWeight: '700', color: Theme.colors.text },
+  filledBadge:     { backgroundColor: '#F0FBF4', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  filledBadgeText: { fontSize: 11, fontWeight: '700', color: '#27AE60' },
+  dropdownBody:  { paddingTop: 12, paddingBottom: 8 },
+  divider:       { height: 1, backgroundColor: Theme.colors.border, marginVertical: 8 },
+  detailRow:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, gap: 10 },
+  detailLabel:   { fontSize: 13, color: Theme.colors.muted, fontWeight: '600' },
+  detailValue:   { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '700', color: Theme.colors.text },
+  linkRow:       { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Theme.colors.gold, padding: 12, borderRadius: 14, marginBottom: 14 },
+  linkText:      { flex: 1, fontSize: 12, color: Theme.colors.primary, fontWeight: '600' },
+  editBtn:       { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, backgroundColor: '#FFF8F0', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#FDDCB5' },
+  editBtnText:   { fontSize: 13, fontWeight: '700', color: '#E67E22' },
+  inputRow:      { flexDirection: 'row', gap: 10 },
+  inputGroup:    { flex: 1, marginBottom: 14 },
+  inputLabel:    { fontSize: 11, fontWeight: '600', color: Theme.colors.muted, marginBottom: 5 },
+  input:         { backgroundColor: '#F8F8F8', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: Theme.colors.text, borderWidth: 1, borderColor: '#EBEBEB' },
+  formActions:   { flexDirection: 'row', gap: 10, marginTop: 8 },
+  saveFormBtn:   { flex: 1, backgroundColor: Theme.colors.primary, borderRadius: 16, paddingVertical: 14, alignItems: 'center' },
+  saveFormBtnText:{ color: '#FFF', fontSize: 14, fontWeight: '700' },
+  cancelBtn:     { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 16, paddingVertical: 14, alignItems: 'center' },
+  cancelBtnText: { color: Theme.colors.text, fontSize: 14, fontWeight: '700' },
 });
