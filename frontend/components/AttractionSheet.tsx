@@ -111,7 +111,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
         if (raw) {
           const storedUser = JSON.parse(raw);
           currentUserId = storedUser.id;
-          setUserId(currentUserId ?? null);
+          setUserId(currentUserId);
         }
       }
       
@@ -279,7 +279,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
       if (raw) {
         const storedUser = JSON.parse(raw);
         currentUserId = storedUser.id;
-        setUserId(currentUserId ?? null);
+        setUserId(currentUserId);
       }
     }
     

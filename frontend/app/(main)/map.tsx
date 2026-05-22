@@ -1845,7 +1845,7 @@ export default function MapScreen() {
           </View>
           <View style={{flexDirection:'row', alignItems:'center', gap:6, justifyContent:'center'}}>
             <MaterialCommunityIcons name="trophy" size={13} color="#E67E22" />
-            <Text style={styles.walkingProgressHint}>You&apos;ll earn 50 pts when you arrive!</Text>
+            <Text style={styles.walkingProgressHint}>You'll earn 50 pts when you arrive!</Text>
           </View>
           <TouchableOpacity style={styles.cancelWalkBtn} onPress={cancelWalk}>
             <Text style={styles.cancelWalkBtnText}>Cancel Walk</Text>
@@ -1863,7 +1863,7 @@ export default function MapScreen() {
             </View>
           </View>
           <Text style={[styles.walkingProgressHint, { color: '#E74C3C', marginBottom: 20 }]}>
-            You&apos;re moving too fast! Points are only awarded for actually walking.
+            You're moving too fast! Points are only awarded for actually walking.
           </Text>
           <TouchableOpacity style={styles.cancelWalkBtn} onPress={() => setVehicleDetected(false)}>
             <Text style={styles.cancelWalkBtnText}>Dismiss</Text>

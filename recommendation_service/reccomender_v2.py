@@ -15,16 +15,12 @@ import psycopg2.extras
 import psycopg2.pool
 import threading
 from dataclasses import dataclass, field, replace as _dc_replace
-from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Load .env if present
 try:
     from dotenv import load_dotenv
-    here = Path(__file__).resolve().parent
-    load_dotenv(here / '.env')
-    load_dotenv(here.parent / '.env', override=False)
-    load_dotenv(here.parent / 'backend' / '.env', override=False)
+    load_dotenv()
 except ImportError:
     pass
 
@@ -318,36 +314,6 @@ _DB_POOL_LOCK = threading.Lock()
 _DF_CACHE: dict[str, tuple[pd.DataFrame, float]] = {}   # key → (df, expires_at)
 _DF_CACHE_TTL  = 300.0   # seconds before a cached frame is refreshed
 _DF_CACHE_LOCK = threading.Lock()
-
-
-def _read_env_value(path: Path, key: str) -> str | None:
-    if not path.exists():
-        return None
-    try:
-        with path.open(encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if line.startswith(f'{key}='):
-                    return line.split('=', 1)[1].strip()
-    except Exception:
-        pass
-    return None
-
-
-def _get_fallback_db_url() -> str | None:
-    here = Path(__file__).resolve().parent
-    fallback_paths = [
-        here.parent / 'backend' / '.env',
-        here.parent / '.env',
-        here / '.env',
-    ]
-    for path in fallback_paths:
-        url = _read_env_value(path, 'DATABASE_URL')
-        if url:
-            return url
-    return None
 
 
 def _get_pool(db_url: str = DB_URL) -> psycopg2.pool.ThreadedConnectionPool:

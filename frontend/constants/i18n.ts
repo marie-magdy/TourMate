@@ -118,7 +118,7 @@ export const translations: Translations = {
     forecast: '5-Day Forecast',
     hotels: 'Hotels',
     flights: 'Flights',
-    planCurrency: 'Currency',
+    currency: 'Currency',
 
     // Favorites
     favoritesTitle: 'My Favorites',
@@ -238,7 +238,7 @@ export const translations: Translations = {
     forecast: 'توقعات 5 أيام',
     hotels: 'الفنادق',
     flights: 'الرحلات',
-    planCurrency: 'العملة',
+    currency: 'العملة',
 
     favoritesTitle: 'المفضلة',
     noFavorites: 'لا توجد مفضلة بعد',
@@ -354,7 +354,7 @@ export const translations: Translations = {
     forecast: 'Prévisions 5 jours',
     hotels: 'Hôtels',
     flights: 'Vols',
-    planCurrency: 'Devise',
+    currency: 'Devise',
 
     favoritesTitle: 'Mes favoris',
     noFavorites: 'Pas encore de favoris',
@@ -470,7 +470,7 @@ export const translations: Translations = {
     forecast: '5-Tage-Vorhersage',
     hotels: 'Hotels',
     flights: 'Flüge',
-    planCurrency: 'Währung',
+    currency: 'Währung',
 
     favoritesTitle: 'Meine Favoriten',
     noFavorites: 'Noch keine Favoriten',
