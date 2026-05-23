@@ -24,6 +24,9 @@ import { Keyboard } from 'react-native';
 import DesertTriangles from '../../components/DesertTriangles';
 import { Theme } from '../../constants/theme';
 
+import { VoiceScreen } from './VoiceScreen';
+import { Ionicons } from '@expo/vector-icons';
+
 const BOTTOM_TAB_HEIGHT = 60; // adjust to match your BottomTab height
 
 const { width } = Dimensions.get('window');
@@ -146,162 +149,6 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
   );
 };
 
-// ── Animated TourMate Avatar ──────────────────────────────────────────
-const TourMateAvatar: React.FC<{
-  isSpeaking: boolean;
-  isThinking: boolean;
-  isListening: boolean;
-  isFemale: boolean;
-}> = ({ isSpeaking, isThinking, isListening, isFemale }) => {
-  const blinkAnim = useRef(new Animated.Value(1)).current;
-  const mouthAnim = useRef(new Animated.Value(0)).current;
-  const bobAnim   = useRef(new Animated.Value(0)).current;
-  const browAnim  = useRef(new Animated.Value(0)).current;
-
-  const skinColor  = isFemale ? '#FADADD' : '#F5CBA7';
-  const skinDark   = isFemale ? '#F0B8BE' : '#E8A87C';
-  const hairColor  = isFemale ? '#8B4513' : '#501a04';
-  const shirtColor = isFemale ? '#C0392B' : '#2471A3';
-
-  // Blink every 3.5s
-  useEffect(() => {
-    const t = setInterval(() => {
-      Animated.sequence([
-        Animated.timing(blinkAnim, { toValue: 0.05, duration: 80, useNativeDriver: true }),
-        Animated.timing(blinkAnim, { toValue: 1,    duration: 80, useNativeDriver: true }),
-      ]).start();
-    }, 3500);
-    return () => clearInterval(t);
-  }, []);
-
-  // State-driven animations
-  useEffect(() => {
-    if (isSpeaking) {
-      mouthAnim.setValue(0.5);
-      const m = Animated.loop(Animated.sequence([
-        Animated.timing(mouthAnim, { toValue: 1,   duration: 150, useNativeDriver: false }),
-        Animated.timing(mouthAnim, { toValue: 0.2, duration: 150, useNativeDriver: false }),
-      ]));
-      const b = Animated.loop(Animated.sequence([
-        Animated.timing(bobAnim, { toValue: -3, duration: 350, useNativeDriver: true }),
-        Animated.timing(bobAnim, { toValue:  3, duration: 350, useNativeDriver: true }),
-      ]));
-      m.start(); b.start();
-      return () => { m.stop(); b.stop(); mouthAnim.setValue(0); bobAnim.setValue(0); };
-    }
-    if (isThinking) {
-      const br = Animated.loop(Animated.sequence([
-        Animated.timing(browAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(browAnim, { toValue: 0, duration: 700, useNativeDriver: true }),
-      ]));
-      br.start();
-      return () => { br.stop(); browAnim.setValue(0); };
-    }
-    if (isListening) {
-      const b = Animated.loop(Animated.sequence([
-        Animated.timing(bobAnim, { toValue: -2, duration: 400, useNativeDriver: true }),
-        Animated.timing(bobAnim, { toValue:  2, duration: 400, useNativeDriver: true }),
-      ]));
-      b.start();
-      return () => { b.stop(); bobAnim.setValue(0); };
-    }
-    const idle = Animated.loop(Animated.sequence([
-      Animated.timing(bobAnim, { toValue: -1.5, duration: 2000, useNativeDriver: true }),
-      Animated.timing(bobAnim, { toValue:  1.5, duration: 2000, useNativeDriver: true }),
-    ]));
-    idle.start();
-    return () => { idle.stop(); bobAnim.setValue(0); };
-  }, [isSpeaking, isThinking, isListening]);
-
-  const mouthH  = mouthAnim.interpolate({ inputRange: [0, 1], outputRange: [4, 14] });
-  const browOff = browAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
-
-  return (
-    <Animated.View style={{ transform: [{ translateY: bobAnim }], alignItems: 'center' }}>
-      <Svg width={160} height={200} viewBox="0 0 160 200">
-        {/* Brim - wider and higher */}
-        <Ellipse cx="80" cy="44" rx="62" ry="11" fill="#8B6914" />
-
-        {/* Hat body */}
-        <Rect x="36" y="18" width="88" height="28" rx="6" fill="#C49A22" />
-
-        {/* Hat band */}
-        <Rect x="36" y="40" width="88" height="7" fill="#7B5200" />
-
-        {/* Hat highlight */}
-        <Path d="M42 22 Q60 19 76 22" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none" strokeLinecap="round" />
-        <Rect x="66" y="148" width="28" height="26" rx="8" fill={skinColor} />
-        <Path d="M10 198 Q30 162 66 154 L94 154 Q120 162 150 198 Z" fill={shirtColor} />
-        <Path d="M72 154 L80 172 L88 154" fill="rgba(255,255,255,0.3)" />
-        <Ellipse cx="80" cy="100" rx="50" ry="55" fill={skinColor} />
-        {/* //hair  */}
-        {isFemale && (
-          <>
-            <Path d="M30 90 Q20 130 28 160 Q40 145 42 118" fill={hairColor} />
-            <Path d="M130 90 Q140 130 132 160 Q120 145 118 118" fill={hairColor} />
-          </>
-        )}
-        {isFemale
-          ? <Path d="M30 85 Q32 48 80 46 Q128 48 130 85 Q115 60 80 58 Q45 60 30 85 Z" fill={hairColor} />
-          : <Path d="M30 88 Q32 52 80 45 Q128 52 130 88 Q115 66 80 64 Q45 66 30 85 Z" fill={hairColor} />
-        }
-        {/* ears */}
-        <Ellipse cx="30" cy="104" rx="8" ry="10" fill={skinDark} />
-      <Ellipse cx="130" cy="104" rx="8" ry="10" fill={skinDark} />
-        <Ellipse cx="60" cy="98" rx="12" ry="11" fill="#FFF" />
-        <Ellipse cx="100" cy="98" rx="12" ry="11" fill="#FFF" />
-        <Animated.View style={{ position: 'absolute', left: 44, top: 83, transform: [{ scaleY: blinkAnim }] }}>
-          <Svg width="20" height="20">
-            <Circle cx="10" cy="10" r="8" fill={isFemale ? '#6B3A2A' : '#1A5276'} />
-            <Circle cx="10" cy="10" r="4" fill="#0A0A0A" />
-            <Circle cx="10" cy="7" r="2.5" fill="#FFF" opacity="0.9" />
-          </Svg>
-        </Animated.View>
-        <Animated.View style={{ position: 'absolute', left: 84, top: 83, transform: [{ scaleY: blinkAnim }] }}>
-          <Svg width="20" height="20">
-            <Circle cx="10" cy="10" r="8" fill={isFemale ? '#6B3A2A' : '#1A5276'} />
-            <Circle cx="10" cy="10" r="4" fill="#0A0A0A" />
-            <Circle cx="10" cy="7" r="2.5" fill="#FFF" opacity="0.9" />
-          </Svg>
-        </Animated.View>
-        <Animated.View style={{ position: 'absolute', left: 44, top: 70, transform: [{ translateY: browOff }] }}>
-          <Svg width="32" height="10">
-            {isFemale
-              ? <Path d="M2 8 Q16 1 30 5" stroke={hairColor} strokeWidth="2.5" strokeLinecap="round" fill="none" />
-              : <Path d="M2 7 Q16 2 30 5" stroke={hairColor} strokeWidth="3.5" strokeLinecap="round" fill="none" />
-            }
-          </Svg>
-        </Animated.View>
-        <Animated.View style={{ position: 'absolute', left: 84, top: 70, transform: [{ translateY: browOff }] }}>
-          <Svg width="32" height="10">
-            {isFemale
-              ? <Path d="M2 5 Q16 1 30 8" stroke={hairColor} strokeWidth="2.5" strokeLinecap="round" fill="none" />
-              : <Path d="M2 5 Q16 2 30 7" stroke={hairColor} strokeWidth="3.5" strokeLinecap="round" fill="none" />
-            }
-          </Svg>
-        </Animated.View>
-        {isFemale && (
-          <>
-            <Path d="M48 86 L46 82 M52 84 L51 80 M56 84 L56 80" stroke="#1C1C1C" strokeWidth="1.5" strokeLinecap="round" />
-            <Path d="M88 86 L86 82 M92 84 L91 80 M96 84 L96 80 M100 86 L102 82" stroke="#1C1C1C" strokeWidth="1.5" strokeLinecap="round" />
-          </>
-        )}
-        <Path d="M76 108 Q74 116 70 120 Q74 123 80 122 Q86 123 90 120 Q86 116 84 108" fill={skinDark} opacity="0.45" />
-        <Animated.View style={{ position: 'absolute', left: 58, top: 126, overflow: 'hidden' }}>
-          <Animated.View style={{ height: mouthH, width: 44, overflow: 'hidden' }}>
-            <Svg width="44" height="16">
-              <Path d="M2 2 Q22 16 42 2" fill="#B03A2E" stroke="#B03A2E" strokeWidth="1" />
-              <Path d="M4 4 Q22 13 40 4 Q22 10 4 4 Z" fill={isFemale ? '#E8A0A0' : '#E74C3C'} opacity="0.6" />
-            </Svg>
-          </Animated.View>
-        </Animated.View>
-        {isFemale && (
-          <Path d="M64 128 Q72 124 80 126 Q88 124 96 128" stroke="#C0392B" strokeWidth="1" fill="none" />
-        )}
-      </Svg>
-    </Animated.View>
-  );
-};
 
 // ── Voice Mode Overlay ────────────────────────────────────────────────
 const VoiceModeOverlay: React.FC<{
@@ -396,50 +243,19 @@ const VoiceModeOverlay: React.FC<{
   };
 
   return (
-    <View style={styles.voiceOverlay}>
-      <View style={styles.voiceHeader}>
-        <Text style={styles.voiceTitle}>🧳 TourMate Voice</Text>
-        <TouchableOpacity style={styles.voiceCloseBtn} onPress={onClose}>
-          <Text style={styles.voiceCloseBtnText}>✕ Exit</Text>
-        </TouchableOpacity>
-      </View>
+  <VoiceScreen
+    isFemale={isFemale}
+    isSpeaking={isSpeaking}
+    isThinking={isProcessing}
+    isListening={isRecording}
+    isRecording={isRecording}
+    statusText={getStatusText()}
+    onClose={onClose}
+    onToggleGender={onToggleGender}
+    onToggleMic={isRecording ? stopRecording : startRecording}
+    onStop={onClose}
+  />
 
-      <View style={styles.voiceStatusArea}>
-        <TourMateAvatar
-          isSpeaking={isSpeaking}
-          isThinking={isProcessing}
-          isListening={isRecording}
-          isFemale={isFemale}
-        />
-        <TouchableOpacity onPress={onToggleGender} style={styles.genderSwitch}>
-          <Text style={styles.genderSwitchText}>{isFemale ? '👩 Female' : '👨 Male'}</Text>
-          <Text style={styles.genderSwitchArrow}>⇄</Text>
-        </TouchableOpacity>
-        <Text style={styles.voiceStatusText}>{getStatusText()}</Text>
-        {(isProcessing || isSpeaking) && (
-          <ActivityIndicator size="small" color="#E67E22" style={{ marginTop: 16 }} />
-        )}
-      </View>
-
-      <View style={styles.voiceMicContainer}>
-        <Animated.View style={[styles.voiceMicPulse, { transform: [{ scale: pulseAnim }] }]} />
-        <TouchableOpacity
-          style={[styles.voiceMicBtn, isRecording && styles.voiceMicBtnActive]}
-          onPress={isRecording ? stopRecording : startRecording}
-          disabled={isProcessing || isSpeaking}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.voiceMicIcon}>{isRecording ? '⏹' : '🎤'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.voiceHint}>
-        {isRecording ? 'Tap to stop recording'
-          : isProcessing || isSpeaking ? 'Please wait...'
-          : 'Tap mic to speak with TourMate'}
-      </Text>
-      <Text style={styles.voiceHeadphonesTip}>🎧 For best audio quality, use headphones</Text>
-    </View>
   );
 };
 
@@ -535,43 +351,50 @@ export default function TourMateAIScreen() {
   };
 
   // ── Speak voice response (chunked audio) ─────────────────────────
-  const speakResponse = async (text: string, isFemale: boolean) => {
-    setIsSpeakingResponse(true);
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        playThroughEarpieceAndroid: false,
-      });
-      const res = await fetch(`${API_BASE}/ai/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text,isFemale }),
-      });
-      const data = await res.json();
-      if (!data.success || !data.audioChunks?.length) throw new Error('TTS failed');
+const stopSpeechRef = useRef(false);
 
-      const playChunks = async (chunks: string[], index: number) => {
-        if (index >= chunks.length) { activeSoundRef.current = null; setIsSpeakingResponse(false); return; }
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `data:audio/wav;base64,${chunks[index]}` },
-          { shouldPlay: true, volume: 1.0 }
-        );
-        activeSoundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((status: any) => {
-          if (status.didJustFinish) {
-            sound.unloadAsync().catch(() => {});
-            playChunks(chunks, index + 1);
-          }
-        });
-      };
-      await playChunks(data.audioChunks, 0);
-    } catch (err) {
-      console.error('Speech error:', err);
-      setIsSpeakingResponse(false);
-    }
-  };
+const speakResponse = async (text: string, isFemale: boolean) => {
+  stopSpeechRef.current = false; // reset on new speak
+  setIsSpeakingResponse(true);
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      playThroughEarpieceAndroid: false,
+    });
+    const res = await fetch(`${API_BASE}/ai/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, isFemale }),
+    });
+    const data = await res.json();
+    if (!data.success || !data.audioChunks?.length) throw new Error('TTS failed');
 
+    const playChunks = async (chunks: string[], index: number) => {
+      // ← check stop flag before each chunk
+      if (stopSpeechRef.current || index >= chunks.length) {
+        activeSoundRef.current = null;
+        setIsSpeakingResponse(false);
+        return;
+      }
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: `data:audio/wav;base64,${chunks[index]}` },
+        { shouldPlay: true, volume: 1.0 }
+      );
+      activeSoundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          playChunks(chunks, index + 1);
+        }
+      });
+    };
+    await playChunks(data.audioChunks, 0);
+  } catch (err) {
+    console.error('Speech error:', err);
+    setIsSpeakingResponse(false);
+  }
+};
   // ── Send text/voice message ───────────────────────────────────────
   const sendMessage = async (text?: string, isVoice = false): Promise<void> => {
     const messageText = (text ?? input).trim();
@@ -721,17 +544,18 @@ export default function TourMateAIScreen() {
   };
 
   // ── Close voice mode ──────────────────────────────────────────────
-  const handleCloseVoice = async () => {
-    try {                                          // ← wrap in try/catch
-      if (activeSoundRef.current) {
-        await activeSoundRef.current.stopAsync();
-        await activeSoundRef.current.unloadAsync();
-        activeSoundRef.current = null;
-      }
-    } catch {}                                     // ← swallow any error silently
-    setIsSpeakingResponse(false);
-    setVoiceMode(false);
-  };
+const handleCloseVoice = async () => {
+  try {
+    stopSpeechRef.current = true; // ← cancel chunk chain
+    if (activeSoundRef.current) {
+      await activeSoundRef.current.stopAsync();
+      await activeSoundRef.current.unloadAsync();
+      activeSoundRef.current = null;
+    }
+  } catch {}
+  setIsSpeakingResponse(false);
+  setVoiceMode(false);
+};
   const lastAIMessage = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content ?? '';
 
   // ── Voice mode full-screen ────────────────────────────────────────
@@ -864,7 +688,7 @@ return (
             onPress={showImageOptions}
             disabled={recognizing || loading}
           >
-            <MaterialCommunityIcons name="camera-outline" size={22} color="#E67E22" />
+            <MaterialCommunityIcons name="camera-outline" size={22} color={Theme.colors.primary} />
           </TouchableOpacity>
 
           <TextInput
@@ -886,9 +710,14 @@ return (
             onPress={handleOpenVoiceMode}
             disabled={loading || recognizing}
           >
-            <Text style={styles.voiceToggleIcon}>
-              {premiumUnlocked ? '🎤' : '🔒'}
-            </Text>
+<View style={styles.voiceToggleIcon}>
+  <Ionicons
+    name={premiumUnlocked ? 'call' : 'lock-closed'}
+    size={22}
+    color={Theme.colors.primary}
+  />
+</View>
+
             {!premiumUnlocked && (
               <Text style={styles.voiceToggleSub}>
                 {loadingPoints ? '...' : `${points ?? 0}/${PREMIUM_POINTS_REQUIRED}`}
@@ -1301,10 +1130,10 @@ messagesContent: {
     alignItems: 'center',
   },
 
-  voiceToggleIcon: {
-    fontSize: 20,
-  },
-
+voiceToggleIcon: {
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   voiceToggleBtnLocked: {
     backgroundColor: '#F5F5F5',
   },
@@ -1354,125 +1183,4 @@ messagesContent: {
     fontWeight: '700',
   },
 
-  voiceOverlay: {
-    flex: 1,
-    backgroundColor: Theme.colors.hero,
-  },
-
-  voiceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
-
-  voiceTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFF',
-  },
-
-  voiceCloseBtn: {
-    backgroundColor: '#333',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-
-  voiceCloseBtnText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  voiceStatusArea: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-
-  voiceStatusText: {
-    fontSize: 15,
-    color: '#CCC',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-
-  voiceMicContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    height: 130,
-  },
-
-  voiceMicPulse: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Theme.colors.primary + '20',
-  },
-
-  voiceMicBtn: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: Theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Theme.colors.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-
-  voiceMicBtnActive: {
-    backgroundColor: '#E74C3C',
-  },
-
-  voiceMicIcon: {
-    fontSize: 34,
-  },
-
-  voiceHint: {
-    textAlign: 'center',
-    color: Theme.colors.muted,
-    fontSize: 13,
-    marginBottom: 8,
-  },
-
-  voiceHeadphonesTip: {
-    textAlign: 'center',
-    color: Theme.colors.muted,
-    fontSize: 12,
-    marginBottom: 48,
-  },
-
-  genderSwitch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-  },
-
-  genderSwitchText: {
-    color: Theme.colors.hero,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  genderSwitchArrow: {
-    color: Theme.colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
-  },
 });
