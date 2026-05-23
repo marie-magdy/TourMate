@@ -1434,6 +1434,7 @@ export default function MapScreen() {
             if (idx === 0) return null;
             const prev = dayStops[idx - 1];
             const leg = stopLegs[`${day}:${idx - 1}->${idx}`];
+            if (!leg?.durationMin) return null;
             const latitude = (prev.latitude! + stop.latitude!) / 2;
             const longitude = (prev.longitude! + stop.longitude!) / 2;
             return (
@@ -1444,7 +1445,7 @@ export default function MapScreen() {
                 tracksViewChanges={false}
               >
                 <View style={styles.travelLabel}>
-                  <Text style={styles.travelLabelText}>{leg ? `~${leg.durationMin} min` : '~-- min'}</Text>
+                  <Text style={styles.travelLabelText}>{`~${leg.durationMin} min`}</Text>
                 </View>
               </Marker>
             );
@@ -1614,7 +1615,7 @@ export default function MapScreen() {
       )}
 
       {
-        !walkBanner.visible && !walkingInProgress && !vehicleDetected && (
+        !walkBanner.visible && !walkingInProgress && !vehicleDetected && plannedDays.length > 0 && (
           <Animated.View
             style={[
               styles.bottomPanel,
