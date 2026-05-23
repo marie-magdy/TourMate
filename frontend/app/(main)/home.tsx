@@ -310,8 +310,6 @@ const WeatherWidget: React.FC<{ latitude: number; longitude: number }> = ({ lati
   );
 };
 
-// ── AttractionSheet imported from ../../components/AttractionSheet ────
-
 // ── Popular Card — cinematic tall rectangle ───────────────────────────
 const PopularCard: React.FC<{ item: Attraction; onPress: (item: Attraction) => void }> = ({ item, onPress }) => {
   const { convertPrice } = useApp();
@@ -893,6 +891,17 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
         onClose={() => setShowSheet(false)}
         userLocation={userLocation}
         userId={userId}
+       onGetDirections={({ latitude, longitude, name }) => {
+        setShowSheet(false);
+        router.push({
+          pathname: '/(main)/map',
+          params: {
+            destLat: String(latitude),
+            destLng: String(longitude),
+            destName: name,
+          },
+        } as any);
+      }}
       />
       <FilterSheet
         visible={showFilter}

@@ -2162,12 +2162,23 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
       </Modal>
 
       {/* ── Full Attraction Sheet ── */}
-      <AttractionSheet
-        attraction={sheetAttraction}
-        visible={showAttractionSheet}
-        onClose={() => setShowAttractionSheet(false)}
-        userLocation={userLocation}
-      />
+     <AttractionSheet
+      attraction={sheetAttraction}
+      visible={showAttractionSheet}
+      onClose={() => setShowAttractionSheet(false)}
+      userLocation={userLocation}
+      onGetDirections={({ latitude, longitude, name }) => {
+        setShowAttractionSheet(false);
+        router.push({
+          pathname: '/(main)/map',
+          params: {
+            destLat: String(latitude),
+            destLng: String(longitude),
+            destName: name,
+          },
+        } as any);
+      }}
+    />
 
       {/* ── Activity Detail Modal ── */}
       <Modal

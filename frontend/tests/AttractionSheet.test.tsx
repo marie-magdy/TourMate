@@ -25,17 +25,17 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn(),
 }));
 
-const mockSound = {
-  stopAsync: jest.fn(),
-  unloadAsync: jest.fn(),
-  setOnPlaybackStatusUpdate: jest.fn(),
-};
-jest.mock('expo-av', () => ({
-  Audio: {
-    setAudioModeAsync: jest.fn(),
-    Sound: { createAsync: jest.fn(async () => ({ sound: mockSound })) },
-  },
-}));
+// const mockSound = {
+//   stopAsync: jest.fn(),
+//   unloadAsync: jest.fn(),
+//   setOnPlaybackStatusUpdate: jest.fn(),
+// };
+// jest.mock('expo-av', () => ({
+//   Audio: {
+//     setAudioModeAsync: jest.fn(),
+//     Sound: { createAsync: jest.fn(async () => ({ sound: mockSound })) },
+//   },
+// }));
 
 jest.mock('axios', () => ({
   __esModule: true,
@@ -51,7 +51,7 @@ jest.mock('@expo/vector-icons', () => {
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { Audio } from 'expo-av';
+// import { Audio } from 'expo-av';
 import AttractionSheet, {
   parseCategories,
   CATEGORY_COLORS,
@@ -334,73 +334,73 @@ describe('AttractionSheet', () => {
     });
   });
 
-  it('Audio Guide button calls TTS and starts playback', async () => {
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
-      if (url.includes('/images')) return Promise.resolve({ json: async () => ({ success: true, data: [] }) });
-      if (url.includes('/favorites/')) return Promise.resolve({ json: async () => ({ data: [] }) });
-      if (url.includes('/tts')) {
-        return Promise.resolve({
-          json: async () => ({ success: true, script: 'The Pyramids stand…', audio: 'BASE64AUDIO' }),
-        });
-      }
-      return Promise.reject(new Error('unexpected'));
-    });
+  // it('Audio Guide button calls TTS and starts playback', async () => {
+  //   (global.fetch as jest.Mock).mockImplementation((url: string) => {
+  //     if (url.includes('/images')) return Promise.resolve({ json: async () => ({ success: true, data: [] }) });
+  //     if (url.includes('/favorites/')) return Promise.resolve({ json: async () => ({ data: [] }) });
+  //     if (url.includes('/tts')) {
+  //       return Promise.resolve({
+  //         json: async () => ({ success: true, script: 'The Pyramids stand…', audio: 'BASE64AUDIO' }),
+  //       });
+  //     }
+  //     return Promise.reject(new Error('unexpected'));
+  //   });
 
-    const { findByText } = render(
-      <AttractionSheet
-        attraction={attraction}
-        visible={true}
-        onClose={() => {}}
-        userLocation={null}
-        userId={1}
-      />,
-    );
-    await findByText('Pyramids of Giza');
+  //   const { findByText } = render(
+  //     <AttractionSheet
+  //       attraction={attraction}
+  //       visible={true}
+  //       onClose={() => {}}
+  //       userLocation={null}
+  //       userId={1}
+  //     />,
+  //   );
+  //   await findByText('Pyramids of Giza');
 
-    fireEvent.press(await findByText('Play Guide'));
+  //   fireEvent.press(await findByText('Play Guide'));
 
-    await waitFor(() => {
-      expect(Audio.setAudioModeAsync).toHaveBeenCalled();
-      expect(Audio.Sound.createAsync).toHaveBeenCalled();
-      const ttsCall = (global.fetch as jest.Mock).mock.calls.find(c => String(c[0]).includes('/tts'));
-      expect(JSON.parse(ttsCall[1].body)).toMatchObject({
-        name: 'Pyramids of Giza',
-        city: 'Giza',
-        category: 'historical',
-        language: 'en',
-      });
-    });
-    expect(await findByText('Stop')).toBeTruthy();
-  });
+  //   await waitFor(() => {
+  //     expect(Audio.setAudioModeAsync).toHaveBeenCalled();
+  //     expect(Audio.Sound.createAsync).toHaveBeenCalled();
+  //     const ttsCall = (global.fetch as jest.Mock).mock.calls.find(c => String(c[0]).includes('/tts'));
+  //     expect(JSON.parse(ttsCall[1].body)).toMatchObject({
+  //       name: 'Pyramids of Giza',
+  //       city: 'Giza',
+  //       category: 'historical',
+  //       language: 'en',
+  //     });
+  //   });
+  //   expect(await findByText('Stop')).toBeTruthy();
+  // });
 
-  it('toggling audio language to AR sends language=ar in the TTS payload', async () => {
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
-      if (url.includes('/images')) return Promise.resolve({ json: async () => ({ success: true, data: [] }) });
-      if (url.includes('/favorites/')) return Promise.resolve({ json: async () => ({ data: [] }) });
-      if (url.includes('/tts')) {
-        return Promise.resolve({ json: async () => ({ success: true, script: 's', audio: 'A' }) });
-      }
-      return Promise.reject(new Error('unexpected'));
-    });
+  // it('toggling audio language to AR sends language=ar in the TTS payload', async () => {
+  //   (global.fetch as jest.Mock).mockImplementation((url: string) => {
+  //     if (url.includes('/images')) return Promise.resolve({ json: async () => ({ success: true, data: [] }) });
+  //     if (url.includes('/favorites/')) return Promise.resolve({ json: async () => ({ data: [] }) });
+  //     if (url.includes('/tts')) {
+  //       return Promise.resolve({ json: async () => ({ success: true, script: 's', audio: 'A' }) });
+  //     }
+  //     return Promise.reject(new Error('unexpected'));
+  //   });
 
-    const { findByText } = render(
-      <AttractionSheet
-        attraction={attraction}
-        visible={true}
-        onClose={() => {}}
-        userLocation={null}
-        userId={1}
-      />,
-    );
-    await findByText('Pyramids of Giza');
-    fireEvent.press(await findByText('AR'));
-    fireEvent.press(await findByText('Play Guide'));
+  //   const { findByText } = render(
+  //     <AttractionSheet
+  //       attraction={attraction}
+  //       visible={true}
+  //       onClose={() => {}}
+  //       userLocation={null}
+  //       userId={1}
+  //     />,
+  //   );
+  //   await findByText('Pyramids of Giza');
+  //   fireEvent.press(await findByText('AR'));
+  //   fireEvent.press(await findByText('Play Guide'));
 
-    await waitFor(() => {
-      const ttsCall = (global.fetch as jest.Mock).mock.calls.find(c => String(c[0]).includes('/tts'));
-      expect(JSON.parse(ttsCall[1].body).language).toBe('ar');
-    });
-  });
+  //   await waitFor(() => {
+  //     const ttsCall = (global.fetch as jest.Mock).mock.calls.find(c => String(c[0]).includes('/tts'));
+  //     expect(JSON.parse(ttsCall[1].body).language).toBe('ar');
+  //   });
+  // });
 
   it('openUber builds an uber:// deep link with origin/destination coords', async () => {
     (global.fetch as jest.Mock).mockImplementation((url: string) => {

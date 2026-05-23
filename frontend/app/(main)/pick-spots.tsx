@@ -437,6 +437,17 @@ export default function PickSpotsScreen() {
         visible={showSheet}
         onClose={() => setShowSheet(false)}
         userLocation={userLocation}
+        onGetDirections={({ latitude, longitude, name }) => {
+          setShowSheet(false);
+          router.push({
+            pathname: '/(main)/map',
+            params: {
+              destLat: String(latitude),
+              destLng: String(longitude),
+              destName: name,
+            },
+          } as any);
+        }}
       />
 
     </SafeAreaView>

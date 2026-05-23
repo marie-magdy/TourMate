@@ -227,6 +227,17 @@ export default function FavoritesScreen() {
         userLocation={userLocation}
         userId={userId}
         onRemove={removeFavorite}
+        onGetDirections={({ latitude, longitude, name }) => {
+          setShowSheet(false);
+          router.push({
+            pathname: '/(main)/map',
+            params: {
+              destLat: String(latitude),
+              destLng: String(longitude),
+              destName: name,
+            },
+          } as any);
+        }}
       />
     </SafeAreaView>
   );
