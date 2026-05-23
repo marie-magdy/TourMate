@@ -1,7 +1,8 @@
 // app/(auth)/login.tsx
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, BackHandler, Platform } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { Stack, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenWrapper from '@/components/ScreenWrapper';
@@ -25,6 +26,14 @@ export default function Login() {
   const [errors, setErrors]             = useState({ email: '', password: '', general: '' });
   const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+      return () => sub.remove();
+    }, []),
+  );
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -125,7 +134,9 @@ export default function Login() {
   };
 
   return (
-    <ScreenWrapper>
+    <>
+      <Stack.Screen options={{ gestureEnabled: false }} />
+      <ScreenWrapper>
       <View style={styles.container}>
 
         {/* Logo */}
@@ -253,6 +264,7 @@ export default function Login() {
 
       </View>
     </ScreenWrapper>
+    </>
   );
 }
 

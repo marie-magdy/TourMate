@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "test": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "dev": "node --watch --env-file=.env src/index.js",
-    "start": "node src/index.js",
-    "init-db": "node --env-file=.env src/initDb.js"
+    "dev": "node --watch --use-system-ca --env-file=.env src/index.js",
+    "start": "node --use-system-ca src/index.js",
+    "init-db": "node --use-system-ca --env-file=.env src/initDb.js"
   },
   "author": "",
   "license": "ISC",

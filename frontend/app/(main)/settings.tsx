@@ -435,6 +435,7 @@ export default function SettingsScreen() {
           try {
             await AsyncStorage.multiRemove(['token', 'user']);
             setUser(null);
+            if (router.canDismiss()) router.dismissAll();
             router.replace('/(auth)/login');
           } catch (e) {
             Alert.alert('Error', 'Logout failed. Please try again.');
