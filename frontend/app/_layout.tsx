@@ -11,7 +11,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         {/* *<Stack.Screen name="splash" /> */}
         <Stack.Screen name="onboarding" />
-        <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)/login" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(auth)/signup" options={{ title: 'Sign-up' }} />
         <Stack.Screen name="(auth)/confirmation" options={{ headerShown: true, title: "Confirmation" }} />
         <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />

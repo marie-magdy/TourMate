@@ -25,6 +25,7 @@ const MAX_CONSECUTIVE_BAD_ACCURACY = 5; // cancel if signal is poor for too long
 const SPEED_WINDOW_SIZE = 6; // rolling sample window size
 const MIN_SPEED_SAMPLES_FOR_DECISION = 3;
 const MAX_HIGH_SPEED_SAMPLES = 2; // if too many high-speed samples in window => likely vehicle
+const WALK_DOUBLE_TAP_MS = 400;
 
 interface Place {
   id: string;
@@ -265,6 +266,7 @@ export default function MapScreen() {
   const walkSpeedSamplesRef = useRef<number[]>([]);
   const walkConsecutiveBadAccuracyRef = useRef<number>(0);
   const walkValidSpeedSamplesRef = useRef<number>(0);
+  const lastWalkTapRef = useRef<number>(0);
   const [visitedStops, setVisitedStops] = useState<Set<string>>(new Set());
   const [selectedStop, setSelectedStop] = useState<MappedStop | null>(null);
   const [stopLegs, setStopLegs] = useState<Record<string, StopLegInfo>>({});
@@ -645,13 +647,17 @@ export default function MapScreen() {
     Linking.openURL(url).catch(() => Alert.alert('Open app', 'Unable to open this app on your device.'));
   };
 
-  const navigateToSelectedStop = (mode: 'fastest' | 'walk') => {
+  const navigateToSelectedStop = (mode: 'fastest' | 'walk', beginWalkTracking = false) => {
     if (!selectedStop) return;
     if (!userLocation) {
       Alert.alert('Location needed', 'Turn on location to get directions from where you are.');
       return;
     }
-    if (mode === 'fastest') cancelWalk();
+    if (mode === 'fastest') {
+      cancelWalk();
+    } else if (!beginWalkTracking) {
+      cancelWalk();
+    }
     setRouteMode(mode);
     const destination: Place = {
       id: `stop-${selectedStop.key}`,
@@ -668,15 +674,73 @@ export default function MapScreen() {
     setSelectedPlaces([origin, destination]);
     setNavigationRouteActive(true);
     fetchRoute([origin, destination], mode);
-    if (mode === 'walk') {
+    if (mode === 'walk' && beginWalkTracking) {
       const distKm = getDistanceKm(
         userLocation.latitude,
         userLocation.longitude,
         destination.latitude,
-        destination.longitude
+        destination.longitude,
       );
       startWalkToPlace(destination, Math.max(0.05, distKm));
     }
+  };
+
+  const startWalkForCurrentRoute = (): void => {
+    if (!userLocation) {
+      Alert.alert('Location needed', 'Turn on location to get directions from where you are.');
+      return;
+    }
+    let destination: Place | null = null;
+    if (selectedPlaces.length >= 2) {
+      destination = [...selectedPlaces].reverse().find((p) => p.id !== 'user') ?? null;
+    } else if (selectedStop?.latitude != null && selectedStop?.longitude != null) {
+      destination = {
+        id: `stop-${selectedStop.key}`,
+        name: selectedStop.title,
+        latitude: selectedStop.latitude,
+        longitude: selectedStop.longitude,
+      };
+    }
+    if (!destination) {
+      Alert.alert('No destination', 'Search or select a place on the map first.');
+      return;
+    }
+    const distKm = getDistanceKm(
+      userLocation.latitude,
+      userLocation.longitude,
+      destination.latitude,
+      destination.longitude,
+    );
+    const origin: Place = {
+      id: 'user',
+      name: 'Your Location',
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+    };
+    if (routeMode !== 'walk' || selectedPlaces.length < 2) {
+      setRouteMode('walk');
+      setSelectedPlaces([origin, destination]);
+      setNavigationRouteActive(true);
+      fetchRoute([origin, destination], 'walk');
+    }
+    startWalkToPlace(destination, Math.max(0.05, distKm));
+  };
+
+  const handleWalkModePress = (context: 'route' | 'stop'): void => {
+    const now = Date.now();
+    const isDoubleTap = now - lastWalkTapRef.current < WALK_DOUBLE_TAP_MS;
+    lastWalkTapRef.current = now;
+
+    if (context === 'stop') {
+      navigateToSelectedStop('walk', isDoubleTap);
+      return;
+    }
+    // Search route row: 1st tap = walk route only; 2nd tap while walk = start tracking.
+    if (routeMode === 'walk') {
+      if (!walkingInProgress) startWalkForCurrentRoute();
+      return;
+    }
+    switchRouteMode('walk');
   };
 
   const focusStop = (stop: MappedStop) => {
@@ -1607,12 +1671,15 @@ export default function MapScreen() {
                     >
                       <Text style={[styles.stopModeText, routeMode === 'fastest' && styles.stopModeTextActive]}>🚗 Drive</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.stopModeBtn, routeMode === 'walk' && styles.stopModeBtnActiveWalk]}
-                      onPress={() => navigateToSelectedStop('walk')}
-                    >
-                      <Text style={[styles.stopModeText, routeMode === 'walk' && styles.stopModeTextActiveWalk]}>🚶 Walk + pts</Text>
-                    </TouchableOpacity>
+                    <View style={styles.stopModeWalkCol}>
+                      <TouchableOpacity
+                        style={[styles.stopModeBtn, routeMode === 'walk' && styles.stopModeBtnActiveWalk]}
+                        onPress={() => handleWalkModePress('stop')}
+                      >
+                        <Text style={[styles.stopModeText, routeMode === 'walk' && styles.stopModeTextActiveWalk]}>🚶 Walk + pts</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.walkDoubleTapHint}>Double tap to start walking</Text>
+                    </View>
                   </View>
                   <View style={styles.stopCardActions}>
                     <TouchableOpacity style={styles.stopActionBtn} onPress={() => openExternalNavigation(selectedStop.latitude!, selectedStop.longitude!, 'maps')}>
@@ -1724,13 +1791,16 @@ export default function MapScreen() {
                 <MaterialCommunityIcons name="lightning-bolt" size={16} color={routeMode === 'fastest' ? '#E67E22' : '#999'} />
                 <Text style={[styles.routeModeText, routeMode === 'fastest' && styles.routeModeTextActive]}>Fastest</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.routeModeBtn, routeMode === 'walk' && styles.routeModeBtnActiveEco]}
-                onPress={() => switchRouteMode('walk')}
-              >
-                <MaterialCommunityIcons name="walk" size={16} color={routeMode === 'walk' ? '#27AE60' : '#999'} />
-                <Text style={[styles.routeModeText, routeMode === 'walk' && styles.routeModeTextActiveEco]}>Walk +50pts</Text>
-              </TouchableOpacity>
+              <View style={styles.routeModeWalkCol}>
+                <TouchableOpacity
+                  style={[styles.routeModeBtn, routeMode === 'walk' && styles.routeModeBtnActiveEco]}
+                  onPress={() => handleWalkModePress('route')}
+                >
+                  <MaterialCommunityIcons name="walk" size={16} color={routeMode === 'walk' ? '#27AE60' : '#999'} />
+                  <Text style={[styles.routeModeText, routeMode === 'walk' && styles.routeModeTextActiveEco]}>Walk +50pts</Text>
+                </TouchableOpacity>
+                <Text style={styles.walkDoubleTapHint}>Double tap to start walking</Text>
+              </View>
             </View>
 
             {routeDistance && routeDuration && (
@@ -2048,6 +2118,14 @@ const styles = StyleSheet.create({
   planStopMeta: { fontSize: 11, color: '#999', marginTop: 2 },
   planStopArrow: { fontSize: 20, color: '#CCC', fontWeight: '300', paddingHorizontal: 4 },
   routeModeRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  routeModeWalkCol: { flex: 1, alignItems: 'stretch' },
+  walkDoubleTapHint: {
+    fontSize: 10,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 4,
+    fontWeight: '500',
+  },
   routeModeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F5F5', borderRadius: 30, paddingVertical: 10, gap: 6 },
   routeModeBtnActive: { backgroundColor: '#FFF3E0' },
   routeModeBtnActiveEco: { backgroundColor: '#E8F8F0' },
@@ -2302,6 +2380,10 @@ const styles = StyleSheet.create({
   stopModeBtnActiveWalk: {
     backgroundColor: '#E8F8F0',
     borderColor: '#27AE60',
+  },
+  stopModeWalkCol: {
+    flex: 1,
+    alignItems: 'stretch',
   },
   stopModeText: {
     fontSize: 12,
