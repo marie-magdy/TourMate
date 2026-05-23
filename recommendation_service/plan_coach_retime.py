@@ -152,7 +152,7 @@ def retime_ordered_ids_for_coach(
 
     if skipped_ids:
         warnings.append(
-            "Some ids were skipped (not found in this city): " + ", ".join(skipped_ids)
+            "Some requested stops could not be found and were skipped."
         )
 
     if not rows:
@@ -181,9 +181,7 @@ def retime_ordered_ids_for_coach(
 
     if nn_km > 0.5 and ord_km > nn_km * 1.30:
         warnings.append(
-            "This stop order uses noticeably more driving distance than a tighter route "
-            f"(about {ord_km:.1f} km vs ~{nn_km:.1f} km for a simple nearest-neighbor order). "
-            "The plan is still valid, but it is not route-optimized."
+            "This route could involve more travel"
         )
 
     curr_hr = start_hr
@@ -206,7 +204,7 @@ def retime_ordered_ids_for_coach(
         travel_hrs = float(transport.get("duration_min", 0) or 0) / 60.0
 
         if time_left() < travel_hrs + 0.05:
-            dropped_for_time.append(str(att["attraction_id"]))
+            dropped_for_time.append(str(att["name"]))
             continue
 
         arrival_hr = curr_hr + travel_hrs
@@ -214,13 +212,13 @@ def retime_ordered_ids_for_coach(
         close_hr = float(att.get("close_hour", 24) or 24)
 
         if arrival_hr < open_hr:
-            dropped_for_time.append(str(att["attraction_id"]))
+            dropped_for_time.append(str(att["name"]))
             warnings.append(
                 f"'{att['name']}' opens later than your arrival time — skipped for this day's chain."
             )
             continue
         if arrival_hr >= close_hr - MIN_VISIT_HRS:
-            dropped_for_time.append(str(att["attraction_id"]))
+            dropped_for_time.append(str(att["name"]))
             warnings.append(
                 f"Could not fit '{att['name']}' before closing time — removed from this day."
             )
@@ -230,7 +228,7 @@ def retime_ordered_ids_for_coach(
         time_until_close = close_hr - arrival_hr
         dur = min(raw_dur, max(0.0, time_left() - travel_hrs), time_until_close)
         if dur < MIN_VISIT_HRS:
-            dropped_for_time.append(str(att["attraction_id"]))
+            dropped_for_time.append(str(att["name"]))
             continue
 
         eff_cost = float(att.get("price_avg", 0) or 0)
@@ -272,8 +270,8 @@ def retime_ordered_ids_for_coach(
 
     if dropped_for_time:
         warnings.append(
-            "Some stops could not fit in the day's time window after retiming — "
-            "the list was truncated."
+           "These stops could not fit in the day's time window and were removed: "
+            + ", ".join(dropped_for_time)
         )
 
     if budget_egp is not None and budget_egp > 0:

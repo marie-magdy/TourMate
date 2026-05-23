@@ -674,6 +674,7 @@ RULES:
 5) If a change would hurt route optimization, STILL apply it if the user asked, but set request_reduces_optimization: true and optimization_notice (one short sentence).
 6) If no plan edits or budget record: "operations": [].
 7) "reply" is plain text only (no markdown fences).
+8) When the user only asks for a timing or scheduling adjustment (e.g. start later, end earlier, change hours), reply with ONLY a confirmation of the change. Do NOT suggest additional places, activities, or tips unless the user explicitly asks.
 
 VALID_PLACES:
 ${catalogText}
@@ -827,7 +828,7 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
   if (badIds.length) {
     return {
       success: true,
-      reply: `${reply}\n\n(I could not prepare that edit: these ids are not in our database for ${city}: ${badIds.join(', ')})`,
+      reply: `${reply}\n\n(I could not prepare that edit: these ids are not in our database for ${city})`,
       plan_days_preview: null,
       optimization_warnings: [],
       day_schedules_preview: null,
@@ -892,10 +893,11 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
 
     const dropped = detectDroppedIds(ordered_ids, itinerary);
     if (dropped.length) {
+      const droppedNames = dropped.map((id) => byId.get(String(id))?.name || id);
       allWarnings.push(
-        `Day ${di + 1}: ${dropped.length} stop(s) could not fit your day hours and were removed in the preview: ${dropped
+        `Day ${di + 1}: ${droppedNames.length} stop(s) could not fit your day hours and were removed in the preview: ${droppedNames
           .slice(0, 6)
-          .join(', ')}${dropped.length > 6 ? '…' : ''}`,
+          .join(', ')}${droppedNames.length > 6 ? '…' : ''}`,
       );
     }
 
