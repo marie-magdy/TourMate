@@ -348,20 +348,17 @@ def _fetch_attractions(db_url: str) -> pd.DataFrame:
                 COALESCE(a.address, '')                   AS address,
                 COALESCE(a.categories, '')                AS categories,
                 COALESCE(a.sub_type, '')                  AS sub_type,
-                COALESCE(a.is_outdoor, false)             AS is_outdoor,
                 COALESCE(a.avg_visit_hrs, 1)::float       AS avg_visit_hrs,
                 COALESCE(a.admission_egp, 0)::float       AS admission_egp,
                 COALESCE(a.admission_egp_foreigner, 0)::float AS admission_egp_foreigner,
                 COALESCE(a.rating, 0)::float              AS avg_rating,
                 COALESCE(a.popularity, 0)::float          AS popularity,
-                COALESCE(a.total_reviews, 0)::int         AS total_reviews,
                 COALESCE(a.open_hour, 8)::int             AS open_hour,
                 COALESCE(a.close_hour, 22)::int           AS close_hour,
                 COALESCE(a.meal_slot, '')                 AS meal_slot,
                 COALESCE(a.price_min, 0)::float           AS price_min,
                 COALESCE(a.price_max, 0)::float           AS price_max,
                 COALESCE(a.crowd_label, '')               AS crowd_label,
-                COALESCE(a.crowd_pattern, '')             AS crowd_pattern,
                 COALESCE(a.description, '')               AS description,
                 (
                     SELECT ai.image_url
@@ -2483,7 +2480,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             "description":    att.get("description", ""),
             "categories":     att["categories"],
             "crowd_label":    att.get("crowd_label", ""),
-            "crowd_pattern":  att.get("crowd_pattern", ""),
             "rating":         att.get("avg_rating", 0),
             "open":           att.get("open_hour", 0),
             "close":          att.get("close_hour", 24),
@@ -2660,7 +2656,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                     "transport": transport, "transport_cost": transport_cost,
                     "address": att.get("address", ""), "description": att.get("description", ""),
                     "categories": att["categories"], "crowd_label": att.get("crowd_label", ""),
-                    "crowd_pattern": att.get("crowd_pattern", ""), "rating": att.get("avg_rating", 0),
+                    "rating": att.get("avg_rating", 0),
                     "open": att.get("open_hour", 0), "close": att.get("close_hour", 24),
                     "image_url": str(att.get("primary_image") or ""),
                     "price_from": float(att.get("price_min", 0)),
@@ -2847,7 +2843,7 @@ def print_itinerary(result, user=None):
         if osm:        print(f"     OSM pin    -> {osm}")
 
         if "crowd_label" in stop:
-            print(f"     Crowd: {stop['crowd_label']} ({stop.get('crowd_pattern','')})")
+            print(f"     Crowd: {stop['crowd_label']}")
         if "options" in stop and len(stop["options"]) > 1:
             print(f"     Other options: {', '.join(o['name'] for o in stop['options'][1:])}")
 
