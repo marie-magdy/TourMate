@@ -16,6 +16,9 @@ import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
 import { useBookingStore, Hotel, Flight } from '@/store/bookingStore';
+import { scheduleItineraryNotifications, cancelItineraryNotifications } from '../../notifications';
+
+const NOTIF_IDS_STORAGE_KEY = (planId: string) => `@itinerary_notif_ids_${planId}`;
 
 
 const { height: screenHeight } = Dimensions.get('window');
@@ -477,6 +480,53 @@ useEffect(() => {
     };
     loadUserId();
   }, []);
+
+  // Schedule OS-level notifications for the active day's activities.
+  // Date-trigger notifications fire even when the app is backgrounded, suspended,
+  // or killed. We deliberately do NOT cancel on unmount — only when the same plan
+  // is re-scheduled (so navigating away keeps reminders armed).
+  useEffect(() => {
+    if (loading || !days.length) return;
+    const activities = days[activeDay]?.activities ?? [];
+    if (!activities.length) return;
+
+    const planDate = new Date(startDate);
+    planDate.setDate(planDate.getDate() + activeDay);
+    const planId = `${city}-${startDate}-${activeDay}`;
+    const idsKey = NOTIF_IDS_STORAGE_KEY(planId);
+
+    const scheduled = activities
+      .filter((a: any) => a.time && a.id !== 'start' && a.id !== 'end')
+      .map((a: any) => ({
+        id: String(a.id),
+        time: a.time as string,
+        title: a.title as string,
+        category: (a.category ?? 'attraction') as string,
+      }));
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const prevRaw = await AsyncStorage.getItem(idsKey);
+        const prevIds: string[] = prevRaw ? JSON.parse(prevRaw) : [];
+        if (prevIds.length) await cancelItineraryNotifications(prevIds);
+
+        const newIds = await scheduleItineraryNotifications(scheduled, planDate, 10);
+        if (cancelled) {
+          await cancelItineraryNotifications(newIds);
+          return;
+        }
+        await AsyncStorage.setItem(idsKey, JSON.stringify(newIds));
+        console.log(`[Itinerary] Scheduled ${newIds.length} notifications for plan ${planId}`);
+      } catch (err) {
+        console.warn('[Itinerary] Failed to schedule notifications:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, days, activeDay, startDate, city, userId]);
 
   // Load saved plan by id (no regeneration), else hydrate from params, else generate from recommender
   useEffect(() => {

@@ -1,9 +1,17 @@
 // app/_layout.tsx
+import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../constants/AppContext";
+import { askForNotificationPermission } from "../notifications";
 
 export default function RootLayout() {
+  useEffect(() => {
+    askForNotificationPermission()
+      .then((granted) => console.log('[Notifications] startup permission granted:', granted))
+      .catch((err) => console.warn('[Notifications] permission error:', err));
+  }, []);
+
   return (
     <SafeAreaProvider>
     <AppProvider>
