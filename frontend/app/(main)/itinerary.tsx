@@ -885,6 +885,8 @@ if (row.hotel_details) {
       const scheduledLikedIds = new Set<string>();
       let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
       const eatenMealCategories: string[] = [];
+      let lastDayEndLat: number | null = null;
+      let lastDayEndLon: number | null = null;
 
       for (let d = 0; d < dayCount; d++) {
         const dayDate = new Date(start);
@@ -895,10 +897,12 @@ if (row.hotel_details) {
         const remainingDays   = dayCount - d;
         const budgetToday     = Math.floor(remainingBudget / remainingDays);
 
-        // const dayVisited = visitedIds.filter(id =>
-        //   !likedIds0.includes(id) || scheduledLikedIds.has(id)
-        // );
         const dayVisited = [...visitedIds];
+
+        console.log(
+          `[DAY ${d + 1}/${dayCount}] START — visited: ${dayVisited.length}, ` +
+          `budget: ${budgetToday} EGP, first5: [${dayVisited.slice(0, 5).join(', ')}]`
+        );
 
         try {
           const daySchedule =
@@ -913,6 +917,9 @@ if (row.hotel_details) {
           if (endHour <= startHour) {
             endHour += 24;
           }
+
+          const startLat = d > 0 && lastDayEndLat != null ? lastDayEndLat : userLocationRef.current?.lat ?? null;
+          const startLon = d > 0 && lastDayEndLon != null ? lastDayEndLon : userLocationRef.current?.lon ?? null;
 
           const itineraryPayload: Record<string, any> = {
             user_id: 1,
@@ -930,10 +937,7 @@ if (row.hotel_details) {
             is_foreigner: params.isForeigner === 'true',
             day_index: d,
             n_days: dayCount,
-            ...(userLocationRef.current && {
-              current_lat: userLocationRef.current.lat,
-              current_lon: userLocationRef.current.lon,
-            }),
+            ...(startLat != null && startLon != null ? { current_lat: startLat, current_lon: startLon } : {}),
             ...(d > 0 && areaHint ? areaHint : {}),
             ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
           };
@@ -942,8 +946,6 @@ if (row.hotel_details) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itineraryPayload),
-            // signal: AbortSignal.timeout(d === 0 ? 30000 : 15000),
-            
           });
 
           const payload = await response.json();
@@ -961,6 +963,21 @@ if (row.hotel_details) {
               budget_spent:     daySpent,
               budget_remaining: totalBudget - cumulativeSpent,
             });
+
+            const lastRealStop = [...itinerary].reverse().find(
+              s => s.latitude != null && s.longitude != null && s.type !== 'start' && s.type !== 'end'
+            );
+            if (lastRealStop) {
+              lastDayEndLat = lastRealStop.latitude ?? null;
+              lastDayEndLon = lastRealStop.longitude ?? null;
+            }
+
+            const attCount  = itinerary.filter(s => !['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
+            const mealCount = itinerary.filter(s =>  ['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
+            console.log(
+              `[DAY ${d + 1}/${dayCount}] DONE — att: ${attCount}, meals: ${mealCount}, ` +
+              `spent: ${daySpent} EGP, total_visited: ${visitedIds.length}`
+            );
 
             const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
             for (const stop of itinerary) {
@@ -989,11 +1006,12 @@ if (row.hotel_details) {
             }
 
           } else {
+            console.warn(`[DAY ${d + 1}/${dayCount}] empty or failed — visited unchanged, budget unchanged`);
             allDays.push({ day: d + 1, date: label, activities: [] });
           }
 
-        } catch (_) {
-          // console.error(`[DAY ${d + 1}] fetch failed:`, err);
+        } catch (err) {
+          console.error(`[DAY ${d + 1}/${dayCount}] fetch threw:`, err);
           allDays.push({ day: d + 1, date: label, activities: [] });
         }
       }
