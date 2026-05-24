@@ -1811,8 +1811,14 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # ── Liked restaurant / café pool for meal-slot priority ────────────────────
     _LIKED_MEAL_CATS = {"restaurant", "cafe", "food", "seafood", "grills",
                         "local", "international", "bakery", "dessert"}
+    # Only include liked restaurants assigned to today's cluster (same logic as attractions).
+    # For single-day trips liked_day_assignment is empty so all qualify.
+    liked_meal_today = (
+        {aid for aid, day in liked_day_assignment.items() if day == day_index}
+        if liked_day_assignment else liked_ids_set
+    )
     liked_meal_pool: list = df[
-        df["attraction_id"].astype(str).isin(liked_ids_set)
+        df["attraction_id"].astype(str).isin(liked_meal_today)
         & df["categories"].apply(lambda cats: bool(set(cats) & _LIKED_MEAL_CATS))
     ].to_dict("records")
     liked_used_as_meal: set = set()
