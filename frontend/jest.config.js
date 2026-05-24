@@ -10,4 +10,7 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
   },
+  reporters: ['default', '<rootDir>/tests/timing-reporter.js'],
+  // Don't try to execute the reporter itself as a test file.
+  testPathIgnorePatterns: ['/node_modules/', '/tests/timing-reporter\\.js$'],
 };

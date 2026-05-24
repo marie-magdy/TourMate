@@ -78,8 +78,17 @@ jest.mock('@expo/vector-icons', () => {
   const { Text } = require('react-native');
   return {
     MaterialCommunityIcons: ({ name }: any) => <Text>{`icon:${name}`}</Text>,
+    // tourmate-ai.tsx also uses Ionicons — without this, it resolves to
+    // undefined and React throws "Element type is invalid".
+    Ionicons: ({ name }: any) => <Text>{`ion:${name}`}</Text>,
   };
 });
+
+// VoiceScreen pulls in its own native dependencies. Stub it so loading the
+// AI screen doesn't drag the whole voice subsystem into the test bundle.
+jest.mock('../app/(main)/VoiceScreen', () => ({
+  VoiceScreen: () => null,
+}));
 
 beforeAll(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
