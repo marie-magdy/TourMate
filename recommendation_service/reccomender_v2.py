@@ -920,7 +920,8 @@ def get_transport_info(origin_lat: float, origin_lon: float,
 # 6. MEAL RECOMMENDATION  (updated to use new transport layer)
 # ─────────────────────────────────────────────────────────────────────────────
 def recommend_meals(df, user, slot, near_lat, near_lon,
-                    visited_today, top_n=3, dest_lat=None, dest_lon=None):
+                    visited_today, top_n=3, dest_lat=None, dest_lon=None,
+                    exclude_ids=None):
     per_meal   = user.meal_budget / max(
         sum([1 if slot == s else 0
              for s in ["breakfast","lunch","dinner","coffee"]]), 1
@@ -944,10 +945,13 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
                               "bakery", "dessert", "cafe"}
     eaten = set(user.eaten_meal_categories) & CUISINE_DIVERSITY_CATS
 
+    _excl = set(str(x) for x in (exclude_ids or []))
+
     cands = df[
         (df["city"] == user.city)
       & (df["meal_slot"].apply(lambda s: slot_clean in s))
       & (~df["attraction_id"].isin(visited_today))
+      & (~df["attraction_id"].astype(str).isin(_excl))
       & (df["price_avg"] <= per_meal * 1.5)
       & (df["categories"].apply(lambda cats: any(c in slot_cats for c in cats)))
       & (~df["categories"].apply(lambda cats: bool(set(cats) & eaten)))
@@ -960,6 +964,7 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
             (df["city"] == user.city)
           & (df["meal_slot"].apply(lambda s: slot_clean in s))
           & (~df["attraction_id"].isin(visited_today))
+          & (~df["attraction_id"].astype(str).isin(_excl))
           & (df["price_avg"] <= per_meal * 1.5)
           & (df["categories"].apply(lambda cats: any(c in slot_cats for c in cats)))
         ].copy()
@@ -970,6 +975,7 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
             (df["city"] == user.city)
           & (df["meal_slot"].apply(lambda s: slot_clean in s))
           & (~df["attraction_id"].isin(visited_today))
+          & (~df["attraction_id"].astype(str).isin(_excl))
           & (df["categories"].apply(lambda cats: any(c in slot_cats for c in cats)))
         ].copy()
 
@@ -2038,7 +2044,9 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
 
     def add_meal(slot, nlat, nlon, dur, max_dist_km=None, dest_lat=None, dest_lon=None):
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
-        opts = recommend_meals(df, user, slot, nlat, nlon, visited_today, dest_lat=dest_lat, dest_lon=dest_lon)
+        opts = recommend_meals(df, user, slot, nlat, nlon, visited_today,
+                               dest_lat=dest_lat, dest_lon=dest_lon,
+                               exclude_ids=other_day_liked)
         if not opts:
             return
         pick           = opts[0]

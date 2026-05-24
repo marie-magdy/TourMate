@@ -885,8 +885,6 @@ if (row.hotel_details) {
       const scheduledLikedIds = new Set<string>();
       let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
       const eatenMealCategories: string[] = [];
-      let lastDayEndLat: number | null = null;
-      let lastDayEndLon: number | null = null;
 
       for (let d = 0; d < dayCount; d++) {
         const dayDate = new Date(start);
@@ -918,9 +916,6 @@ if (row.hotel_details) {
             endHour += 24;
           }
 
-          const startLat = d > 0 && lastDayEndLat != null ? lastDayEndLat : userLocationRef.current?.lat ?? null;
-          const startLon = d > 0 && lastDayEndLon != null ? lastDayEndLon : userLocationRef.current?.lon ?? null;
-
           const itineraryPayload: Record<string, any> = {
             user_id: 1,
             name: 'TourMate User',
@@ -937,7 +932,10 @@ if (row.hotel_details) {
             is_foreigner: params.isForeigner === 'true',
             day_index: d,
             n_days: dayCount,
-            ...(startLat != null && startLon != null ? { current_lat: startLat, current_lon: startLon } : {}),
+            ...(userLocationRef.current && {
+              current_lat: userLocationRef.current.lat,
+              current_lon: userLocationRef.current.lon,
+            }),
             ...(d > 0 && areaHint ? areaHint : {}),
             ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
           };
@@ -963,14 +961,6 @@ if (row.hotel_details) {
               budget_spent:     daySpent,
               budget_remaining: totalBudget - cumulativeSpent,
             });
-
-            const lastRealStop = [...itinerary].reverse().find(
-              s => s.latitude != null && s.longitude != null && s.type !== 'start' && s.type !== 'end'
-            );
-            if (lastRealStop) {
-              lastDayEndLat = lastRealStop.latitude ?? null;
-              lastDayEndLon = lastRealStop.longitude ?? null;
-            }
 
             const attCount  = itinerary.filter(s => !['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
             const mealCount = itinerary.filter(s =>  ['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
