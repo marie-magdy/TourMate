@@ -1013,12 +1013,11 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
                                       r["latitude"], r["longitude"])["distance_km"],
         axis=1,
     )
-    max_dist            = cands["dist_km"].max()
-    cands["prox_score"] = 1 - (cands["dist_km"] / (max_dist + 1e-9))
+    cands["prox_score"] = 1 / (1 + cands["dist_km"])
     cands["meal_score"] = (
-        0.50 * cands["tier_score"]
-      + 0.30 * cands["prox_score"]
-      + 0.20 * (cands["avg_rating"] / 5.0)
+        0.35 * cands["tier_score"]
+      + 0.40 * cands["prox_score"]
+      + 0.25 * (cands["avg_rating"] / 5.0)
     )
     cands = cands.sort_values("meal_score", ascending=False)
 
@@ -2045,7 +2044,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             set(str(v) for v in visited_today)
         )
 
-    def add_meal(slot, nlat, nlon, dur, max_dist_km=None, dest_lat=None, dest_lon=None):
+    def add_meal(slot, nlat, nlon, dur, max_dist_km=None, dest_lat=None, dest_lon=None, grace_hrs=0.0):
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
         opts = recommend_meals(df, user, slot, nlat, nlon, visited_today,
                                dest_lat=dest_lat, dest_lon=dest_lon,
@@ -2060,7 +2059,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             log.info("ROUTE", f"skipping {slot} — nearest option {transport['distance_km']:.1f} km away (cap {max_dist_km} km)", verbosity=1)
             return
         total_stop_hrs = travel_hrs + dur
-        if time_left() < total_stop_hrs:
+        if time_left() + grace_hrs < total_stop_hrs:
             return
         if (pick["price_avg"] + transport_cost) > (user.budget_egp - total_cost - total_transport):
             return
@@ -2100,7 +2099,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
          # Rebuild queue from new position after meal
         _refresh_queue()
 
-    def try_liked_meal(slot: str, dur: float) -> bool:
+    def try_liked_meal(slot: str, dur: float, grace_hrs: float = 0.0) -> bool:
         nonlocal curr_hr, prev_lat, prev_lon, total_cost, total_transport, total_dist, last_stop_type, last_meal_hr
         slot_clean = slot.lower()
         candidates = [
@@ -2123,7 +2122,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             )
             travel_hrs     = float(t.get("duration_min", 0) or 0) / 60.0
             transport_cost = t.get("cost_egp", 0)
-            if time_left() < travel_hrs + dur:
+            if time_left() + grace_hrs < travel_hrs + dur:
                 continue
             if (float(r["price_avg"]) + transport_cost) > (user.budget_egp - total_cost - total_transport):
                 continue
@@ -2291,8 +2290,8 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             coffee_done = True
 
         if include_dinner and not dinner_done and curr_hr >= DINNER_OPEN:
-            if not try_liked_meal("dinner", 1.0):
-                add_meal("dinner", prev_lat, prev_lon, 1.0)
+            if not try_liked_meal("dinner", 1.0, grace_hrs=0.5):
+                add_meal("dinner", prev_lat, prev_lon, 1.0, grace_hrs=0.5)
             dinner_done = True
 
         if time_left() <= 0:
@@ -2703,9 +2702,10 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         lunch_done = True
         lunch_added_post = True
 
-    if include_dinner and not dinner_done and not lunch_added_post and time_left() >= 1.0:
-        if not try_liked_meal("dinner", 1.0):
-            add_meal("dinner", prev_lat, prev_lon, 1.0)
+    dinner_placed = any(s.get("type", "").lower() == "dinner" for s in itinerary)
+    if include_dinner and not dinner_placed and not lunch_added_post and time_left() + 0.5 >= 1.0:
+        if not try_liked_meal("dinner", 1.0, grace_hrs=0.5):
+            add_meal("dinner", prev_lat, prev_lon, 1.0, grace_hrs=0.5)
         dinner_done = True
 
     # ── Missed liked places ─────────────────────────────────────────────────────
