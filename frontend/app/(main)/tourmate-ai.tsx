@@ -475,7 +475,7 @@ const speakResponse = async (text: string, isFemale: boolean) => {
       if (result.success && result.recognized && result.attraction) {
         const a = result.attraction;
         const confidence = Math.round(result.confidence * 100);
-        aiContent = `🏛️ I can see this is **${a.name}**! (${confidence}% confident)\n\n📍 **Location:** ${a.city}${a.district ? `, ${a.district}` : ''}\n\n📖 **About:** ${a.description}\n\n🕐 **Opening Hours:** ${a.opening_hours ?? 'N/A'}\n\n💰 **Admission:** ${a.admission_egp ? `${a.admission_egp} EGP` : 'Free'}\n\n⭐ **Rating:** ${a.rating}/5\n\nWould you like me to add this to your itinerary or tell you more? 😊`;
+        aiContent = `🏛️ I can see this is **${a.name}**! (${confidence}% confident)\n\n📍 **Location:** ${a.city}${a.district ? `, ${a.district}` : ''}\n\n📖 **About:** ${a.description}\n\n🕐 **Opening Hours:** ${a.open_hour != null && a.close_hour != null ? `${String(a.open_hour).padStart(2,'0')}:00 - ${String(a.close_hour).padStart(2,'0')}:00` : 'N/A'}\n\n💰 **Admission:** ${a.admission_egp ? `${a.admission_egp} EGP` : 'Free'}\n\n⭐ **Rating:** ${a.rating}/5\n\nWould you like me to add this to your itinerary or tell you more? 😊`;
       } else if (result.recognized && !result.attraction) {
         const confidence = Math.round(result.confidence * 100);
         aiContent = `🏛️ I think this is **${result.model_label?.replace(/_/g, ' ')}** (${confidence}% confident) but I don't have detailed info yet.\n\nWould you like me to search for more? 🔍`;
