@@ -895,12 +895,10 @@ if (row.hotel_details) {
         const remainingDays   = dayCount - d;
         const budgetToday     = Math.floor(remainingBudget / remainingDays);
 
+        // const dayVisited = visitedIds.filter(id =>
+        //   !likedIds0.includes(id) || scheduledLikedIds.has(id)
+        // );
         const dayVisited = [...visitedIds];
-
-        console.log(
-          `[DAY ${d + 1}/${dayCount}] START — visited: ${dayVisited.length}, ` +
-          `budget: ${budgetToday} EGP, first5: [${dayVisited.slice(0, 5).join(', ')}]`
-        );
 
         try {
           const daySchedule =
@@ -944,6 +942,8 @@ if (row.hotel_details) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(itineraryPayload),
+            // signal: AbortSignal.timeout(d === 0 ? 30000 : 15000),
+            
           });
 
           const payload = await response.json();
@@ -961,13 +961,6 @@ if (row.hotel_details) {
               budget_spent:     daySpent,
               budget_remaining: totalBudget - cumulativeSpent,
             });
-
-            const attCount  = itinerary.filter(s => !['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
-            const mealCount = itinerary.filter(s =>  ['Breakfast','Lunch','Dinner','Coffee'].includes(s.type ?? '')).length;
-            console.log(
-              `[DAY ${d + 1}/${dayCount}] DONE — att: ${attCount}, meals: ${mealCount}, ` +
-              `spent: ${daySpent} EGP, total_visited: ${visitedIds.length}`
-            );
 
             const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
             for (const stop of itinerary) {
@@ -996,12 +989,11 @@ if (row.hotel_details) {
             }
 
           } else {
-            console.warn(`[DAY ${d + 1}/${dayCount}] empty or failed — visited unchanged, budget unchanged`);
             allDays.push({ day: d + 1, date: label, activities: [] });
           }
 
-        } catch (err) {
-          console.error(`[DAY ${d + 1}/${dayCount}] fetch threw:`, err);
+        } catch (_) {
+          // console.error(`[DAY ${d + 1}] fetch failed:`, err);
           allDays.push({ day: d + 1, date: label, activities: [] });
         }
       }

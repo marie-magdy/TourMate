@@ -1733,7 +1733,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # we no longer pass full cluster_ids forward to avoid over-exclusion.
     cluster_ids: set = set()
     liked_day_assignment: dict[str, int] = {}   # attraction_id → day index it belongs to
-    other_day_liked: set = set()                # defensive init — overwritten below when n_days > 1
     if n_days > 1:
         stable_user   = _dc_replace(user, visited_ids=[])
         stable_scored = score_all_attractions(stable_user, df, att_matrix)
@@ -1928,6 +1927,10 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
     # Sort by open_hour ascending (secondary: original nearest-neighbor position).
     # This ensures 09:00 attractions are visited before 10:00 ones, so late-opening
     # liked places are naturally reached after the clock has passed their open time.
+    _liked_in_order = [a["name"] for a in ordered if str(a["attraction_id"]) in today_liked_ids]
+    if _liked_in_order:
+        log.section("ROUTE", f"liked in pool: {_liked_in_order}")
+
     # ── Scheduler state ─────────────────────────────────────────────────────────
     itinerary       = []
     visited_today   = list(user.visited_ids)
