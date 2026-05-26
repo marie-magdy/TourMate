@@ -484,8 +484,6 @@ class UserProfile:
     eaten_meal_categories: list = field(default_factory=list)  # cuisine types already used on previous days
     dislikes_crowds:      bool  = False
     meal_budget_ratio:    float = 0.25
-    accessibility_needs:  str   = "None"
-    meal_plan:            str   = "3meals"          # "2meals" skips lunch & coffee
     preferred_area_lat:   float = 0.0
     preferred_area_lon:   float = 0.0
     preferred_area_radius_km: float = 0.0
@@ -1050,31 +1048,7 @@ def recommend_meals(df, user, slot, near_lat, near_lon,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. ROUTE OPTIMISER  (unchanged)
-# ─────────────────────────────────────────────────────────────────────────────
-def optimise_route(top_df, start_lat, start_lon):
-    ordered   = []
-    remaining = top_df.copy()
-    clat, clon = start_lat, start_lon
-    while not remaining.empty:
-        remaining["dist"] = remaining.apply(
-            lambda r: _haversine_fallback(clat, clon,
-                                          r["latitude"], r["longitude"])["distance_km"],
-            axis=1,
-        )
-        mx = remaining["dist"].max()
-        remaining["prox"] = 1 - remaining["dist"] / (mx + 1e-9)
-        remaining["comb"] = 0.60 * remaining["prox"] + 0.40 * remaining["final_score"]
-        idx  = remaining["comb"].idxmax()
-        best = remaining.loc[idx]
-        ordered.append(best)
-        clat, clon = best["latitude"], best["longitude"]
-        remaining  = remaining.drop(idx)
-    return ordered
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 7b. KNAPSACK OPTIMIZATION HELPERS
+# 7. KNAPSACK OPTIMIZATION HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
 def discretize_budget_egp(amount: float) -> int:
@@ -1325,26 +1299,6 @@ def select_anchors(scored_df: pd.DataFrame, liked_ids_set: set,
         )
         max_s = ordered["final_score"].max() or 1.0
         max_d = ordered["_dist_start"].max() or 1.0
-        # ordered["_anchor0_val"] = (
-        #     0.65 * (ordered["final_score"] / max_s) +
-        #     0.35 * (1.0 - ordered["_dist_start"] / max_d)
-        # )
-        # ordered["_isolation"] = ordered.apply(
-        #     lambda r: pool.apply(
-        #         lambda p: _haversine_fallback(
-        #             float(r["latitude"]), float(r["longitude"]),
-        #             float(p["latitude"]), float(p["longitude"])
-        #         )["distance_km"],
-        #         axis=1
-        #     ).nsmallest(10).mean(),
-        #     axis=1,
-        # )
-        # max_iso = ordered["_isolation"].max() or 1.0
-        # ordered["_anchor0_val"] = (
-        #     0.50 * (ordered["final_score"] / max_s) +
-        #     0.30 * (1.0 - ordered["_dist_start"] / max_d) +
-        #     0.20 * (1.0 - ordered["_isolation"] / max_iso)
-        # )
         lats = ordered["latitude"].astype(float).values
         lons = ordered["longitude"].astype(float).values
         lats_r = np.radians(lats)
@@ -1605,8 +1559,6 @@ def build_user_from_payload(payload: dict) -> UserProfile:
         eaten_meal_categories=[str(x).lower() for x in (payload.get("eaten_meal_categories", []) or [])],
         dislikes_crowds=bool(payload.get("dislikes_crowds", False)),
         meal_budget_ratio=float(payload.get("meal_budget_ratio", 0.25) or 0.25),
-        accessibility_needs=str(payload.get("accessibility_needs", "None")),
-        meal_plan=str(payload.get("meal_plan", "3meals") or "3meals"),
         preferred_area_lat=float(payload.get("preferred_area_lat", 0.0) or 0.0),
         preferred_area_lon=float(payload.get("preferred_area_lon", 0.0) or 0.0),
         preferred_area_radius_km=float(payload.get("preferred_area_radius_km", 0.0) or 0.0),
@@ -1888,11 +1840,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
         selected_ids |= _extra
 
     # 3. Build DataFrame for routing; fall back to top-N if knapsack returned nothing
-    # selected_df = scored_for_knapsack[scored_for_knapsack["attraction_id"].astype(str).isin(selected_ids)].copy()
-    # if selected_df.empty:
-    #     selected_df = scored_for_knapsack[~scored_for_knapsack["categories"].apply(
-    #         lambda cats: bool(cats) and all(c in _FOOD_TAGS for c in cats)
-    #     )].head(top_n).copy()
     selected_df = scored_for_knapsack[scored_for_knapsack["attraction_id"].astype(str).isin(selected_ids)].copy()
     if selected_df.empty:
         selected_df = scored_for_knapsack[~scored_for_knapsack["categories"].apply(
@@ -2171,17 +2118,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             return True
         return False
 
-    def _try_meal_window(slot, dur, window_open, window_close, done_flag, guard=True):
-        """Inject a meal if we're inside its window and it hasn't been served yet.
-        guard=True means we skip injection if we've already passed the window close."""
-        if curr_hr < window_open:
-            return done_flag   # window not yet open
-        if curr_hr > window_close and guard:
-            return True        # window closed — mark done, skip
-        if not try_liked_meal(slot, dur):
-            add_meal(slot, prev_lat, prev_lon, dur)
-        return True            # mark done regardless of whether add_meal succeeded
-
     # ── Pre-loop: breakfast ─────────────────────────────────────────────────────
     # Breakfast fires immediately if start_hour is within the window.
     if include_breakfast and not breakfast_done and curr_hr >= BREAKFAST_OPEN:
@@ -2191,28 +2127,10 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                          dest_lat=_anchor_lat, dest_lon=_anchor_lon)
         breakfast_done = True
 
-    # ── TSP from post-breakfast position ────────────────────────────────────────
-    # ordered = nearest_neighbor_route(selected_df, prev_lat, prev_lon)
-    # _liked_in_order = [a["name"] for a in ordered if str(a["attraction_id"]) in today_liked_ids]
-    # if _liked_in_order:
-    #     log.section("ROUTE", f"liked in pool: {_liked_in_order}")
-
-    # # ── Main scheduling loop ────────────────────────────────────────────────────
-    # # _open_wait holds liked places parked because they aren't open yet.
-    # # After each successful visit the clock advances, so we check if any of them
-    # # can now be visited and push them to the front of the queue immediately.
-    # from collections import deque
-    # _sched_queue = deque(ordered)
-    # _open_wait: list = []
     _open_wait: list = []
-
-
-    # _sched_queue = _build_queue(prev_lat, prev_lon, set(str(v) for v in visited_today))
     _queue_ref[0] = _build_queue(prev_lat, prev_lon, set(str(v) for v in visited_today))
 
     _liked_in_order = [a["name"] for a in _queue_ref[0] if str(a["attraction_id"]) in today_liked_ids]
-
-    # _liked_in_order = [a["name"] for a in _sched_queue if str(a["attraction_id"]) in today_liked_ids]
     if _liked_in_order:
         log.section("ROUTE", f"liked in pool: {_liked_in_order}")
 
@@ -2240,29 +2158,6 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                     break
         if att is None:
             att = _queue_ref[0].popleft()
-
-        # # ── Inject meals whose window has opened since the last attraction ──────
-        # if include_breakfast and not breakfast_done:
-        #     breakfast_done = _try_meal_window(
-        #         "breakfast", 0.5, BREAKFAST_OPEN, BREAKFAST_CLOSE, breakfast_done)
-
-        # if include_lunch and not lunch_done:
-        #     lunch_done = _try_meal_window(
-        #         "lunch", 0.75, LUNCH_OPEN, LUNCH_CLOSE, lunch_done)
-
-        # # Coffee: fires within window, but only after COFFEE_GAP_HRS since last meal
-        # if (include_coffee and not coffee_done and
-        #         COFFEE_OPEN <= curr_hr <= COFFEE_CLOSE and
-        #         (curr_hr - last_meal_hr) >= COFFEE_GAP_HRS):
-        #     if not try_liked_meal("coffee", 0.4):
-        #         add_meal("coffee", prev_lat, prev_lon, 0.4, max_dist_km=2.0)
-        #     coffee_done = True
-        # elif include_coffee and not coffee_done and curr_hr > COFFEE_CLOSE:
-        #     coffee_done = True  # window passed without eligible gap — skip
-
-        # if include_dinner and not dinner_done:
-        #     dinner_done = _try_meal_window(
-        #         "dinner", 1.0, DINNER_OPEN, DINNER_CLOSE, dinner_done)
 
         # ── Inject meals BEFORE pulling next attraction ─────────────────────────
         # Checking curr_hr here (top of loop, before pop) ensures the queue is

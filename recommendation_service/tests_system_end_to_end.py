@@ -45,7 +45,6 @@ def alexandria_payload():
         "visited_ids": [],
         "day_index": 0,
         "n_days": 1,
-        "meal_plan": "3meals",
         "is_foreigner": False,
     }
 
@@ -198,7 +197,6 @@ class TestLikedPlacesSystem:
             "visited_ids": [],
             "day_index": 0,
             "n_days": 1,
-            "meal_plan": "3meals",
             "is_foreigner": False,
         }
         result = generate_itinerary_from_payload(payload, df=df, att_matrix=mat)
@@ -244,7 +242,6 @@ class TestMultiDaySystem:
             "current_lat": 31.2001,
             "current_lon": 29.9187,
             "liked_ids": [],
-            "meal_plan": "3meals",
             "is_foreigner": False,
             "n_days": 2,
         }
