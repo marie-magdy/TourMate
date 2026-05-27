@@ -1620,6 +1620,30 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
             </View>
           );
         })()}
+
+        {(() => {
+          const realActivities = currentDay?.activities.filter(
+            a => a.id !== 'start' && a.id !== 'end'
+          ) ?? [];
+          const lastStop = realActivities[realActivities.length - 1];
+          if (!lastStop?.time) return null;
+          const toHr = (t: string) => {
+            const [h, m] = t.split(':');
+            return parseInt(h, 10) + parseInt(m ?? '0', 10) / 60;
+          };
+          const lastStopEndHr = toHr(lastStop.time) + (lastStop.duration_hrs ?? 0);
+          const configuredEndHr = baseDaySchedules[activeDay]?.end_hour ?? 21;
+          if (configuredEndHr - lastStopEndHr < 2) return null;
+          return (
+            <View style={styles.shortDayNotice}>
+              <MaterialCommunityIcons name="information-outline" size={15} color="#92400E" />
+              <Text style={styles.shortDayNoticeText}>
+                This day is a bit light. It looks like we ran out of places that match your interests nearby — try adding more interests or reducing the number of days for a fuller schedule.
+              </Text>
+            </View>
+          );
+        })()}
+
 {/* ── Booking Details ── */}
 <View style={bookingStyles.container}>
 
@@ -2677,6 +2701,26 @@ activityIcon: {},
     flex: 1,
     fontSize: 12,
     color: Theme.colors.hero,
+    lineHeight: 18,
+  },
+
+  shortDayNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    backgroundColor: '#FFF8EC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#F5D98B',
+  },
+
+  shortDayNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400E',
     lineHeight: 18,
   },
 
