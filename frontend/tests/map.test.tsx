@@ -4,9 +4,10 @@ import { render, waitFor } from '@testing-library/react-native';
 process.env.EXPO_PUBLIC_API_URL = 'localhost';
 
 const mockPush = jest.fn();
+const mockSearchParams = { city: 'Cairo' };
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn() }),
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockSearchParams,
 }));
 
 jest.mock('expo-location', () => ({
@@ -80,6 +81,17 @@ describe('MapScreen', () => {
   it('renders the MapView component', async () => {
     const { findByTestId } = render(<MapScreen />);
     expect(await findByTestId('map-view')).toBeTruthy();
+  });
+
+  // ── TC-MAP-07: handle GPS disabled — denied permission still loads the
+  // map with an Alexandria fallback (via the reverse-geocode + /attractions
+  // chain) instead of crashing or staying empty.
+  it('falls back gracefully and still calls /attractions when permission is denied', async () => {
+    render(<MapScreen />);
+    await waitFor(() => {
+      const calls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
+      expect(calls.some(u => u.includes('/attractions?city='))).toBe(true);
+    });
   });
 
 });

@@ -142,6 +142,18 @@ describe('TourMateAIScreen', () => {
     expect(await findByText(/Plan 3 days in Cairo/)).toBeTruthy();
   });
 
+  // ── TC-BOT-10: conversation history is preserved on the screen ──
+  it('keeps the initial assistant greeting in the message list (chronological)', async () => {
+    const { findByText, queryByText } = render(<TourMateAIScreen />);
+    // The first greeting bubble must be present after mount and stay rendered
+    // for the lifetime of the screen (no auto-clear). This is the foundation
+    // that lets follow-up turns be "context-aware".
+    expect(await findByText(/Hello! I'm Tour Mate/)).toBeTruthy();
+    // After two animation frames the greeting must still be in the list.
+    await new Promise(r => setTimeout(r, 50));
+    expect(queryByText(/Hello! I'm Tour Mate/)).toBeTruthy();
+  });
+
   it('renders without crashing and triggers the initial points fetch effect', async () => {
     render(<TourMateAIScreen />);
     await waitFor(() => {

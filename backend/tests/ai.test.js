@@ -181,6 +181,42 @@ describe('POST /api/ai/chat', () => {
       .send({ messages: [{ role: 'user', content: 'x' }] });
     expect(res.status).toBe(500);
   });
+
+  // ── TC-BOT-04: multilingual (Arabic) query forwarded verbatim ──
+  it('forwards an Arabic user message to Groq unchanged', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'مرحبا!' } }] }),
+    });
+
+    const arabic = 'حدثني عن الأهرامات';
+    await request(app)
+      .post('/api/ai/chat')
+      .send({ messages: [{ role: 'user', content: arabic }] });
+
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    // System prompt is at [0]; the user's Arabic message must arrive at [1]
+    // with its content intact (no transliteration / no UTF-8 garbling).
+    expect(sent.messages[1]).toEqual({ role: 'user', content: arabic });
+  });
+
+  // ── TC-BOT-05: context-aware follow-up — full history is forwarded ──
+  it('forwards the entire conversation history (system + prior turns)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'continuing…' } }] }),
+    });
+
+    const history = [
+      { role: 'user',      content: 'Tell me about Karnak Temple.' },
+      { role: 'assistant', content: 'Karnak is a vast temple complex in Luxor…' },
+      { role: 'user',      content: 'Tell me more.' },
+    ];
+    await request(app).post('/api/ai/chat').send({ messages: history });
+
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    // System prompt is index 0; user history must follow in order.
+    expect(sent.messages[0].role).toBe('system');
+    expect(sent.messages.slice(1)).toEqual(history);
+  });
 });
 
 

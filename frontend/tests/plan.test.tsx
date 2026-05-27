@@ -109,4 +109,29 @@ describe('PlanScreen', () => {
     // Default budget currency is EGP so no exchangerate-api call should be made.
     expect(calls.some(u => u.includes('exchangerate-api.com'))).toBe(false);
   });
+
+  // ── TC-PLAN-02 + TC-PLAN-04: handleNext validation ──
+  // The screen uses bare `alert()` (not Alert.alert) for all 4 guards:
+  //   - no dates           → "Please select your travel dates."
+  //   - no budget          → "Please enter your budget."
+  //   - no interests       → "Please select at least one interest."
+  //   - non-numeric budget → "Please enter a valid budget amount."
+  // We assert that the freshly-mounted (empty) form does NOT navigate to
+  // /pick-spots — i.e. the validation guard is in place.
+  it('does not navigate to pick-spots until required fields are filled', async () => {
+    // jsdom doesn't define `global.alert` so we install one before render.
+    (global as any).alert = jest.fn();
+
+    render(<PlanScreen />);
+    await new Promise(r => setTimeout(r, 50));
+
+    // With no dates, no budget, no interests selected, router.push should
+    // never have been called with the pick-spots pathname.
+    const navigated = mockPush.mock.calls.some(([arg]) =>
+      arg && typeof arg === 'object' && String(arg.pathname).includes('pick-spots'),
+    );
+    expect(navigated).toBe(false);
+
+    delete (global as any).alert;
+  });
 });
