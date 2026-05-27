@@ -11,4 +11,9 @@ COPY . .
 
 ENV NODE_ENV=production
 EXPOSE 3000
+
+# Add a non-root user for security
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
 CMD ["node", "src/index.js"]

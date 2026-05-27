@@ -7,7 +7,8 @@ import pool from '../db.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const CV_SERVICE = 'http://localhost:5001';
+// const CV_SERVICE = 'http://localhost:5001';
+const CV_SERVICE = process.env.CV_URL || 'http://cv_service:5001';
 
 // ── POST /api/recognition/analyze ──
 router.post('/analyze', upload.single('image'), async (req, res) => {

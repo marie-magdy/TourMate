@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libatlas-base-dev libopenblas-dev liblapack-dev libjpeg-dev zlib1g-dev libglib2.0-0 \
+    && apt-get install -y --no-install-recommends build-essential libopenblas-dev liblapack-dev libjpeg-dev zlib1g-dev libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

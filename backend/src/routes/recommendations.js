@@ -1,7 +1,8 @@
 import express from 'express';
 
 const router = express.Router();
-const RECOMMENDATION_SERVICE = 'http://localhost:5002';
+// const RECOMMENDATION_SERVICE = 'http://localhost:5002';
+const RECOMMENDATION_SERVICE = process.env.RECOMMENDER_URL || 'http://recommendation_service:5002';
 
 router.get('/attractions', async (req, res) => {
   try {
