@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: tourmate/backend:local
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - RECOMMENDER_URL=http://recommendation_service:5002
+      - CV_URL=http://cv_service:5001
+      - API_KEY=${BACKEND_API_KEY:-changeme}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - recommendation_service
+      - cv_service
+    restart: unless-stopped
+    networks:
+      - tourmate_net
+
+  recommendation_service:
+    build:
+      context: ./recommendation_service
+      dockerfile: Dockerfile
+    image: tourmate/recommender:local
+    ports:
+      - "5002:5002"
+    environment:
+      - DATABASE_URL=${SUPABASE_DB_URL}
+      - POOL_MIN=1
+      - POOL_MAX=5
+    volumes:
+      - ./recommendation_service:/app
+    restart: unless-stopped
+    networks:
+      - tourmate_net
+
+  cv_service:
+    build:
+      context: ./cv_service
+      dockerfile: Dockerfile
+    image: tourmate/cv:local
+    ports:
+      - "5001:5001"
+    environment:
+      - API_KEY=${CV_API_KEY:-changeme}
+    volumes:
+      - ./cv_service/models:/app/models:ro
+    restart: unless-stopped
+    networks:
+      - tourmate_net
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - recommendation_service
+      - cv_service
+    networks:
+      - tourmate_net
+
+networks:
+  tourmate_net:
+    driver: bridge
