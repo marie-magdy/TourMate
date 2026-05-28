@@ -105,11 +105,10 @@ const CITIES = ['Alexandria', 'Cairo', 'Hurghada', 'Luxor', 'Aswan', 'Sharm El S
 interface FilterState {
   categories: string[];
   maxPrice: number | null;
-  minRating: number;
   city?: string;
 }
 
-const DEFAULT_FILTERS: FilterState = { categories: [], maxPrice: null, minRating: 0, city: '' };
+const DEFAULT_FILTERS: FilterState = { categories: [], maxPrice: null, city: '' };
 
 interface FilterSheetProps {
   visible: boolean;
@@ -155,7 +154,6 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
   const activeFilterCount =
     draft.categories.length +
     (draft.maxPrice !== null ? 1 : 0) +
-    (draft.minRating > 0 ? 1 : 0) +
     (draft.city && draft.city.trim() ? 1 : 0);
 
   return (
@@ -229,26 +227,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
             })}
           </View>
 
-          {/* Rating */}
-          <Text style={styles.filterSectionLabel}>MINIMUM RATING</Text>
-          <View style={styles.filterStarRow}>
-            {[1, 2, 3, 4, 5].map(star => (
-              <TouchableOpacity
-                key={star}
-                onPress={() => setDraft(prev => ({ ...prev, minRating: prev.minRating === star ? 0 : star }))}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons
-                  name={star <= draft.minRating ? 'star' : 'star-outline'}
-                  size={26}
-                  color={star <= draft.minRating ? '#FFC107' : '#DDD'}
-                />
-              </TouchableOpacity>
-            ))}
-            <Text style={styles.filterStarLabel}>
-              {draft.minRating > 0 ? `${draft.minRating}+ stars` : 'Any'}
-            </Text>
-          </View>
+         
           {/* City */}
           <Text style={styles.filterSectionLabel}>CITY</Text>
           <View style={styles.filterChipsWrap}>
@@ -947,7 +926,6 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
           const params = new URLSearchParams();
           if (f.categories.length > 0) params.set('categories', f.categories.join(','));
           if (f.maxPrice !== null) params.set('maxPrice', String(f.maxPrice));
-          if (f.minRating > 0) params.set('minRating', String(f.minRating));
           if (f.city && f.city.trim()) params.set('city', f.city.trim());
           const qs = params.toString();
           const path = `/(main)/filtered-results${qs ? `?${qs}` : ''}`;

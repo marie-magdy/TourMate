@@ -30,7 +30,6 @@ export default function FilteredResultsPage() {
     return {
       categories: params.categories ? String(params.categories).split(',').map(s => s.trim()).filter(Boolean) : [],
       maxPrice: params.maxPrice ? Number(params.maxPrice) : null,
-      minRating: params.minRating ? Number(params.minRating) : 0,
       city: params.city ? String(params.city) : '',
     } as any;
   };
@@ -43,7 +42,6 @@ export default function FilteredResultsPage() {
       const qp = new URLSearchParams();
       if (filters.categories.length) qp.set('categories', filters.categories.join(','));
       if (filters.maxPrice != null) qp.set('maxPrice', String(filters.maxPrice));
-      if (filters.minRating > 0) qp.set('minRating', String(filters.minRating));
       if (filters.city && filters.city.trim()) qp.set('city', filters.city.trim());
       qp.set('page', String(pageNum));
       qp.set('per_page', String(PER_PAGE));
@@ -109,7 +107,9 @@ export default function FilteredResultsPage() {
     if (loadingMore) return;
     if (!hasMore) return;
     if (total != null && results.length >= total) return;
-    fetchPage(page + 1, true);
+    // Fetch the next page: current page is determined by results.length / PER_PAGE + 1
+    const nextPage = Math.floor(results.length / PER_PAGE) + 1;
+    fetchPage(nextPage, true);
   };
 
   const { width, height } = Dimensions.get('window');
@@ -125,8 +125,8 @@ export default function FilteredResultsPage() {
   });
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <View style={{ position: 'relative', flex: 1 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FDF8F0' }}>
+      <View style={{ position: 'relative', flex: 1, backgroundColor: '#FDF8F0' }}>
         {triangles}
         <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View>
@@ -147,7 +147,7 @@ export default function FilteredResultsPage() {
           data={results}
           keyExtractor={(item, index) => `${String(item.id)}-${index}`}
           renderItem={({ item }) => <NearestCard item={item as any} onPress={(a) => { setSelectedAttraction(a); setShowSheet(true); }} />}
-          onEndReachedThreshold={0.6}
+          onEndReachedThreshold={0.3}
           onEndReached={() => loadMore()}
           ListFooterComponent={() => (
             <View style={{ padding: 16, alignItems: 'center' }}>
