@@ -298,7 +298,7 @@ const ActivityRow: React.FC<{
 // ── ITINERARY SCREEN ──────────────────────────────────────────────────
 export default function ItineraryScreen() {
   const router = useRouter();
-  const { t } = useApp();
+  const { t, features, refreshFeatures, userId: ctxUserId } = useApp();
   const params = useLocalSearchParams<{
     planId?: string;
     city: string;
@@ -970,6 +970,16 @@ if (row.hotel_details) {
     const text = (typeof raw === 'string' ? raw : String(raw ?? '')).trim();
     if (!text || planCoachLoading) return;
 
+    const coachUserId = userId ?? ctxUserId ?? 0;
+    const latest = await refreshFeatures(coachUserId || undefined);
+    if (latest.plan_coach_remaining <= 0) {
+      Alert.alert(
+        'Plan coach limit',
+        `Free accounts get ${latest.plan_coach_limit} plan coach messages per day. Upgrade to TourMate Pro for unlimited edits.`,
+      );
+      return;
+    }
+
     setPlanCoachPreview(null);
     if (typeof preset === 'string') setPlanCoachInput('');
 
@@ -988,6 +998,7 @@ if (row.hotel_details) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          user_id: coachUserId,
           messages: nextMessages,
           plan_days: days,
           city,
@@ -1003,12 +1014,14 @@ if (row.hotel_details) {
       });
       const data = await res.json();
       if (!data.success) {
+        if (data.code === 'PLAN_COACH_LIMIT') await refreshFeatures(coachUserId || undefined);
         setPlanCoachMessages(prev => [
           ...prev,
           { role: 'assistant', content: data.error || 'Something went wrong. Try again.' },
         ]);
         return;
       }
+      await refreshFeatures(coachUserId || undefined);
       setPlanCoachMessages(prev => [...prev, { role: 'assistant', content: String(data.reply || '') }]);
       if (Array.isArray(data.plan_days_preview) && data.plan_days_preview.length > 0) {
         setPlanCoachPreview({

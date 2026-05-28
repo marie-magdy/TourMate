@@ -36,12 +36,29 @@ jest.mock('expo-image-picker', () => ({
 }));
 
 const mockRefreshFeatures = jest.fn();
+const defaultFeatures = {
+  is_pro: false,
+  voice: false,
+  cv: false,
+  ar: false,
+  voice_chat_enabled: false,
+  cv_enabled: false,
+  ar_enabled: false,
+  chat_limit: 15,
+  chat_used_today: 0,
+  chat_remaining: 15,
+  plan_coach_limit: 5,
+  plan_coach_used_today: 0,
+  plan_coach_remaining: 5,
+};
+
 jest.mock('../constants/AppContext', () => ({
   useApp: () => ({
     t: (k: string) => k,
     userId: 42,
     voiceChatEnabled: false,
-    refreshFeatures: mockRefreshFeatures,
+    features: defaultFeatures,
+    refreshFeatures: mockRefreshFeatures.mockResolvedValue(defaultFeatures),
   }),
 }));
 
@@ -112,14 +129,6 @@ describe('TourMateAIScreen', () => {
     expect(await findByText(/Hello! I'm Tour Mate/)).toBeTruthy();
   });
 
-  it('loads user points from /points/:userId on mount', async () => {
-    render(<TourMateAIScreen />);
-    await waitFor(() => {
-      const calls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
-      expect(calls.some(u => u.includes('/points/42'))).toBe(true);
-    });
-  });
-
   it('refreshes features on mount via context', async () => {
     render(<TourMateAIScreen />);
     await waitFor(() => {
@@ -133,10 +142,8 @@ describe('TourMateAIScreen', () => {
     expect(await findByText(/Plan 3 days in Cairo/)).toBeTruthy();
   });
 
-  it('renders without crashing and triggers the initial points fetch effect', async () => {
-    render(<TourMateAIScreen />);
-    await waitFor(() => {
-      expect((global.fetch as jest.Mock).mock.calls.length).toBeGreaterThan(0);
-    });
+  it('renders without crashing', async () => {
+    const { findByText } = render(<TourMateAIScreen />);
+    expect(await findByText(/Hello! I'm Tour Mate/)).toBeTruthy();
   });
 });

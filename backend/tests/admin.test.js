@@ -273,3 +273,21 @@ describe('PUT /api/auth/admin/users/:id/voice-access', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('PUT /api/auth/admin/users/:id/features', () => {
+  it('updates feature flags', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    const res = await request(app)
+      .put('/api/auth/admin/users/2/features')
+      .send({ is_pro: true, cv_enabled: true });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('returns 400 when no flags provided', async () => {
+    const res = await request(app)
+      .put('/api/auth/admin/users/2/features')
+      .send({});
+    expect(res.status).toBe(400);
+  });
+});

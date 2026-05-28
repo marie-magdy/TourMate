@@ -18,6 +18,7 @@ import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 import { API_BASE } from '../../constants/api';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import BottomTab from '@/components/BottomTab';
+import ProUpgradeModal from '../../components/ProUpgradeModal';
 import { Keyboard } from 'react-native';
 
 
@@ -28,7 +29,6 @@ const BOTTOM_TAB_HEIGHT = 60; // adjust to match your BottomTab height
 
 const { width } = Dimensions.get('window');
 const API_KEY  = process.env.EXPO_PUBLIC_API_KEY ?? '';
-const PREMIUM_POINTS_REQUIRED = 200;
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface Message {
@@ -305,6 +305,7 @@ const TourMateAvatar: React.FC<{
 
 // ── Voice Mode Overlay ────────────────────────────────────────────────
 const VoiceModeOverlay: React.FC<{
+  userId: number;
   onClose: () => void;
   onTranscribed: (text: string) => void;
   isProcessing: boolean;
@@ -312,7 +313,7 @@ const VoiceModeOverlay: React.FC<{
   lastResponse: string;
   isFemale: boolean;
   onToggleGender: () => void;
-}> = ({ onClose, onTranscribed, isProcessing, isSpeaking, lastResponse, isFemale, onToggleGender }) => {
+}> = ({ userId, onClose, onTranscribed, isProcessing, isSpeaking, lastResponse, isFemale, onToggleGender }) => {
   const [isRecording, setIsRecording]   = useState(false);
   const [recordingDone, setRecordingDone] = useState(false);
   const [status, setStatus]             = useState('Tap the mic to speak');
@@ -367,13 +368,15 @@ const VoiceModeOverlay: React.FC<{
       const res = await fetch(`${API_BASE}/ai/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio: base64, mimeType: 'audio/m4a' }),
+        body: JSON.stringify({ audio: base64, mimeType: 'audio/m4a', user_id: userId }),
       });
       const data = await res.json();
       if (data.success && data.text) {
         setStatus(`You said: "${data.text}"`);
         setRecordingDone(true);
         onTranscribed(data.text);
+      } else if (data.code === 'PRO_REQUIRED') {
+        setStatus('Voice requires TourMate Pro');
       } else {
         setStatus("Couldn't understand. Try again.");
       }
@@ -447,10 +450,11 @@ const VoiceModeOverlay: React.FC<{
 export default function TourMateAIScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const router = useRouter();
-  const { t, userId, voiceChatEnabled, refreshFeatures } = useApp();
+  const { t, userId, features, refreshFeatures } = useApp();
   const scrollRef = useRef<ScrollView>(null);
 
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showProUpgrade, setShowProUpgrade] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([{
     id: '0',
@@ -464,22 +468,17 @@ export default function TourMateAIScreen() {
   const [voiceMode, setVoiceMode]                   = useState(false);
   const [isSpeakingResponse, setIsSpeakingResponse] = useState(false);
   const [isFemaleAvatar, setIsFemaleAvatar]         = useState(false);
-  const [points, setPoints]                         = useState<number | null>(null);
-  const [loadingPoints, setLoadingPoints]           = useState(false);
   const activeSoundRef = useRef<any>(null);
 
-  const premiumUnlocked = (points ?? 0) >= PREMIUM_POINTS_REQUIRED || voiceChatEnabled;
-
-  // ── Points ────────────────────────────────────────────────────────
-  const loadPoints = async () => {
-    if (!userId) return;
-    setLoadingPoints(true);
-    try {
-      const res = await fetch(`${API_BASE}/points/${userId}`);
-      const data = await res.json();
-      if (data.success) setPoints(Number(data.data?.points ?? 0));
-    } catch {}
-    finally { setLoadingPoints(false); }
+  const promptUpgrade = (featureLabel: string) => {
+    Alert.alert(
+      '🔒 TourMate Pro',
+      `${featureLabel} is included with TourMate Pro. Upgrade in Settings or tap Upgrade below.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Upgrade', onPress: () => setShowProUpgrade(true) },
+      ],
+    );
   };
     // Add this effect — scrolls to bottom whenever messages change
   useEffect(() => {
@@ -489,10 +488,8 @@ export default function TourMateAIScreen() {
     return () => clearTimeout(timer);
   }, [messages, loading]);
 
-  useEffect(() => { loadPoints(); }, [userId]);
-  useFocusEffect(React.useCallback(() => { 
-    loadPoints(); 
-    refreshFeatures(); // re-check voice flag every time screen opens
+  useFocusEffect(React.useCallback(() => {
+    refreshFeatures();
   }, [userId]));
 
   useEffect(() => {
@@ -515,23 +512,12 @@ export default function TourMateAIScreen() {
 
   // ── Open voice mode (points-gated) ───────────────────────────────
   const handleOpenVoiceMode = async () => {
-    await loadPoints();
-    await refreshFeatures(); //  get latest flag before checking
-
-    const current = points ?? 0;
-    const hasAccess = current >= PREMIUM_POINTS_REQUIRED || voiceChatEnabled;
-
-    if (hasAccess) { setVoiceMode(true); return; }
-
-    const remaining = Math.max(0, PREMIUM_POINTS_REQUIRED - current);
-    Alert.alert(
-      '🔒 Voice Mode Locked',
-      `Unlock Voice Mode by collecting ${PREMIUM_POINTS_REQUIRED} points.\n\nYour points: ${current}\nNeed: ${remaining} more\n\nEarn points by walking in the Map.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Go to Map', onPress: () => router.push('/(main)/map' as any) },
-      ]
-    );
+    const latest = await refreshFeatures();
+    if (latest.voice) {
+      setVoiceMode(true);
+      return;
+    }
+    promptUpgrade('Voice chat');
   };
 
   // ── Speak voice response (chunked audio) ─────────────────────────
@@ -546,7 +532,7 @@ export default function TourMateAIScreen() {
       const res = await fetch(`${API_BASE}/ai/speak`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text,isFemale }),
+        body: JSON.stringify({ text, isFemale, user_id: userId }),
       });
       const data = await res.json();
       if (!data.success || !data.audioChunks?.length) throw new Error('TTS failed');
@@ -577,6 +563,19 @@ export default function TourMateAIScreen() {
     const messageText = (text ?? input).trim();
     if (!messageText || loading) return;
 
+    const latest = await refreshFeatures();
+    if (latest.chat_remaining <= 0) {
+      Alert.alert(
+        'Daily limit reached',
+        `Free accounts get ${latest.chat_limit} AI messages per day. Upgrade to TourMate Pro for unlimited chat.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade', onPress: () => setShowProUpgrade(true) },
+        ],
+      );
+      return;
+    }
+
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'user',
@@ -595,12 +594,23 @@ export default function TourMateAIScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          user_id: userId,
           messages: [...conversationHistory, { role: 'user', content: messageText }],
         }),
       });
       const data = await response.json();
 
+      if (data.code === 'CHAT_LIMIT') {
+        await refreshFeatures();
+        Alert.alert('Daily limit reached', data.error ?? 'Upgrade to TourMate Pro for unlimited chat.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade', onPress: () => setShowProUpgrade(true) },
+        ]);
+        return;
+      }
+
       if (data.success && data.message) {
+        await refreshFeatures();
         const aiMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
@@ -627,6 +637,12 @@ export default function TourMateAIScreen() {
 
   // ── Landmark recognition (CV service) ────────────────────────────
   const recognizeLandmark = async (imageUri: string, modelType: 'outdoor' | 'artifact' = 'outdoor') => {
+    const latest = await refreshFeatures();
+    if (!latest.cv) {
+      promptUpgrade('Landmark photo recognition');
+      return;
+    }
+
     setRecognizing(true);
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
@@ -640,6 +656,7 @@ export default function TourMateAIScreen() {
       const formData = new FormData();
       formData.append('image', { uri: imageUri, type: 'image/jpeg', name: 'landmark.jpg' } as any);
       formData.append('model_type', modelType);
+      formData.append('user_id', String(userId));
 
       const response = await fetch(`${API_BASE}/recognition/analyze`, {
         method: 'POST',
@@ -647,6 +664,11 @@ export default function TourMateAIScreen() {
         body: formData,
       });
       const result = await response.json();
+
+      if (result.code === 'PRO_REQUIRED') {
+        promptUpgrade('Landmark photo recognition');
+        return;
+      }
 
       let aiContent = '';
       if (result.success && result.recognized && result.attraction) {
@@ -708,7 +730,12 @@ export default function TourMateAIScreen() {
     );
   };
 
-  const showImageOptions = () => {
+  const showImageOptions = async () => {
+    const latest = await refreshFeatures();
+    if (!latest.cv) {
+      promptUpgrade('Landmark photo recognition');
+      return;
+    }
     Alert.alert(
       'Identify a Landmark',
       'Take a photo or choose from your gallery',
@@ -739,6 +766,7 @@ export default function TourMateAIScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <VoiceModeOverlay
+          userId={userId}
           onClose={handleCloseVoice}
           onTranscribed={(text) => sendMessage(text, true)}
           isProcessing={loading}
@@ -772,10 +800,17 @@ return (
     <View style={styles.headerCenter}>
       {/* Glasses icon — left of title */}
       <TouchableOpacity
-        onPress={() => setShowPremiumModal(true)}
+        onPress={() => {
+          if (features.ar) setShowPremiumModal(true);
+          else promptUpgrade('Smart glasses / AR mode');
+        }}
         style={{ marginRight: 8 }}
       >
-        <MaterialCommunityIcons name="glasses" size={24} color="#E67E22" />
+        <MaterialCommunityIcons
+          name="glasses"
+          size={24}
+          color={features.ar ? '#E67E22' : '#BBB'}
+        />
       </TouchableOpacity>
 
       <Text style={styles.headerTitle}>{t('aiTitle')}</Text>
@@ -880,18 +915,18 @@ return (
           <TouchableOpacity
             style={[
               styles.voiceToggleBtn,
-              !premiumUnlocked && styles.voiceToggleBtnLocked,
+              !features.voice && styles.voiceToggleBtnLocked,
               loading && styles.actionBtnDisabled,
             ]}
             onPress={handleOpenVoiceMode}
             disabled={loading || recognizing}
           >
             <Text style={styles.voiceToggleIcon}>
-              {premiumUnlocked ? '🎤' : '🔒'}
+              {features.voice ? '🎤' : '🔒'}
             </Text>
-            {!premiumUnlocked && (
+            {!features.is_pro && (
               <Text style={styles.voiceToggleSub}>
-                {loadingPoints ? '...' : `${points ?? 0}/${PREMIUM_POINTS_REQUIRED}`}
+                {features.chat_remaining}/{features.chat_limit}
               </Text>
             )}
           </TouchableOpacity>
@@ -926,13 +961,10 @@ return (
       </Text>
 
       <View style={styles.modalPremiumBox}>
-        <Text style={styles.modalPremiumLabel}>✨ Premium Feature</Text>
+        <Text style={styles.modalPremiumLabel}>✨ Pro — AR mode active</Text>
         <Text style={styles.modalPremiumText}>
           Pair your wearable smart glasses with TourMate to enjoy a fully immersive,
-          seamless travel experience — no phone needed while exploring.
-        </Text>
-        <Text style={styles.modalPointsText}>
-          Your points: {points ?? 0}/{PREMIUM_POINTS_REQUIRED}
+          hands-free travel experience while exploring Egypt.
         </Text>
       </View>
 
@@ -943,6 +975,12 @@ return (
     </View>
   </View>
 </Modal>
+    <ProUpgradeModal
+      visible={showProUpgrade}
+      userId={userId}
+      onClose={() => setShowProUpgrade(false)}
+      onUpgraded={() => refreshFeatures(userId)}
+    />
   </View>
 );
 }
