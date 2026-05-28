@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 const BOTTOM_SHEET_HEIGHT = 260;
 
 // ── Star Rating ──────────────────────────────────────────────────────

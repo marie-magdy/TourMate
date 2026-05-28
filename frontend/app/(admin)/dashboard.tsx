@@ -18,7 +18,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 interface Stats {
   total_users: number;

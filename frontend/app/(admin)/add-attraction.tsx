@@ -8,7 +8,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-const API_BASE    = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE    = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 const PLACES_KEY  = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
 
 const CITIES     = ['Alexandria', 'Cairo', 'Hurghada', 'Luxor', 'Aswan', 'Sharm El Sheikh'];

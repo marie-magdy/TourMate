@@ -14,7 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../constants/AppContext';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 const WALKABLE_DISTANCE_KM = 1.0; // 1km threshold
 const ARRIVAL_RADIUS_M = 100;  // metres — considered "arrived" at destination
 const MAX_WALK_SPEED_MS = 3.0;  // m/s (~11 km/h) — above this = vehicle detected, no points

@@ -14,7 +14,7 @@ import { Attraction } from '../constants/types';
 import { useApp } from '../constants/AppContext';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 // ── Safely parse categories ───────────────────────────────────────────
 export const parseCategories = (cats: any): string[] => {

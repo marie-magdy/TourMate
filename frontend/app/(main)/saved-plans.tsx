@@ -14,7 +14,7 @@ import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
 
 const BOTTOM_TAB_HEIGHT = 60; // adjust to match your BottomTab height
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 type MCIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 

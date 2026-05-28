@@ -17,7 +17,7 @@ import BottomTab from '@/components/BottomTab';
 import { Theme } from '../../constants/theme';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 const CATEGORY_COLORS: Record<string, string> = {
   historical:  '#8B4513',

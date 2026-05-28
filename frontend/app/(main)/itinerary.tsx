@@ -22,7 +22,7 @@ const NOTIF_IDS_STORAGE_KEY = (planId: string) => `@itinerary_notif_ids_${planId
 
 
 const { height: screenHeight } = Dimensions.get('window');
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 const PLAN_COACH_SUGGESTIONS = [
   'What can you do with my plan?',
