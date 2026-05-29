@@ -61,7 +61,8 @@ const attraction = {
   price_from: 200,
   primary_image: 'https://x/p.jpg',
   categories: ['historical'],
-  opening_hours: '9-5',
+  open_hour: 9,
+  close_hour: 17,
 };
 
 

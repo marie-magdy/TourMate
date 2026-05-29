@@ -13,8 +13,10 @@ export interface Attraction {
   rating: number;
   review_count?: number;
   price_from: number;
-  opening_hours?: string;   // DB column: opening hours string
-  is_popular?: boolean;
+  opening_hours?: string;   // DB column: opening hours string (legacy)
+  open_hour?: number | null; // normalized hour-of-day (0-23)
+  close_hour?: number | null;
+  district?: string | null;
   latitude?: number;
   longitude?: number;
   virtual_tour_url?: string | null;

@@ -118,7 +118,8 @@ describe('POST /api/tts — attraction mode', () => {
       category: 'historical',
       description: 'Ancient wonder',
       price_from: 200,
-      opening_hours: '8-5',
+      open_hour: 8,
+      close_hour: 17,
       language: 'en',
     });
 

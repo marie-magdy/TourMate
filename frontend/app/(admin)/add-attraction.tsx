@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, SafeAreaView, StatusBar, Alert, ActivityIndicator,
-  Image, Switch, FlatList, Modal,
+  Image, FlatList, Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -57,19 +57,34 @@ const formatHours = (periods: any[]): string => {
   return lines.join(', ');
 };
 
+const computeOpenClose = (periods: any[]): { open_hour: number | null; close_hour: number | null } => {
+  if (!periods || periods.length === 0) return { open_hour: null, close_hour: null };
+  let minOpen: number | null = null;
+  let maxClose: number | null = null;
+  for (const p of periods) {
+    const o = p.open?.time ? parseInt(p.open.time.slice(0,2), 10) : null;
+    const c = p.close?.time ? parseInt(p.close.time.slice(0,2), 10) : null;
+    if (o != null && (minOpen == null || o < minOpen)) minOpen = o;
+    if (c != null && (maxClose == null || c > maxClose)) maxClose = c;
+  }
+  return { open_hour: minOpen, close_hour: maxClose };
+};
+
+// admin uses separate numeric open/close hour fields now
+
 export default function AddAttractionScreen() {
   const router = useRouter();
 
   const [name, setName]           = useState('');
   const [city, setCity]           = useState('Alexandria');
-  const [category, setCategory]   = useState('historical');
+  const [categories, setCategories] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [rating, setRating]       = useState('4.5');
   const [price, setPrice]         = useState('0');
-  const [hours, setHours]         = useState('');
+  const [openHour, setOpenHour]   = useState('');
+  const [closeHour, setCloseHour] = useState('');
   const [lat, setLat]             = useState('');
   const [lon, setLon]             = useState('');
-  const [isPopular, setIsPopular] = useState(false);
   const [images, setImages]       = useState<string[]>([]);
   const [driveUrl, setDriveUrl]   = useState('');
   const [saving, setSaving]       = useState(false);
@@ -122,8 +137,12 @@ export default function AddAttractionScreen() {
         const finalHours  = place.opening_hours?.periods
           ? formatHours(place.opening_hours.periods)
           : place.opening_hours?.weekday_text?.join(' | ') ?? '';
+        const { open_hour, close_hour } = place.opening_hours?.periods
+          ? computeOpenClose(place.opening_hours.periods)
+          : { open_hour: null, close_hour: null };
         const finalCity     = place.address_components ? guessCity(place.address_components) : city;
-        const finalCategory = place.types ? guessCategory(place.types) : category;
+        const finalCategory = place.types ? guessCategory(place.types) : null;
+        const finalCategories = finalCategory ? [finalCategory] : categories;
         const finalImages   = place.photos?.length > 0
           ? place.photos.slice(0, 5).map((p: any) =>
               `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${p.photo_reference}&key=${PLACES_KEY}`)
@@ -135,9 +154,10 @@ export default function AddAttractionScreen() {
         setRating(finalRating);
         setLat(finalLat);
         setLon(finalLon);
-        setHours(finalHours);
+        setOpenHour(open_hour != null ? String(open_hour) : '');
+        setCloseHour(close_hour != null ? String(close_hour) : '');
         setCity(finalCity);
-        setCategory(finalCategory);
+        setCategories(finalCategories);
         setImages(finalImages);
 
         // Auto-save directly to DB
@@ -145,13 +165,13 @@ export default function AddAttractionScreen() {
         const body = {
           name: finalName,
           city: finalCity,
-          category: finalCategory,
+          categories: finalCategories,
           description: finalDesc,
           // image_url: finalImages[0] ?? '',
           rating: parseFloat(finalRating) || 4.0,
           price_from: 0,
-          opening_hours: finalHours,
-          is_popular: false,
+          open_hour,
+          close_hour,
           latitude: parseFloat(finalLat) || null,
           longitude: parseFloat(finalLon) || null,
           images: finalImages,
@@ -191,23 +211,28 @@ export default function AddAttractionScreen() {
 
   const handleRemoveImage = (index: number) => setImages(prev => prev.filter((_, i) => i !== index));
 
+  const toggleCategory = (c: string) => {
+    setCategories(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  };
+
   // ── Save ──────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!name.trim()) { Alert.alert('Error', 'Name is required.'); return; }
-    if (images.length === 0) { Alert.alert('Error', 'Add at least one image.'); return; }
     setSaving(true);
     try {
+      const parsedOpen  = openHour.trim() ? parseInt(openHour.trim(), 10) : undefined;
+      const parsedClose = closeHour.trim() ? parseInt(closeHour.trim(), 10) : undefined;
       const res  = await fetch(`${API_BASE}/attractions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(), city, category,
+          name: name.trim(), city, categories,
           description: description.trim(),
           // image_url: images[0],
           rating: parseFloat(rating) || 4.0,
           price_from: parseFloat(price) || 0,
-          opening_hours: hours.trim(),
-          is_popular: isPopular,
+          open_hour: parsedOpen,
+          close_hour: parsedClose,
           latitude: parseFloat(lat) || null,
           longitude: parseFloat(lon) || null,
           images,
@@ -228,7 +253,8 @@ export default function AddAttractionScreen() {
 
   const resetForm = () => {
     setName(''); setDescription(''); setRating('4.5'); setPrice('0');
-    setHours(''); setLat(''); setLon(''); setImages([]); setIsPopular(false);
+    setOpenHour(''); setCloseHour(''); setLat(''); setLon(''); setImages([]);
+    setCategories([]);
     setSuggestions([]); setShowSuggestions(false);
   };
 
@@ -341,8 +367,16 @@ export default function AddAttractionScreen() {
           <Text style={styles.fieldLabel}>Description</Text>
           <TextInput style={[styles.input, styles.textArea]} value={description} onChangeText={setDescription} placeholder="Auto-filled from Google or type here..." placeholderTextColor="#AAA" multiline textAlignVertical="top" />
 
-          <Text style={styles.fieldLabel}>Opening Hours</Text>
-          <TextInput style={styles.input} value={hours} onChangeText={setHours} placeholder="Auto-filled from Google..." placeholderTextColor="#AAA" />
+          <View style={styles.row}>
+            <View style={styles.half}>
+              <Text style={styles.fieldLabel}>Open Hour (24h)</Text>
+              <TextInput style={styles.input} value={openHour} onChangeText={setOpenHour} placeholder="e.g. 9" placeholderTextColor="#AAA" keyboardType="numeric" />
+            </View>
+            <View style={styles.half}>
+              <Text style={styles.fieldLabel}>Close Hour (24h)</Text>
+              <TextInput style={styles.input} value={closeHour} onChangeText={setCloseHour} placeholder="e.g. 17" placeholderTextColor="#AAA" keyboardType="numeric" />
+            </View>
+          </View>
 
           <View style={styles.row}>
             <View style={styles.half}>
@@ -390,26 +424,14 @@ export default function AddAttractionScreen() {
           </View>
           <View style={styles.pillsRow}>
             {CATEGORIES.map(c => (
-              <TouchableOpacity key={c} style={[styles.pill, category === c && styles.pillActive]} onPress={() => setCategory(c)}>
-                <Text style={[styles.pillText, category === c && styles.pillTextActive]}>{c}</Text>
+              <TouchableOpacity key={c} style={[styles.pill, categories.includes(c) && styles.pillActive]} onPress={() => toggleCategory(c)}>
+                <Text style={[styles.pillText, categories.includes(c) && styles.pillTextActive]}>{c}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* ── Popular Toggle ── */}
-        <View style={styles.section}>
-          <View style={styles.toggleRow}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <MaterialCommunityIcons name="star" size={18} color="#F39C12" />
-                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Mark as Popular</Text>
-              </View>
-              <Text style={styles.sectionHint}>Shows in the Popular section on home screen</Text>
-            </View>
-            <Switch value={isPopular} onValueChange={setIsPopular} trackColor={{ false: '#DDD', true: '#E67E22' }} thumbColor="#FFF" />
-          </View>
-        </View>
+        {/* Popular toggle removed from admin UI */}
 
         <TouchableOpacity style={[styles.saveFullBtn, { flexDirection: 'row', justifyContent: 'center', gap: 8 }]} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color="#FFF" /> : (

@@ -112,7 +112,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
         if (raw) {
           const storedUser = JSON.parse(raw);
           currentUserId = storedUser.id;
-          setUserId(currentUserId);
+          setUserId(currentUserId ?? null);
         }
       }
       
@@ -280,7 +280,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
       if (raw) {
         const storedUser = JSON.parse(raw);
         currentUserId = storedUser.id;
-        setUserId(currentUserId);
+        setUserId(currentUserId?? null);
       }
     }
     
@@ -326,7 +326,8 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   //         category:      parseCategories(attraction.categories)[0] ?? '',
   //         description:   attraction.description,
   //         price_from:    attraction.price_from,
-  //         opening_hours: attraction.opening_hours,
+  //         open_hour:     attraction.open_hour,
+  //         close_hour:    attraction.close_hour,
   //         language:      audioLang,
   //       }),
   //     });
@@ -430,7 +431,16 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
               <MaterialCommunityIcons name="clock-outline" size={22} color="#E67E22" />
               <View>
                 <Text style={ss.infoPillLabel}>{t('hours')}</Text>
-                <Text style={ss.infoPillValue}>{attraction.opening_hours ?? t('seeWebsite')}</Text>
+                <Text style={ss.infoPillValue}>
+                  {(() => {
+                    const o = Number(attraction.open_hour);
+                    const c = Number(attraction.close_hour);
+                    if (Number.isFinite(o) && Number.isFinite(c)) {
+                      return `${String(o).padStart(2,'0')}:00 - ${String(c).padStart(2,'0')}:00`;
+                    }
+                    return t('seeWebsite');
+                  })()}
+                </Text>
               </View>
             </View>
             <View style={ss.infoPill}>

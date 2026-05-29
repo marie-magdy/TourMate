@@ -72,7 +72,26 @@ const CATEGORY_COLORS: Record<string, string> = {
   adventure:  '#D62828',
 };
 
-const ALL_CATEGORIES = ['Historical', 'Beaches', 'Restaurants', 'Shopping', 'Nature', 'Diving', 'Culture', 'Nightlife', 'Adventure'];
+// Use the same canonical interest keys as the backend INTEREST_CATEGORY_MAP
+// Keys are used as filter values; friendly labels are shown in the UI.
+const ALL_CATEGORIES = [
+  'adventure', 'diving', 'food', 'party', 'history',
+  'shopping', 'nature', 'nightlife', 'family', 'culture', 'entertainment'
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  adventure: 'Adventure',
+  diving: 'Diving',
+  food: 'Food',
+  party: 'Party',
+  history: 'History',
+  shopping: 'Shopping',
+  nature: 'Nature',
+  nightlife: 'Nightlife',
+  family: 'Family',
+  culture: 'Culture',
+  entertainment: 'Entertainment',
+};
 const PRICE_PRESETS = [
   { label: 'Any',        max: null },
   { label: '< 100 EGP',  max: 100  },
@@ -80,14 +99,16 @@ const PRICE_PRESETS = [
   { label: '< 600 EGP',  max: 600  },
 ];
 
+const CITIES = ['Alexandria', 'Cairo', 'Hurghada', 'Luxor', 'Aswan', 'Sharm El Sheikh'];
+
 // ── Filter Sheet ──────────────────────────────────────────────────────
 interface FilterState {
   categories: string[];
   maxPrice: number | null;
-  minRating: number;
+  city?: string;
 }
 
-const DEFAULT_FILTERS: FilterState = { categories: [], maxPrice: null, minRating: 0 };
+const DEFAULT_FILTERS: FilterState = { categories: [], maxPrice: null, city: '' };
 
 interface FilterSheetProps {
   visible: boolean;
@@ -101,6 +122,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   const [draft, setDraft] = useState<FilterState>(initial);
+  const [showCityPicker, setShowCityPicker] = useState(false);
 
   useEffect(() => {
     setDraft(initial);
@@ -132,7 +154,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
   const activeFilterCount =
     draft.categories.length +
     (draft.maxPrice !== null ? 1 : 0) +
-    (draft.minRating > 0 ? 1 : 0);
+    (draft.city && draft.city.trim() ? 1 : 0);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -158,11 +180,11 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
 
           {/* Category */}
           <Text style={styles.filterSectionLabel}>CATEGORY</Text>
-          <View style={styles.filterChipsWrap}>
+          <View style={[styles.filterChipsWrap, { marginBottom: 8 }]}>
             {ALL_CATEGORIES.map(cat => {
               const key = cat.toLowerCase();
               const active = draft.categories.includes(key);
@@ -178,7 +200,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
                   activeOpacity={0.8}
                 >
                   <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                    {cat}
+                    {CATEGORY_LABELS[key] ?? (key.charAt(0).toUpperCase() + key.slice(1))}
                   </Text>
                 </TouchableOpacity>
               );
@@ -205,27 +227,34 @@ const FilterSheet: React.FC<FilterSheetProps> = ({ visible, initial, onApply, on
             })}
           </View>
 
-          {/* Rating */}
-          <Text style={styles.filterSectionLabel}>MINIMUM RATING</Text>
-          <View style={styles.filterStarRow}>
-            {[1, 2, 3, 4, 5].map(star => (
-              <TouchableOpacity
-                key={star}
-                onPress={() => setDraft(prev => ({ ...prev, minRating: prev.minRating === star ? 0 : star }))}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons
-                  name={star <= draft.minRating ? 'star' : 'star-outline'}
-                  size={26}
-                  color={star <= draft.minRating ? '#FFC107' : '#DDD'}
-                />
-              </TouchableOpacity>
-            ))}
-            <Text style={styles.filterStarLabel}>
-              {draft.minRating > 0 ? `${draft.minRating}+ stars` : 'Any'}
-            </Text>
+         
+          {/* City */}
+          <Text style={styles.filterSectionLabel}>CITY</Text>
+          <View style={styles.filterChipsWrap}>
+            <TouchableOpacity
+              style={[styles.filterChip, { justifyContent: 'center' }]}
+              onPress={() => setShowCityPicker(!showCityPicker)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, !draft.city && { color: '#AAA' }]}>{draft.city || 'Select city'}</Text>
+            </TouchableOpacity>
           </View>
-
+          {showCityPicker && (
+            <View style={{ backgroundColor: '#FFF', borderRadius: 12, marginTop: 8, borderWidth: 1, borderColor: '#F0E2C8', maxHeight: 180 }}>
+              <ScrollView>
+                {CITIES.map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#FBF5EB' }}
+                    onPress={() => { setDraft(prev => ({ ...prev, city: c })); setShowCityPicker(false); }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={{ fontWeight: draft.city === c ? '800' : '600', color: draft.city === c ? '#C4873A' : '#333' }}>{c}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </ScrollView>
 
         {/* Actions */}
@@ -521,7 +550,7 @@ export default function HomeScreen() {
   const [coords, setCoords]               = useState<{ latitude: number; longitude: number } | null>(null);
   const [showLocationError, setShowLocationError] = useState(false);
 
-  // Filter state
+  // Filter state (client-side filters for Popular/Nearest; server-side full results moved to dedicated screen)
   const [activeFilters, setActiveFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [showFilter, setShowFilter]       = useState(false);
 
@@ -624,23 +653,8 @@ export default function HomeScreen() {
     setShowSheet(true);
   };
 
-  // ── Apply active filters ────────────────────────────────────────────
-  const applyFilters = (list: Attraction[]) => {
-    return list.filter(item => {
-      if (activeFilters.categories.length > 0) {
-        const itemCats = parseCategories(item.categories);
-        const hasMatch = activeFilters.categories.some(f => itemCats.includes(f));
-        if (!hasMatch) return false;
-      }
-      if (activeFilters.maxPrice !== null && Number(item.price_from) > activeFilters.maxPrice) return false;
-      if (activeFilters.minRating > 0 && Number(item.rating) < activeFilters.minRating) return false;
-      return true;
-    });
-  };
-
-  const filteredPopular = applyFilters(popular);
-  const filteredNearest = applyFilters(nearest);
-  const filteredSearch  = applyFilters(searchResults);
+  // Filters are applied only on the dedicated Filtered Results screen.
+  // Home uses the raw lists so the main UI is unchanged by active filters.
 
   const activeFilterCount =
     activeFilters.categories.length +
@@ -783,9 +797,9 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
           </View>
 
           {/* ── Search Dropdown ── */}
-          {filteredSearch.length > 0 && (
+          {searchResults.length > 0 && (
             <View style={styles.searchDropdown}>
-              {filteredSearch.map(item => (
+              {searchResults.map(item => (
                 <TouchableOpacity key={item.id} style={styles.searchResultItem} onPress={() => openAttraction(item)}>
                   <View style={styles.searchResultLeft}>
                     <MaterialCommunityIcons name="map-marker-radius" size={18} color="#E67E22" />
@@ -841,13 +855,13 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
               <Text style={styles.sectionTitle}>Popular Locations</Text>
             </View>
             {activeFilterCount > 0 && (
-              <Text style={styles.sectionFilterNote}>{filteredPopular.length} found</Text>
+              <Text style={styles.sectionFilterNote}>{popular.length} found</Text>
             )}
           </View>
-          {filteredPopular.length === 0
-            ? <Text style={styles.emptyFilterText}>No popular places match your filters.</Text>
+          {popular.length === 0
+            ? <Text style={styles.emptyFilterText}>No popular places available.</Text>
             : <FlatList
-                data={filteredPopular}
+                data={popular}
                 keyExtractor={item => String(item.id)}
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -863,13 +877,13 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
               <Text style={styles.sectionTitle}>Nearby Places</Text>
             </View>
             {activeFilterCount > 0 && (
-              <Text style={styles.sectionFilterNote}>{filteredNearest.length} found</Text>
+              <Text style={styles.sectionFilterNote}>{nearest.length} found</Text>
             )}
           </View>
-          {filteredNearest.length === 0
-            ? <Text style={styles.emptyFilterText}>No nearby places match your filters.</Text>
+          {nearest.length === 0
+            ? <Text style={styles.emptyFilterText}>No nearby places available.</Text>
             : <FlatList
-                data={filteredNearest}
+                data={nearest}
                 keyExtractor={item => String(item.id)}
                 horizontal={false}
                 showsVerticalScrollIndicator={false}
@@ -906,7 +920,17 @@ const triangles = Array.from({ length: triangleCount }).map((_, i) => {
       <FilterSheet
         visible={showFilter}
         initial={activeFilters}
-        onApply={setActiveFilters}
+        onApply={(f: FilterState) => {
+          setActiveFilters(f);
+          // Navigate to the dedicated filtered results page with query params
+          const params = new URLSearchParams();
+          if (f.categories.length > 0) params.set('categories', f.categories.join(','));
+          if (f.maxPrice !== null) params.set('maxPrice', String(f.maxPrice));
+          if (f.city && f.city.trim()) params.set('city', f.city.trim());
+          const qs = params.toString();
+          const path = `/(main)/filtered-results${qs ? `?${qs}` : ''}`;
+          router.push(path as any);
+        }}
         onClose={() => setShowFilter(false)}
       />
     </SafeAreaView>
@@ -1333,7 +1357,7 @@ const styles = StyleSheet.create({
   filterPriceBtnActive:  { backgroundColor: '#1A0A00', borderColor: '#1A0A00' },
   filterPriceBtnText:    { fontSize: 13, color: '#5C3A1E', fontWeight: '700' },
   filterPriceBtnTextActive: { color: '#FFF' },
-  filterStarRow:         { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 24 },
+  filterStarRow:         { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   filterStar:            { fontSize: 30, color: '#DDD0BC' },
   filterStarActive:      { color: '#F0A500' },
   filterStarLabel:       { fontSize: 13, color: '#A08060', fontWeight: '600', marginLeft: 4 },

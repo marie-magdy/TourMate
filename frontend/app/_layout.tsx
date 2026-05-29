@@ -24,6 +24,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)/confirmation" options={{ headerShown: true, title: "Confirmation" }} />
         <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(main)/home" />
+        <Stack.Screen name="(main)/filtered-results" />
         <Stack.Screen name="(main)/attraction" />
         <Stack.Screen name="(main)/map" />
         <Stack.Screen name="(main)/settings" />
