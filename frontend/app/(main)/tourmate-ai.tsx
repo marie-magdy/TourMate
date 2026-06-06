@@ -269,6 +269,8 @@ export default function TourMateAIScreen() {
   const { t, userId, features, refreshFeatures } = useApp();
   const scrollRef = useRef<ScrollView>(null);
 
+  const premiumUnlocked = features.voice; // or features.pro — whatever your "unlocked" flag is
+  
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showProUpgrade, setShowProUpgrade] = useState(false);
 
