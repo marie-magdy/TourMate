@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, Language } from './i18n';
 import { API_BASE } from './api';
+import { DEFAULT_FEATURES, parseFeaturesPayload, UserFeatures } from './userFeatures';
 
 // ── Currency rates (against EGP as base) ─────────────────────────────
 const EXCHANGE_KEY = process.env.EXPO_PUBLIC_EXCHANGE_API_KEY;
@@ -19,7 +20,7 @@ export interface AppUser {
   username: string;
   email: string;
   role: string;
-  voice_chat_enabled: boolean; 
+  voice_chat_enabled: boolean;
 }
 
 interface AppContextType {
@@ -29,8 +30,11 @@ interface AppContextType {
   userReady: boolean;
   setUser: (user: AppUser | null) => void;
   logout: () => Promise<void>;
-  voiceChatEnabled: boolean;        
-refreshFeatures: (userId?: number) => Promise<void>; //  (for admin changes)
+
+  // Subscription / features
+  features: UserFeatures;
+  voiceChatEnabled: boolean;
+  refreshFeatures: (userId?: number) => Promise<UserFeatures>;
 
   // Language
   language: Language;
@@ -52,12 +56,13 @@ const AppContext = createContext<AppContextType>({
   userReady: false,
   setUser: () => {},
   logout: async () => {},
-  voiceChatEnabled: false,        
-  refreshFeatures: async () => {}, 
+  features: DEFAULT_FEATURES,
+  voiceChatEnabled: false,
+  refreshFeatures: async () => DEFAULT_FEATURES,
   language: 'en',
   setLanguage: () => {},
   t: (key) => key,
-  isRTL: false,     //if true if Arabic (flips layout direction)
+  isRTL: false,
   currency: 'EGP',
   setCurrency: () => {},
   convertPrice: (p) => `EGP ${p}`,
@@ -71,33 +76,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [language, setLanguageState] = useState<Language>('en');
   const [currency, setCurrencyState] = useState<CurrencyCode>('EGP');
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
-  const [voiceChatEnabled, setVoiceChatEnabled] = useState(false);
+  const [features, setFeatures] = useState<UserFeatures>(DEFAULT_FEATURES);
 
   useEffect(() => {
     loadPreferences();
     loadUser();
     fetchRates();
   }, []);
-  
-  const refreshFeatures = async (uid?: number) => {
-  try {
-    const targetId = uid ?? user?.id;
-    if (!targetId) return;
-    const res = await fetch(`${API_BASE}/auth/user/${targetId}/features`);
-    const data = await res.json();
-    setVoiceChatEnabled(data.data?.voice_chat_enabled ?? false);
-  } catch {}
-};
-  // ── Load logged-in user from AsyncStorage ─────────────────────────
+
+  const refreshFeatures = async (uid?: number): Promise<UserFeatures> => {
+    try {
+      const targetId = uid ?? user?.id;
+      if (!targetId) return DEFAULT_FEATURES;
+      const res = await fetch(`${API_BASE}/auth/user/${targetId}/features`);
+      const data = await res.json();
+      const parsed = parseFeaturesPayload(data.data);
+      setFeatures(parsed);
+      await AsyncStorage.setItem('user_features', JSON.stringify(parsed));
+      return parsed;
+    } catch {
+      return features;
+    }
+  };
+
   const loadUser = async () => {
     try {
       const raw = await AsyncStorage.getItem('user');
       if (raw) {
         const parsed = JSON.parse(raw);
         setUserState(parsed);
-        // Also restore voice flag from storage
-        const voiceRaw = await AsyncStorage.getItem('voice_chat_enabled');
-        if (voiceRaw !== null) setVoiceChatEnabled(JSON.parse(voiceRaw));
+        const featRaw = await AsyncStorage.getItem('user_features');
+        if (featRaw) setFeatures(parseFeaturesPayload(JSON.parse(featRaw)));
+        await refreshFeatures(parsed.id);
       }
     } catch {}
     finally { setUserReady(true); }
@@ -106,17 +116,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setUser = async (u: AppUser | null) => {
     setUserState(u);
     try {
-      if (u) await AsyncStorage.setItem('user', JSON.stringify(u));
-      else await AsyncStorage.removeItem('user');
+      if (u) {
+        await AsyncStorage.setItem('user', JSON.stringify(u));
+        await refreshFeatures(u.id);
+      } else {
+        await AsyncStorage.removeItem('user');
+        setFeatures(DEFAULT_FEATURES);
+      }
     } catch {}
   };
 
   const logout = async () => {
     setUserState(null);
+    setFeatures(DEFAULT_FEATURES);
     try {
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('voice_chat_enabled');
+      await AsyncStorage.removeItem('user_features');
     } catch {}
   };
 
@@ -165,10 +181,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   };
 
-  // price is in EGP (as stored in the DB)
   const convertPrice = (priceInEGP: number): string => {
     if (currency === 'EGP') return `EGP ${priceInEGP}`;
-    // Convert EGP → USD first, then USD → target currency
     const egpPerUsd = exchangeRates['EGP'] ?? 50;
     const usdPrice = priceInEGP / egpPerUsd;
     const converted = (usdPrice * (exchangeRates[currency] ?? 1)).toFixed(0);
@@ -181,13 +195,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const isRTL = language === 'ar';
   const exchangeRate = exchangeRates[currency] ?? 1;
-
   const userId = user?.id ?? 0;
+  const voiceChatEnabled = features.voice;
 
   return (
     <AppContext.Provider value={{
       user, userId, userReady, setUser, logout,
-      voiceChatEnabled, refreshFeatures, 
+      features, voiceChatEnabled, refreshFeatures,
       language, setLanguage, t, isRTL,
       currency, setCurrency, convertPrice,
       currencySymbol: CURRENCY_SYMBOLS[currency],

@@ -16,7 +16,10 @@ router.get('/admin/users', async (req, res) => {
         COALESCE(up.points, 0) as points,
         COALESCE(up.total_earned, 0) as total_earned,
         COUNT(DISTINCT f.attraction_id) as favorites_count,
-        COALESCE(u.voice_chat_enabled, false) as voice_chat_enabled
+        COALESCE(u.voice_chat_enabled, false) as voice_chat_enabled,
+        COALESCE(u.is_pro, false) as is_pro,
+        COALESCE(u.cv_enabled, false) as cv_enabled,
+        COALESCE(u.ar_enabled, false) as ar_enabled
        FROM users u
        LEFT JOIN user_points up ON u.id = up.user_id
        LEFT JOIN favorites f ON u.id = f.user_id
@@ -152,6 +155,46 @@ router.put('/admin/users/:id/voice-access', async (req, res) => {
       [enabled, id]
     );
     res.json({ success: true, message: `Voice access ${enabled ? 'enabled' : 'disabled'}` });
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'test') console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// PUT /api/auth/admin/users/:id/features — per-user Pro / voice / CV / AR toggles
+router.put('/admin/users/:id/features', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_pro, voice_chat_enabled, cv_enabled, ar_enabled } = req.body;
+
+    const updates = [];
+    const values = [];
+    let idx = 1;
+
+    const addBool = (col, val) => {
+      if (typeof val === 'boolean') {
+        updates.push(`${col} = $${idx}`);
+        values.push(val);
+        idx += 1;
+      }
+    };
+
+    addBool('is_pro', is_pro);
+    addBool('voice_chat_enabled', voice_chat_enabled);
+    addBool('cv_enabled', cv_enabled);
+    addBool('ar_enabled', ar_enabled);
+
+    if (!updates.length) {
+      return res.status(400).json({ success: false, message: 'No valid feature flags provided' });
+    }
+
+    values.push(id);
+    await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`,
+      values,
+    );
+
+    res.json({ success: true, message: 'User features updated' });
   } catch (err) {
     if (process.env.NODE_ENV !== 'test') console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });

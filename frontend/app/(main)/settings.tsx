@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp, CurrencyCode, Language } from '../../constants/AppContext';
 import { API_BASE } from '../../constants/api';
 import { Theme } from '../../constants/theme';
+import ProUpgradeModal from '../../components/ProUpgradeModal';
 
 interface SettingRowProps {
   icon: React.ReactNode; label: string; value?: string;
@@ -229,7 +230,7 @@ const EditProfileModal: React.FC<{
 // ── MAIN SETTINGS SCREEN ──────────────────────────────────────────────
 export default function SettingsScreen() {
   const router = useRouter();
-  const { t, language, setLanguage, currency, setCurrency, isRTL, userId, setUser, user } = useApp();
+  const { t, language, setLanguage, currency, setCurrency, isRTL, userId, setUser, user, features, refreshFeatures } = useApp();
 
   // const [userId, setUserId]         = useState<number | null>(null);
   const [userName, setUserName]     = useState('');
@@ -239,6 +240,7 @@ export default function SettingsScreen() {
 
   const [showEditProfile, setShowEditProfile]       = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showProUpgrade, setShowProUpgrade]         = useState(false);
 
   const [notifications, setNotifications]       = useState(true);
   const [locationServices, setLocationServices] = useState(true);
@@ -512,6 +514,43 @@ export default function SettingsScreen() {
               </View>
             </TouchableOpacity>
 
+            {/* ── TourMate Pro ── */}
+            <SectionHeader title="TourMate Pro" />
+            <View style={styles.section}>
+              {features.is_pro ? (
+                <View style={styles.proActiveCard}>
+                  <MaterialCommunityIcons name="crown" size={28} color="#E67E22" />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.proActiveTitle}>You are Pro</Text>
+                    <Text style={styles.proActiveSub}>
+                      Voice, CV, AR, and unlimited coach are unlocked.
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.proUpgradeCard}
+                  onPress={() => setShowProUpgrade(true)}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="crown" size={28} color="#FFF" />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.proUpgradeTitle}>Upgrade to TourMate Pro</Text>
+                    <Text style={styles.proUpgradeSub}>
+                      Voice · Landmark scan · AR glasses · Unlimited coach
+                    </Text>
+                  </View>
+                  <Text style={styles.proUpgradePrice}>99 EGP</Text>
+                </TouchableOpacity>
+              )}
+              {!features.is_pro && (
+                <Text style={styles.proUsageHint}>
+                  Free today: {features.chat_remaining}/{features.chat_limit} AI chats ·{' '}
+                  {features.plan_coach_remaining}/{features.plan_coach_limit} plan coach edits
+                </Text>
+              )}
+            </View>
+
         {/* ── Account ── */}
         <SectionHeader title={t('account')} />
         <View style={styles.section}>
@@ -606,6 +645,12 @@ export default function SettingsScreen() {
         visible={showChangePassword}
         onClose={() => setShowChangePassword(false)}
         userId={userId}
+      />
+      <ProUpgradeModal
+        visible={showProUpgrade}
+        userId={userId}
+        onClose={() => setShowProUpgrade(false)}
+        onUpgraded={() => refreshFeatures(userId)}
       />
 
     </SafeAreaView>
@@ -714,6 +759,35 @@ const styles = StyleSheet.create({
     color: Theme.colors.primary,
     marginTop: 4,
     fontWeight: '600',
+  },
+
+  proUpgradeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E67E22',
+    borderRadius: 16,
+    padding: 16,
+  },
+  proUpgradeTitle: { fontSize: 16, fontWeight: '800', color: '#FFF' },
+  proUpgradeSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
+  proUpgradePrice: { fontSize: 14, fontWeight: '900', color: '#FFF' },
+  proActiveCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8F0',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  proActiveTitle: { fontSize: 16, fontWeight: '800', color: '#E67E22' },
+  proActiveSub: { fontSize: 12, color: '#888', marginTop: 4 },
+  proUsageHint: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 10,
+    paddingHorizontal: 4,
+    lineHeight: 16,
   },
 
   rewardsBanner: {
