@@ -7,7 +7,16 @@ process.env.EXPO_PUBLIC_API_URL = 'localhost';
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace, push: mockPush, back: jest.fn() }),
+  useRouter: () => ({
+    replace: mockReplace,
+    push: mockPush,
+    back: jest.fn(),
+    // settings.tsx's logout flow calls router.canDismiss() / router.dismissAll()
+    // before navigating to /login — without these stubs the try-block throws
+    // and the catch path fires a second Alert with no buttons.
+    canDismiss: () => false,
+    dismissAll: jest.fn(),
+  }),
 }));
 
 jest.mock('expo-linking', () => ({

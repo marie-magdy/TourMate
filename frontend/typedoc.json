@@ -1,0 +1,6 @@
+{
+  "entryPoints": ["./app", "./constants", "./store"],
+  "entryPointStrategy": "expand",
+  "plugin": ["typedoc-umlclass"],
+  "out": "docs"
+}

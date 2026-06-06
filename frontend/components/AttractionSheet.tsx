@@ -62,9 +62,10 @@ interface AttractionSheetProps {
   userLocation: { latitude: number; longitude: number } | null;
   userId?: number | null;
   onRemove?: (id: number) => void;
+  onGetDirections?: (destination: { latitude: number; longitude: number; name: string }) => void;
 }
 
-const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation, userId: propUserId, onRemove }) => {
+const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, onClose, userLocation, userId: propUserId, onRemove, onGetDirections }) => {
   const { t, convertPrice } = useApp();
   const slideAnim   = useRef(new Animated.Value(height)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -72,12 +73,12 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
   const [images, setImages]           = useState<string[]>([]);
   const [activeImage, setActiveImage] = useState(0);
 
-  const [audioLang, setAudioLang]       = useState<'en' | 'ar'>('en');
-  const [audioLoading, setAudioLoading] = useState(false);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioScript, setAudioScript]   = useState('');
-  const [showScript, setShowScript]     = useState(false);
-  const soundRef = useRef<any>(null);
+  // const [audioLang, setAudioLang]       = useState<'en' | 'ar'>('en');
+  // const [audioLoading, setAudioLoading] = useState(false);
+  // const [audioPlaying, setAudioPlaying] = useState(false);
+  // const [audioScript, setAudioScript]   = useState('');
+  // const [showScript, setShowScript]     = useState(false);
+  // const soundRef = useRef<any>(null);
 
   const [rideInfo, setRideInfo]       = useState<{ distance: string; duration: string; fare: string } | null>(null);
   const [rideLoading, setRideLoading] = useState(false);
@@ -92,9 +93,9 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
         Animated.timing(opacityAnim,{ toValue: 1,      duration: 200,              useNativeDriver: true }),
       ]).start();
     } else {
-      stopAudio();
-      setAudioScript('');
-      setShowScript(false);
+      // stopAudio();
+      // setAudioScript('');
+      // setShowScript(false);
       setRideInfo(null);
       Animated.parallel([
         Animated.timing(slideAnim,  { toValue: height, duration: 280, useNativeDriver: true }),
@@ -111,7 +112,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
         if (raw) {
           const storedUser = JSON.parse(raw);
           currentUserId = storedUser.id;
-          setUserId(currentUserId);
+          setUserId(currentUserId ?? null);
         }
       }
       
@@ -130,22 +131,22 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
     }
   };
 
-  useEffect(() => {
-    stopAudio();
-    setAudioScript('');
-    setShowScript(false);
-  }, [audioLang]);
+  // useEffect(() => {
+  //   stopAudio();
+  //   setAudioScript('');
+  //   setShowScript(false);
+  // }, [audioLang]);
 
-  const stopAudio = async () => {
-    if (soundRef.current) {
-      try {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
-      } catch {}
-      soundRef.current = null;
-    }
-    setAudioPlaying(false);
-  };
+  // const stopAudio = async () => {
+  //   if (soundRef.current) {
+  //     try {
+  //       await soundRef.current.stopAsync();
+  //       await soundRef.current.unloadAsync();
+  //     } catch {}
+  //     soundRef.current = null;
+  //   }
+  //   setAudioPlaying(false);
+  // };
 
   const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
 
@@ -279,7 +280,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
       if (raw) {
         const storedUser = JSON.parse(raw);
         currentUserId = storedUser.id;
-        setUserId(currentUserId);
+        setUserId(currentUserId?? null);
       }
     }
     
@@ -310,46 +311,47 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
     }
   };
 
-  const handleAudioGuide = async () => {
-    if (!attraction) return;
-    if (audioPlaying) { await stopAudio(); return; }
-    setAudioLoading(true);
-    try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const res  = await fetch(`${API_BASE}/tts`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          name:          attraction.name,
-          city:          attraction.city,
-          category:      parseCategories(attraction.categories)[0] ?? '',
-          description:   attraction.description,
-          price_from:    attraction.price_from,
-          opening_hours: attraction.opening_hours,
-          language:      audioLang,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error('TTS failed');
-      setAudioScript(data.script);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: `data:audio/mpeg;base64,${data.audio}` },
-        { shouldPlay: true }
-      );
-      soundRef.current = sound;
-      setAudioPlaying(true);
-      sound.setOnPlaybackStatusUpdate((status: any) => {
-        if (status.didJustFinish) {
-          setAudioPlaying(false);
-          soundRef.current = null;
-        }
-      });
-    } catch (err) {
-      console.error('Audio guide error:', err);
-    } finally {
-      setAudioLoading(false);
-    }
-  };
+  // const handleAudioGuide = async () => {
+  //   if (!attraction) return;
+  //   if (audioPlaying) { await stopAudio(); return; }
+  //   setAudioLoading(true);
+  //   try {
+  //     await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+  //     const res  = await fetch(`${API_BASE}/tts`, {
+  //       method:  'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body:    JSON.stringify({
+  //         name:          attraction.name,
+  //         city:          attraction.city,
+  //         category:      parseCategories(attraction.categories)[0] ?? '',
+  //         description:   attraction.description,
+  //         price_from:    attraction.price_from,
+  //         open_hour:     attraction.open_hour,
+  //         close_hour:    attraction.close_hour,
+  //         language:      audioLang,
+  //       }),
+  //     });
+  //     const data = await res.json();
+  //     if (!data.success) throw new Error('TTS failed');
+  //     setAudioScript(data.script);
+  //     const { sound } = await Audio.Sound.createAsync(
+  //       { uri: `data:audio/mpeg;base64,${data.audio}` },
+  //       { shouldPlay: true }
+  //     );
+  //     soundRef.current = sound;
+  //     setAudioPlaying(true);
+  //     sound.setOnPlaybackStatusUpdate((status: any) => {
+  //       if (status.didJustFinish) {
+  //         setAudioPlaying(false);
+  //         soundRef.current = null;
+  //       }
+  //     });
+  //   } catch (err) {
+  //     console.error('Audio guide error:', err);
+  //   } finally {
+  //     setAudioLoading(false);
+  //   }
+  // };
 
   if (!attraction) return null;
 
@@ -429,7 +431,16 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
               <MaterialCommunityIcons name="clock-outline" size={22} color="#E67E22" />
               <View>
                 <Text style={ss.infoPillLabel}>{t('hours')}</Text>
-                <Text style={ss.infoPillValue}>{attraction.opening_hours ?? t('seeWebsite')}</Text>
+                <Text style={ss.infoPillValue}>
+                  {(() => {
+                    const o = Number(attraction.open_hour);
+                    const c = Number(attraction.close_hour);
+                    if (Number.isFinite(o) && Number.isFinite(c)) {
+                      return `${String(o).padStart(2,'0')}:00 - ${String(c).padStart(2,'0')}:00`;
+                    }
+                    return t('seeWebsite');
+                  })()}
+                </Text>
               </View>
             </View>
             <View style={ss.infoPill}>
@@ -443,7 +454,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
             </View>
           </ScrollView>
 
-          {/* Audio Guide */}
+          {/* Audio Guide
           <View style={ss.audioGuideBox}>
             <View style={ss.audioGuideHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -495,7 +506,7 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
                 {audioScript}
               </Text>
             )}
-          </View>
+          </View> */}
 
           {/* Description */}
           <Text style={ss.sheetAboutTitle}>{t('about')}</Text>
@@ -560,7 +571,17 @@ const AttractionSheet: React.FC<AttractionSheetProps> = ({ attraction, visible, 
 
         {/* Get Directions */}
         <View style={ss.sheetActions}>
-          <TouchableOpacity style={ss.directionsBtn} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={ss.directionsBtn}
+            activeOpacity={0.85}
+            onPress={() => {
+              onGetDirections?.({
+                latitude: parseFloat(String(attraction.latitude)),
+                longitude: parseFloat(String(attraction.longitude)),
+                name: attraction.name,
+              });
+            }}
+          >
             <MaterialCommunityIcons name="directions" size={20} color="#FFF" />
             <Text style={ss.directionsBtnText}>Get Directions</Text>
           </TouchableOpacity>
@@ -610,24 +631,24 @@ export const sheetStyles = StyleSheet.create({
   infoPillValue: { fontSize: 13, fontWeight: '800', color: '#2C1810', maxWidth: 160, flexWrap: 'wrap' },
   sheetAboutTitle: { fontSize: 16, fontWeight: '800', color: '#2C1810', marginBottom: 8 },
   sheetAboutText:  { fontSize: 14, color: '#6B5040', lineHeight: 23 },
-  audioGuideBox: {
-    marginBottom: 22, backgroundColor: '#FFF', borderRadius: 20, padding: 18,
-    borderWidth: 1, borderColor: '#F0E2C8',
-    shadowColor: '#C4873A', shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
-  },
-  audioGuideHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  audioGuideTitle:    { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
-  langToggle:         { flexDirection: 'row', gap: 6 },
-  langBtn:            { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: '#DDD' },
-  langBtnActive:      { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
-  langBtnText:        { fontSize: 12, fontWeight: '700', color: '#888' },
-  langBtnTextActive:  { color: '#FFF' },
-  audioPlayBtn:       { backgroundColor: '#E67E22', borderRadius: 14, paddingVertical: 12, alignItems: 'center', marginBottom: 10 },
-  audioPlayBtnActive: { backgroundColor: '#C0392B' },
-  audioPlayBtnText:   { color: '#FFF', fontWeight: '800', fontSize: 14 },
-  audioLoadingText:   { fontSize: 12, color: '#A08060', textAlign: 'center', marginBottom: 6 },
-  audioScriptToggle:  { fontSize: 12, color: '#E67E22', fontWeight: '700' },
-  audioScriptText:    { fontSize: 13, color: '#5A3E2B', lineHeight: 21, marginTop: 10 },
+  // audioGuideBox: {
+  //   marginBottom: 22, backgroundColor: '#FFF', borderRadius: 20, padding: 18,
+  //   borderWidth: 1, borderColor: '#F0E2C8',
+  //   shadowColor: '#C4873A', shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+  // },
+  // audioGuideHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  // audioGuideTitle:    { fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
+  // langToggle:         { flexDirection: 'row', gap: 6 },
+  // langBtn:            { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: '#DDD' },
+  // langBtnActive:      { backgroundColor: '#1A1A1A', borderColor: '#1A1A1A' },
+  // langBtnText:        { fontSize: 12, fontWeight: '700', color: '#888' },
+  // langBtnTextActive:  { color: '#FFF' },
+  // audioPlayBtn:       { backgroundColor: '#E67E22', borderRadius: 14, paddingVertical: 12, alignItems: 'center', marginBottom: 10 },
+  // audioPlayBtnActive: { backgroundColor: '#C0392B' },
+  // audioPlayBtnText:   { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  // audioLoadingText:   { fontSize: 12, color: '#A08060', textAlign: 'center', marginBottom: 6 },
+  // audioScriptToggle:  { fontSize: 12, color: '#E67E22', fontWeight: '700' },
+  // audioScriptText:    { fontSize: 13, color: '#5A3E2B', lineHeight: 21, marginTop: 10 },
   getRideSection: {
     marginTop: 24, backgroundColor: '#FFF', borderRadius: 20, padding: 18,
     borderWidth: 1, borderColor: '#F0E2C8',

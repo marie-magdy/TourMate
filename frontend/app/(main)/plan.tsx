@@ -80,7 +80,7 @@ const EGYPTIAN_CITIES = [
 // ── Interest Tags ─────────────────────────────────────────────────────
 const INTERESTS = [
   'Adventure', 'Diving', 'Food', 'Party', 'History',
-  'Shopping', 'Nature', 'Nightlife', 'Family', 'Culture',
+  'Shopping', 'Nature', 'Nightlife', 'Family', 'Culture', 'Entertainment',
 ];
 
 // ── Calendar helpers ──────────────────────────────────────────────────
@@ -313,9 +313,7 @@ export default function PlanScreen() {
         setStartDate(tapped);
         setEndDate(null);
       } else if (tapped.getTime() === startDate.getTime()) {
-        // deselect if same day tapped
-        setStartDate(null);
-        setEndDate(null);
+        setEndDate(tapped);
       } else {
         setEndDate(tapped);
       }

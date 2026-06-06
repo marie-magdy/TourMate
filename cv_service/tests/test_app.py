@@ -276,3 +276,57 @@ def test_predict_resizes_image_to_224x224(make_app):
     arr = set_call[0][1]
     assert arr.shape == (1, 224, 224, 3)
     assert arr.dtype == np.float32
+
+
+# ── TC-CV-03: non-landmark object → very low confidence ─────────────
+def test_recognize_rejects_non_landmark_with_very_low_confidence(make_app):
+    """A random object (not a landmark) produces a near-zero confidence;
+    the response is 'recognized: false' with the same message used for
+    blurry / dark images. Distinct from the 0.59 boundary case to make
+    the 'not a landmark' intent explicit."""
+    client, _ = make_app(output_class=0, confidence=0.05)
+    res = client.post(
+        '/recognize',
+        headers={'x-api-key': 'secret-key'},
+        data={'image': (_png_bytes(color=(200, 50, 50)), 'random.png')},
+        content_type='multipart/form-data',
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body['recognized'] is False
+    assert body['message'] == 'Landmark not recognized clearly'
+    assert body['confidence'] == 0.05
+
+
+# ── TC-CV-06: predict() processing time stays well under 10 seconds ──
+def test_predict_returns_in_under_10_seconds(make_app):
+    """The /recognize processing budget in the original test plan is < 10s.
+    With a mocked TFLite interpreter the call should complete in tens of
+    milliseconds — assert it returns in well under one second."""
+    import time
+    _, app_mod = make_app(output_class=2, confidence=0.91)
+    img = Image.new('RGB', (640, 480))
+    start = time.perf_counter()
+    label, conf = app_mod.predict(img, app_mod.outdoor_model, app_mod.outdoor_labels)
+    elapsed = time.perf_counter() - start
+    assert label == 'landmark_2'
+    assert elapsed < 1.0  # well under the 10 s test-plan budget
+
+
+# ── TC-CV-04: multiple high outputs → argmax picks the primary one ──
+def test_predict_returns_argmax_when_multiple_outputs_are_high(make_app):
+    """When the model gives several classes a high score, predict() must
+    return the single highest one (no ties / no list)."""
+    _, app_mod = make_app()
+    mock_model = MagicMock()
+    mock_model.get_input_details.return_value = [{'index': 0}]
+    mock_model.get_output_details.return_value = [{'index': 0}]
+    # Three "high" landmarks; argmax → index 1 ("sphinx" in our fake labels).
+    mock_model.get_tensor.return_value = np.array(
+        [[0.62, 0.91, 0.74, 0.10]], dtype=np.float32,
+    )
+    labels = {'0': 'pyramids', '1': 'sphinx', '2': 'karnak', '3': 'noise'}
+
+    label, conf = app_mod.predict(Image.new('RGB', (32, 32)), mock_model, labels)
+    assert label == 'sphinx'
+    assert conf == pytest.approx(0.91)

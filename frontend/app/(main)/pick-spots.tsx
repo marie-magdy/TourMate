@@ -28,14 +28,15 @@ interface Spot {
 
 // ── Category tabs (keys match Excel categories) ───────────────────────
 const CATEGORIES = [
-  { key: 'all',        label: 'All'         },
-  { key: 'historical', label: 'Historical'  },
-  { key: 'restaurant', label: 'Restaurants' },
-  { key: 'beach',      label: 'Beaches'     },
-  { key: 'museum',     label: 'Museums'     },
-  { key: 'nature',     label: 'Nature'      },
-  { key: 'shopping',   label: 'Shopping'    },
-  { key: 'cafe',       label: 'Cafés'       },
+  { key: 'all',           label: 'All'           },
+  { key: 'historical',    label: 'Historical'    },
+  { key: 'restaurant',    label: 'Restaurants'   },
+  { key: 'beach',         label: 'Beaches'       },
+  { key: 'museum',        label: 'Museums'       },
+  { key: 'nature',        label: 'Nature'        },
+  { key: 'shopping',      label: 'Shopping'      },
+  { key: 'cafe',          label: 'Cafés'         },
+  { key: 'entertainment', label: 'Entertainment' },
 ];
 
 // Maps every Excel category tag → one of the CATEGORIES keys above
@@ -49,19 +50,21 @@ const CAT_MAP: Record<string, string> = {
   nature: 'nature', outdoor: 'nature', park: 'nature',
   shopping: 'shopping', mall: 'shopping', modern: 'shopping',
   cafe: 'cafe', dessert: 'cafe', bakery: 'cafe',
+  entertainment: 'entertainment', cinema: 'entertainment', theater: 'entertainment',
 };
 
 // Fallback background color per display category (used when no real image is available)
 const CAT_IMAGE: Record<string, string> = {};
 
 const CAT_COLOR: Record<string, string> = {
-  historical: '#8B7355',
-  restaurant: '#E67E22',
-  beach:      '#3498DB',
-  museum:     '#9B59B6',
-  nature:     '#27AE60',
-  shopping:   '#E74C3C',
-  cafe:       '#F39C12',
+  historical:    '#8B7355',
+  restaurant:    '#E67E22',
+  beach:         '#3498DB',
+  museum:        '#9B59B6',
+  nature:        '#27AE60',
+  shopping:      '#E74C3C',
+  cafe:          '#F39C12',
+  entertainment: '#1ABC9C',
 };
 
 // ── Spot Card ─────────────────────────────────────────────────────────
@@ -278,7 +281,8 @@ export default function PickSpotsScreen() {
     nature:    ['nature', 'beach'],
     nightlife: ['restaurant', 'cafe', 'shopping'],
     family:    ['nature', 'museum', 'historical'],
-    culture:   ['historical', 'museum'],
+    culture:        ['historical', 'museum'],
+    entertainment:  ['entertainment'],
   };
 
   // Display categories relevant to selected interests (empty = no filter)
@@ -433,6 +437,17 @@ export default function PickSpotsScreen() {
         visible={showSheet}
         onClose={() => setShowSheet(false)}
         userLocation={userLocation}
+        onGetDirections={({ latitude, longitude, name }) => {
+          setShowSheet(false);
+          router.push({
+            pathname: '/(main)/map',
+            params: {
+              destLat: String(latitude),
+              destLng: String(longitude),
+              destName: name,
+            },
+          } as any);
+        }}
       />
 
     </SafeAreaView>

@@ -236,6 +236,42 @@ describe('AppProvider — currency conversion', () => {
     expect(getCtx().convertPrice(500)).toBe('$10');
   });
 
+  // ── TC-CUR-04: rates are refreshed on app mount (one fetch to ExchangeRate-API) ──
+  it('fetches exchange rates on mount from ExchangeRate-API', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        result: 'success',
+        conversion_rates: { USD: 1, EGP: 50, EUR: 0.9 },
+      }),
+    });
+
+    const { getCtx } = setupProvider();
+    await waitFor(() => expect(getCtx().userReady).toBe(true));
+    await waitFor(() => {
+      const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
+      expect(urls.some(u => u.includes('exchangerate-api.com'))).toBe(true);
+    });
+  });
+
+  // ── TC-CUR-02: EUR → EGP using the EUR rate ──
+  it('converts EGP → EUR using fetched rates', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        result: 'success',
+        conversion_rates: { USD: 1, EGP: 50, EUR: 0.9 },
+      }),
+    });
+
+    const { getCtx } = setupProvider();
+    await waitFor(() => expect(getCtx().exchangeRate).toBeGreaterThan(0));
+
+    await act(async () => { await getCtx().setCurrency('EUR'); });
+    // 1000 EGP / 50 EGP-per-USD = 20 USD * 0.9 EUR-per-USD = 18 EUR → "€18"
+    expect(getCtx().convertPrice(1000)).toBe('€18');
+  });
+
   it('falls back to 50 EGP-per-USD when rates are missing', async () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
     (global.fetch as jest.Mock).mockRejectedValue(new Error('offline'));

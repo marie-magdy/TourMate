@@ -7,6 +7,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ── Mocks ──────────────────────────────────────────────────────────
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn() }),
+  Stack: { Screen: () => null },
+}));
+
+// login.tsx uses `useFocusEffect` from @react-navigation/native to swallow
+// the Android back button. Stub it out so we don't need a NavigationContainer.
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: jest.fn(),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

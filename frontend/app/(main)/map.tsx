@@ -225,7 +225,13 @@ const PointsToast: React.FC<{ visible: boolean; points: number }> = ({ visible, 
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ itineraryData?: string; city?: string }>();
+  const params = useLocalSearchParams<{
+    itineraryData?: string;
+    city?: string;
+    destLat?: string;
+    destLng?: string;
+    destName?: string;
+  }>();
   const [itinerary, setItinerary]           = useState<any[]>([]);
   const [showItinerary, setShowItinerary]   = useState(false);
   const [selectedDay, setSelectedDay]       = useState<number | null>(null);
@@ -404,6 +410,31 @@ export default function MapScreen() {
       console.error('Itinerary fetch error:', err);
     }
   };
+
+  useEffect(() => {
+    if (!params.destLat || !params.destLng || !userLocation) return;
+    const destination: Place = {
+      id: 'nav-dest',
+      name: params.destName ?? 'Destination',
+      latitude: parseFloat(params.destLat),
+      longitude: parseFloat(params.destLng),
+    };
+    const origin: Place = {
+      id: 'user',
+      name: 'Your Location',
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+    };
+    setSelectedPlaces([origin, destination]);
+    setNavigationRouteActive(true);
+    fetchRoute([origin, destination], routeMode);
+    mapRef.current?.animateToRegion({
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    }, 800);
+  }, [params.destLat, params.destLng, userLocation]);
 
   useEffect(() => {
     getUserLocation();
@@ -1434,6 +1465,7 @@ export default function MapScreen() {
             if (idx === 0) return null;
             const prev = dayStops[idx - 1];
             const leg = stopLegs[`${day}:${idx - 1}->${idx}`];
+            if (!leg?.durationMin) return null;
             const latitude = (prev.latitude! + stop.latitude!) / 2;
             const longitude = (prev.longitude! + stop.longitude!) / 2;
             return (
@@ -1444,7 +1476,7 @@ export default function MapScreen() {
                 tracksViewChanges={false}
               >
                 <View style={styles.travelLabel}>
-                  <Text style={styles.travelLabelText}>{leg ? `~${leg.durationMin} min` : '~-- min'}</Text>
+                  <Text style={styles.travelLabelText}>{`~${leg.durationMin} min`}</Text>
                 </View>
               </Marker>
             );
@@ -1620,7 +1652,7 @@ export default function MapScreen() {
               styles.bottomPanel,
               {
                 height: sheetHeightAnim,
-                paddingBottom: insets.bottom + 56,
+                paddingBottom: insets.bottom ,
               },
             ]}
             {...sheetPanResponder.panHandlers}

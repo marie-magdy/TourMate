@@ -16,6 +16,9 @@ import AttractionSheet from '../../components/AttractionSheet';
 import { Theme } from '../../constants/theme';
 import BottomTab from '@/components/BottomTab';
 import { useBookingStore, Hotel, Flight } from '@/store/bookingStore';
+import { scheduleItineraryNotifications, cancelItineraryNotifications } from '../../notifications';
+
+const NOTIF_IDS_STORAGE_KEY = (planId: string) => `@itinerary_notif_ids_${planId}`;
 
 
 const { height: screenHeight } = Dimensions.get('window');
@@ -478,6 +481,53 @@ useEffect(() => {
     loadUserId();
   }, []);
 
+  // Schedule OS-level notifications for the active day's activities.
+  // Date-trigger notifications fire even when the app is backgrounded, suspended,
+  // or killed. We deliberately do NOT cancel on unmount — only when the same plan
+  // is re-scheduled (so navigating away keeps reminders armed).
+  useEffect(() => {
+    if (loading || !days.length) return;
+    const activities = days[activeDay]?.activities ?? [];
+    if (!activities.length) return;
+
+    const planDate = new Date(startDate);
+    planDate.setDate(planDate.getDate() + activeDay);
+    const planId = `${city}-${startDate}-${activeDay}`;
+    const idsKey = NOTIF_IDS_STORAGE_KEY(planId);
+
+    const scheduled = activities
+      .filter((a: any) => a.time && a.id !== 'start' && a.id !== 'end')
+      .map((a: any) => ({
+        id: String(a.id),
+        time: a.time as string,
+        title: a.title as string,
+        category: (a.category ?? 'attraction') as string,
+      }));
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const prevRaw = await AsyncStorage.getItem(idsKey);
+        const prevIds: string[] = prevRaw ? JSON.parse(prevRaw) : [];
+        if (prevIds.length) await cancelItineraryNotifications(prevIds);
+
+        const newIds = await scheduleItineraryNotifications(scheduled, planDate, 10);
+        if (cancelled) {
+          await cancelItineraryNotifications(newIds);
+          return;
+        }
+        await AsyncStorage.setItem(idsKey, JSON.stringify(newIds));
+        console.log(`[Itinerary] Scheduled ${newIds.length} notifications for plan ${planId}`);
+      } catch (err) {
+        console.warn('[Itinerary] Failed to schedule notifications:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, days, activeDay, startDate, city, userId]);
+
   // Load saved plan by id (no regeneration), else hydrate from params, else generate from recommender
   useEffect(() => {
     let cancelled = false;
@@ -546,7 +596,8 @@ if (row.hotel_details) {
                     ? JSON.parse(raw)
                     : [];
                 if (Array.isArray(arr))
-                  setFetchedSpotIds(arr.map((x: unknown) => Number(x)).filter(n => !Number.isNaN(n)));
+                  // setFetchedSpotIds(arr.map((x: unknown) => Number(x)).filter(n => !Number.isNaN(n)));
+                setFetchedSpotIds(arr.map((x: unknown) => String(x)).filter(Boolean));
               }
               if (row.day_hours != null) {
                 try {
@@ -702,219 +753,49 @@ if (row.hotel_details) {
     }
   };
 
-  const generatePlan = async (): Promise<void> => {
-    setLoading(true);
-    setCoachDaySchedules(null);
-    setCoachEndDate(null);
-    setCoachExtraSpendEgp(0);
-    try {
-      const parseDate = (str: string): Date => {
-        const parts = str.split('-').map(Number);
-        return new Date(parts[0], (parts[1] ?? 1) - 1, parts[2] ?? 1);
-      };
-      const start    = parseDate(startDate);
-      const end      = parseDate(endDate);
-      const dayCount = Math.max(1, Math.round(
-        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-      ) + 1);
-      const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
+    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const isRealActivity = (a: Activity) => a.id !== 'start' && a.id !== 'end' && a.category !== 'transport';
+    const result = days.map(d => ({ ...d, activities: [...d.activities] }));
 
-      const totalBudget = Number(params.budget ?? 1000);
+    for (let earlyDay = 0; earlyDay < result.length - 1; earlyDay++) {
+      for (let lateDay = earlyDay + 1; lateDay < result.length; lateDay++) {
+        const lateActivities = result[lateDay].activities;
+        for (let li = lateActivities.length - 1; li >= 0; li--) {
+          const lateAct = lateActivities[li];
+          if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
+          if (!lateAct.latitude || !lateAct.longitude) continue;
 
-      const allDays: DayPlan[]   = [];
-      const visitedIds: string[] = [];
-      let cumulativeSpent = 0;
+          const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
+          if (!earlyLiked.length) continue;
 
-      const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
-      const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
-      const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
-      const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
-      setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
-
-      const scheduledLikedIds = new Set<string>();
-
-      let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
-      const eatenMealCategories: string[] = [];
-
-      for (let d = 0; d < dayCount; d++) {
-        const dayDate = new Date(start);
-        dayDate.setDate(start.getDate() + d);
-        const label = `${MONTH_LABELS[dayDate.getMonth()]} ${dayDate.getDate()}`;
-
-        const remainingBudget = totalBudget - cumulativeSpent;
-        const remainingDays   = dayCount - d;
-        const budgetToday     = Math.floor(remainingBudget / remainingDays);
-
-        const dayVisited = visitedIds.filter(id =>
-          !likedIds0.includes(id) || scheduledLikedIds.has(id)
-        );
-
-        try {
-          const daySchedule =
-            effectiveDaySchedules[d] ??
-            effectiveDaySchedules[effectiveDaySchedules.length - 1];
-
-          let startHour = daySchedule?.start_hour ?? 9;
-          let endHour   = daySchedule?.end_hour ?? 21;
-          let availableHoursToday = endHour - startHour;
-
-          if (endHour <= startHour) {
-            endHour += 24;
+          let nearestAct: Activity | null = null;
+          let nearestDist = Infinity;
+          for (const ea of earlyLiked) {
+            const dist = haversineKm(ea.latitude!, ea.longitude!, lateAct.latitude, lateAct.longitude);
+            if (dist < nearestDist) { nearestDist = dist; nearestAct = ea; }
           }
+          if (!nearestAct || nearestDist > 2) continue;
 
-          const itineraryPayload: Record<string, any> = {
-            user_id: 1,
-            name: 'TourMate User',
-            city,
-            interests,
-            budget_egp: budgetToday,
-            available_hours: availableHoursToday,
-            liked_ids: likedIds0,
-            visited_ids: dayVisited,
-            top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
-            browse_n: 5,
-            start_hour: startHour,
-            end_hour: endHour,
-            is_foreigner: params.isForeigner === 'true',
-            day_index: d,
-            n_days: dayCount,
-            ...(userLocationRef.current && {
-              current_lat: userLocationRef.current.lat,
-              current_lon: userLocationRef.current.lon,
-            }),
-            ...(d > 0 && areaHint ? areaHint : {}),
-            ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
-          };
+          if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
 
-          console.log(`[ITINERARY] Day ${d + 1} API payload:`);
-          console.log('  liked_ids (added):', addedIds0);
-          console.log('  liked_ids (favorited):', favIds0);
-          console.log('  liked_ids (merged):', likedIds0);
-          console.log('  visited_ids (dayVisited):', dayVisited);
-          console.log('  budget_egp:', budgetToday, '| available_hours:', availableHoursToday);
-          if (d > 0 && areaHint) console.log('  areaHint:', areaHint);
+          const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
+          const earlyBudget = result[earlyDay].budget_remaining ?? 0;
+          if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
 
-          const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(itineraryPayload),
-          });
-
-          const payload = await response.json();
-
-          if (payload.success && payload.data?.itinerary?.length) {
-            const data      = payload.data;
-            const itinerary = data.itinerary as RecommendationStop[];
-            const daySpent  = Number(data.stats?.total_cost_egp ?? 0);
-            cumulativeSpent += daySpent;
-
-            allDays.push({
-              day:              d + 1,
-              date:             label,
-              activities:       stopsToActivities(itinerary),
-              budget_spent:     daySpent,
-              budget_remaining: totalBudget - cumulativeSpent,
-            });
-
-            const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
-            for (const stop of itinerary) {
-              if (!stop.id) continue;
-              if (likedIds0.includes(stop.id)) {
-                scheduledLikedIds.add(stop.id);
-                console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id})`);
-              }
-              if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
-              const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
-              if (isMeal && stop.categories) {
-                stop.categories
-                  .map(c => c.toLowerCase())
-                  .filter(c => CUISINE_DIVERSITY_CATS.has(c) && !eatenMealCategories.includes(c))
-                  .forEach(c => eatenMealCategories.push(c));
-              }
-            }
-
-            if (d === 0 && data.recommended_attractions?.length) {
-              const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
-              const withCoords = recs.filter(r => r.latitude && r.longitude);
-              if (withCoords.length) {
-                const centerLat = withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length;
-                const centerLon = withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length;
-                areaHint = { preferred_area_lat: centerLat, preferred_area_lon: centerLon, preferred_area_radius_km: 5 };
-                console.log('[ITINERARY] Built area hint for Day 2+:', areaHint);
-              }
-            }
-
-          } else {
-            allDays.push({ day: d + 1, date: label, activities: [] });
-          }
-
-          const pendingLiked = likedIds0.filter(id => !scheduledLikedIds.has(id));
-          console.log(`[LIKED] After Day ${d + 1} — scheduled: [${[...scheduledLikedIds].join(', ')}] | still pending: [${pendingLiked.join(', ')}]`);
-
-        } catch (_) {
-          allDays.push({ day: d + 1, date: label, activities: [] });
+          lateActivities.splice(li, 1);
+          const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
+          result[earlyDay].activities.splice(insertIdx, 0, lateAct);
         }
       }
-
-      const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
-        const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-          const R = 6371;
-          const dLat = (lat2 - lat1) * Math.PI / 180;
-          const dLon = (lon2 - lon1) * Math.PI / 180;
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        };
-        const isRealActivity = (a: Activity) => a.id !== 'start' && a.id !== 'end' && a.category !== 'transport';
-        const result = days.map(d => ({ ...d, activities: [...d.activities] }));
-
-        for (let earlyDay = 0; earlyDay < result.length - 1; earlyDay++) {
-          for (let lateDay = earlyDay + 1; lateDay < result.length; lateDay++) {
-            const lateActivities = result[lateDay].activities;
-            for (let li = lateActivities.length - 1; li >= 0; li--) {
-              const lateAct = lateActivities[li];
-              if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
-              if (!lateAct.latitude || !lateAct.longitude) continue;
-
-              const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
-              if (!earlyLiked.length) continue;
-
-              let nearestAct: Activity | null = null;
-              let nearestDist = Infinity;
-              for (const ea of earlyLiked) {
-                const dist = haversineKm(ea.latitude!, ea.longitude!, lateAct.latitude, lateAct.longitude);
-                if (dist < nearestDist) { nearestDist = dist; nearestAct = ea; }
-              }
-              if (!nearestAct || nearestDist > 2) continue;
-
-              if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
-
-              const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
-              const earlyBudget = result[earlyDay].budget_remaining ?? 0;
-              if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
-
-              lateActivities.splice(li, 1);
-              const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
-              result[earlyDay].activities.splice(insertIdx, 0, lateAct);
-              console.log(`[ITINERARY] Consolidated '${lateAct.title}' → Day ${earlyDay + 1} (${nearestDist.toFixed(1)} km from '${nearestAct.title}')`);
-            }
-          }
-        }
-        return result;
-      };
-
-      const realDays = consolidateLikedAttractions(allDays, likedIds0)
-        .filter(d => d.activities.some(a => a.id !== 'start' && a.id !== 'end'))
-        .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
-
-      setDays(realDays);
-      setActiveDay(prev => Math.min(prev, Math.max(0, realDays.length - 1)));
-      generateDaySummaries(realDays);
-    } catch (err) {
-      console.error('Plan generation error:', err);
-      setDays([]);
-    } finally {
-      setLoading(false);
     }
+    return result;
   };
 
   // ── AI day summary ────────────────────────────────────────────────
@@ -962,6 +843,418 @@ if (row.hotel_details) {
       }
     }
   };
+
+  const generatePlan = async (): Promise<void> => {
+    setLoading(true);
+    setCoachDaySchedules(null);
+    setCoachEndDate(null);
+    setCoachExtraSpendEgp(0);
+    try {
+      // Compute schedules locally from params — not from outer reactive state
+      const localSchedules: { start_hour: number; end_hour: number }[] = (() => {
+        try {
+          const j = JSON.parse(params.daySchedules || '[]');
+          return Array.isArray(j) ? j : [];
+        } catch {
+          return [];
+        }
+      })();
+
+      const parseDate = (str: string): Date => {
+        const parts = str.split('-').map(Number);
+        return new Date(parts[0], (parts[1] ?? 1) - 1, parts[2] ?? 1);
+      };
+      const start    = parseDate(startDate);
+      const end      = parseDate(endDate);
+      const dayCount = Math.max(1, Math.round(
+        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+      ) + 1);
+      const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      const totalBudget = Number(params.budget ?? 1000);
+      const allDays: DayPlan[]   = [];
+      const visitedIds: string[] = [];
+      let cumulativeSpent = 0;
+
+      const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
+      const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
+      const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
+      const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
+      setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
+
+      const scheduledLikedIds = new Set<string>();
+      let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
+      const eatenMealCategories: string[] = [];
+
+      for (let d = 0; d < dayCount; d++) {
+        const dayDate = new Date(start);
+        dayDate.setDate(start.getDate() + d);
+        const label = `${MONTH_LABELS[dayDate.getMonth()]} ${dayDate.getDate()}`;
+
+        const remainingBudget = totalBudget - cumulativeSpent;
+        const remainingDays   = dayCount - d;
+        const budgetToday     = Math.floor(remainingBudget / remainingDays);
+
+        // const dayVisited = visitedIds.filter(id =>
+        //   !likedIds0.includes(id) || scheduledLikedIds.has(id)
+        // );
+        const dayVisited = [...visitedIds];
+
+        try {
+          const daySchedule =
+            localSchedules[d] ??
+            localSchedules[localSchedules.length - 1] ??
+            { start_hour: 9, end_hour: 21 };
+
+          let startHour = daySchedule?.start_hour ?? 9;
+          let endHour   = daySchedule?.end_hour ?? 21;
+          let availableHoursToday = endHour - startHour;
+
+          if (endHour <= startHour) {
+            endHour += 24;
+          }
+
+          const itineraryPayload: Record<string, any> = {
+            user_id: 1,
+            name: 'TourMate User',
+            city,
+            interests,
+            budget_egp: budgetToday,
+            available_hours: availableHoursToday,
+            liked_ids: likedIds0,
+            visited_ids: dayVisited,
+            top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
+            browse_n: 5,
+            start_hour: startHour,
+            end_hour: endHour,
+            is_foreigner: params.isForeigner === 'true',
+            day_index: d,
+            n_days: dayCount,
+            ...(userLocationRef.current && {
+              current_lat: userLocationRef.current.lat,
+              current_lon: userLocationRef.current.lon,
+            }),
+            ...(d > 0 && areaHint ? areaHint : {}),
+            ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
+          };
+
+          const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(itineraryPayload),
+            // signal: AbortSignal.timeout(d === 0 ? 30000 : 15000),
+            
+          });
+
+          const payload = await response.json();
+
+          if (payload.success && payload.data?.itinerary?.length) {
+            const data      = payload.data;
+            const itinerary = data.itinerary as RecommendationStop[];
+            const daySpent  = Number(data.stats?.total_cost_egp ?? 0);
+            cumulativeSpent += daySpent;
+
+            allDays.push({
+              day:              d + 1,
+              date:             label,
+              activities:       stopsToActivities(itinerary),
+              budget_spent:     daySpent,
+              budget_remaining: totalBudget - cumulativeSpent,
+            });
+
+            const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
+            for (const stop of itinerary) {
+              if (!stop.id) continue;
+              if (likedIds0.includes(stop.id)) {
+                scheduledLikedIds.add(stop.id);
+              }
+              if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
+              const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
+              if (isMeal && stop.categories) {
+                stop.categories
+                  .map(c => c.toLowerCase())
+                  .filter(c => CUISINE_DIVERSITY_CATS.has(c) && !eatenMealCategories.includes(c))
+                  .forEach(c => eatenMealCategories.push(c));
+              }
+            }
+
+            if (d === 0 && data.recommended_attractions?.length) {
+              const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
+              const withCoords = recs.filter(r => r.latitude && r.longitude);
+              if (withCoords.length) {
+                const centerLat = withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length;
+                const centerLon = withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length;
+                areaHint = { preferred_area_lat: centerLat, preferred_area_lon: centerLon, preferred_area_radius_km: 5 };
+              }
+            }
+
+          } else {
+            allDays.push({ day: d + 1, date: label, activities: [] });
+          }
+
+        } catch (_) {
+          // console.error(`[DAY ${d + 1}] fetch failed:`, err);
+          allDays.push({ day: d + 1, date: label, activities: [] });
+        }
+      }
+
+      console.log('[DEBUG] allDays before filter:', allDays.map(d => ({
+        day: d.day,
+        actCount: d.activities.length,
+        ids: d.activities.map(a => a.id),
+      })));
+
+      const realDays = consolidateLikedAttractions(allDays, likedIds0)
+        .filter(d => d.activities.length > 2)
+        .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
+
+      setDays(realDays);
+      setActiveDay(prev => Math.min(prev, Math.max(0, realDays.length - 1)));
+      generateDaySummaries(realDays);
+    } catch (err) {
+      console.error('Plan generation error:', err);
+      setDays([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // const generatePlan = async (): Promise<void> => {
+  //   setLoading(true);
+  //   setCoachDaySchedules(null);
+  //   setCoachEndDate(null);
+  //   setCoachExtraSpendEgp(0);
+  //   try {
+  //     const parseDate = (str: string): Date => {
+  //       const parts = str.split('-').map(Number);
+  //       return new Date(parts[0], (parts[1] ?? 1) - 1, parts[2] ?? 1);
+  //     };
+  //     const start    = parseDate(startDate);
+  //     const end      = parseDate(endDate);
+  //     const dayCount = Math.max(1, Math.round(
+  //       (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  //     ) + 1);
+  //     const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  //     const totalBudget = Number(params.budget ?? 1000);
+
+  //     const allDays: DayPlan[]   = [];
+  //     const visitedIds: string[] = [];
+  //     let cumulativeSpent = 0;
+
+  //     const addedIds0 = spotIdsForApi.map(String).filter(Boolean);
+  //     const favIds0   = params.favoritedIds?.split(',').filter(Boolean) ?? [];
+  //     const likedIds0 = [...new Set([...addedIds0, ...favIds0])];
+  //     const stripAttPrefix = (id: string) => id.replace(/^ATT0*/i, '');
+  //     setLikedIdSet(new Set(likedIds0.map(stripAttPrefix)));
+
+  //     const scheduledLikedIds = new Set<string>();
+
+  //     let areaHint: { preferred_area_lat: number; preferred_area_lon: number; preferred_area_radius_km: number } | null = null;
+  //     const eatenMealCategories: string[] = [];
+
+  //     for (let d = 0; d < dayCount; d++) {
+  //       const dayDate = new Date(start);
+  //       dayDate.setDate(start.getDate() + d);
+  //       const label = `${MONTH_LABELS[dayDate.getMonth()]} ${dayDate.getDate()}`;
+
+  //       const remainingBudget = totalBudget - cumulativeSpent;
+  //       const remainingDays   = dayCount - d;
+  //       const budgetToday     = Math.floor(remainingBudget / remainingDays);
+
+  //       const dayVisited = visitedIds.filter(id =>
+  //         !likedIds0.includes(id) || scheduledLikedIds.has(id)
+  //       );
+
+  //       try {
+  //         // const daySchedule =
+  //         //   effectiveDaySchedules[d] ??
+  //         //   effectiveDaySchedules[effectiveDaySchedules.length - 1];
+  //         const generatePlan = async (): Promise<void> => {
+  //         // Compute schedules locally from params — not from outer reactive state
+  //         const localSchedules: { start_hour: number; end_hour: number }[] = (() => {
+  //           try {
+  //             const j = JSON.parse(params.daySchedules || '[]');
+  //             return Array.isArray(j) ? j : [];
+  //           } catch {
+  //             return [];
+  //           }
+  //         })();
+
+  //           const daySchedule =
+  //             localSchedules[d] ??
+  //             localSchedules[localSchedules.length - 1] ??
+  //             { start_hour: 9, end_hour: 21 };
+
+  //         let startHour = daySchedule?.start_hour ?? 9;
+  //         let endHour   = daySchedule?.end_hour ?? 21;
+  //         let availableHoursToday = endHour - startHour;
+
+  //         if (endHour <= startHour) {
+  //           endHour += 24;
+  //         }
+
+  //         const itineraryPayload: Record<string, any> = {
+  //           user_id: 1,
+  //           name: 'TourMate User',
+  //           city,
+  //           interests,
+  //           budget_egp: budgetToday,
+  //           available_hours: availableHoursToday,
+  //           liked_ids: likedIds0,
+  //           visited_ids: dayVisited,
+  //           top_n: Math.max(20, Math.ceil(availableHoursToday * 3) + likedIds0.length),
+  //           browse_n: 5,
+  //           start_hour: startHour,
+  //           end_hour: endHour,
+  //           is_foreigner: params.isForeigner === 'true',
+  //           day_index: d,
+  //           n_days: dayCount,
+  //           ...(userLocationRef.current && {
+  //             current_lat: userLocationRef.current.lat,
+  //             current_lon: userLocationRef.current.lon,
+  //           }),
+  //           ...(d > 0 && areaHint ? areaHint : {}),
+  //           ...(d > 0 && eatenMealCategories.length ? { eaten_meal_categories: eatenMealCategories } : {}),
+  //         };
+
+  //         console.log(`[ITINERARY] Day ${d + 1} API payload:`);
+  //         console.log('  liked_ids (added):', addedIds0);
+  //         console.log('  liked_ids (favorited):', favIds0);
+  //         console.log('  liked_ids (merged):', likedIds0);
+  //         console.log('  visited_ids (dayVisited):', dayVisited);
+  //         console.log('  budget_egp:', budgetToday, '| available_hours:', availableHoursToday);
+  //         if (d > 0 && areaHint) console.log('  areaHint:', areaHint);
+
+  //         const response = await fetch(`${API_BASE}/recommendations/itinerary`, {
+  //           method: 'POST',
+  //           headers: { 'Content-Type': 'application/json' },
+  //           body: JSON.stringify(itineraryPayload),
+  //         });
+
+  //         const payload = await response.json();
+
+  //         if (payload.success && payload.data?.itinerary?.length) {
+  //           const data      = payload.data;
+  //           const itinerary = data.itinerary as RecommendationStop[];
+  //           const daySpent  = Number(data.stats?.total_cost_egp ?? 0);
+  //           cumulativeSpent += daySpent;
+
+  //           allDays.push({
+  //             day:              d + 1,
+  //             date:             label,
+  //             activities:       stopsToActivities(itinerary),
+  //             budget_spent:     daySpent,
+  //             budget_remaining: totalBudget - cumulativeSpent,
+  //           });
+
+  //           const CUISINE_DIVERSITY_CATS = new Set(['seafood','grills','nile view','waterfront','bakery','dessert','cafe']);
+  //           for (const stop of itinerary) {
+  //             if (!stop.id) continue;
+  //             if (likedIds0.includes(stop.id)) {
+  //               scheduledLikedIds.add(stop.id);
+  //               console.log(`[LIKED] ✓ Scheduled on Day ${d + 1}: "${stop.name}" (${stop.id})`);
+  //             }
+  //             if (!visitedIds.includes(stop.id)) visitedIds.push(stop.id);
+  //             const isMeal = stop.type?.includes('Lunch') || stop.type?.includes('Dinner');
+  //             if (isMeal && stop.categories) {
+  //               stop.categories
+  //                 .map(c => c.toLowerCase())
+  //                 .filter(c => CUISINE_DIVERSITY_CATS.has(c) && !eatenMealCategories.includes(c))
+  //                 .forEach(c => eatenMealCategories.push(c));
+  //             }
+  //           }
+
+  //           if (d === 0 && data.recommended_attractions?.length) {
+  //             const recs = data.recommended_attractions as Array<{ id?: string; latitude?: number; longitude?: number }>;
+  //             const withCoords = recs.filter(r => r.latitude && r.longitude);
+  //             if (withCoords.length) {
+  //               const centerLat = withCoords.reduce((s, r) => s + (r.latitude ?? 0), 0) / withCoords.length;
+  //               const centerLon = withCoords.reduce((s, r) => s + (r.longitude ?? 0), 0) / withCoords.length;
+  //               areaHint = { preferred_area_lat: centerLat, preferred_area_lon: centerLon, preferred_area_radius_km: 5 };
+  //               console.log('[ITINERARY] Built area hint for Day 2+:', areaHint);
+  //             }
+  //           }
+
+  //         } else {
+  //           allDays.push({ day: d + 1, date: label, activities: [] });
+  //         }
+
+  //         const pendingLiked = likedIds0.filter(id => !scheduledLikedIds.has(id));
+  //         console.log(`[LIKED] After Day ${d + 1} — scheduled: [${[...scheduledLikedIds].join(', ')}] | still pending: [${pendingLiked.join(', ')}]`);
+
+  //       } catch (_) {
+  //         allDays.push({ day: d + 1, date: label, activities: [] });
+  //       }
+  //     }
+
+  //     const consolidateLikedAttractions = (days: DayPlan[], likedIds: string[]): DayPlan[] => {
+  //       const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  //         const R = 6371;
+  //         const dLat = (lat2 - lat1) * Math.PI / 180;
+  //         const dLon = (lon2 - lon1) * Math.PI / 180;
+  //         const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  //         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  //       };
+  //       const isRealActivity = (a: Activity) => a.id !== 'start' && a.id !== 'end' && a.category !== 'transport';
+  //       const result = days.map(d => ({ ...d, activities: [...d.activities] }));
+
+  //       for (let earlyDay = 0; earlyDay < result.length - 1; earlyDay++) {
+  //         for (let lateDay = earlyDay + 1; lateDay < result.length; lateDay++) {
+  //           const lateActivities = result[lateDay].activities;
+  //           for (let li = lateActivities.length - 1; li >= 0; li--) {
+  //             const lateAct = lateActivities[li];
+  //             if (!likedIds.includes(lateAct.id) || !isRealActivity(lateAct)) continue;
+  //             if (!lateAct.latitude || !lateAct.longitude) continue;
+
+  //             const earlyLiked = result[earlyDay].activities.filter(a => likedIds.includes(a.id) && isRealActivity(a) && a.latitude && a.longitude);
+  //             if (!earlyLiked.length) continue;
+
+  //             let nearestAct: Activity | null = null;
+  //             let nearestDist = Infinity;
+  //             for (const ea of earlyLiked) {
+  //               const dist = haversineKm(ea.latitude!, ea.longitude!, lateAct.latitude, lateAct.longitude);
+  //               if (dist < nearestDist) { nearestDist = dist; nearestAct = ea; }
+  //             }
+  //             if (!nearestAct || nearestDist > 2) continue;
+
+  //             if (result[earlyDay].activities.some(a => a.id === lateAct.id)) continue;
+
+  //             const earlySpent = result[earlyDay].activities.filter(isRealActivity).reduce((s, a) => s + (a.cost_egp ?? 0), 0);
+  //             const earlyBudget = result[earlyDay].budget_remaining ?? 0;
+  //             if (earlySpent + (lateAct.cost_egp ?? 0) > (earlyBudget + earlySpent)) continue;
+
+  //             lateActivities.splice(li, 1);
+  //             const insertIdx = result[earlyDay].activities.findIndex(a => a.id === nearestAct!.id) + 1;
+  //             result[earlyDay].activities.splice(insertIdx, 0, lateAct);
+  //             console.log(`[ITINERARY] Consolidated '${lateAct.title}' → Day ${earlyDay + 1} (${nearestDist.toFixed(1)} km from '${nearestAct.title}')`);
+  //           }
+  //         }
+  //       }
+  //       return result;
+  //     };
+
+  //     console.log('[DEBUG] allDays before filter:', allDays.map(d => ({
+  //       day: d.day,
+  //       actCount: d.activities.length,
+  //       ids: d.activities.map(a => a.id)
+  //     })));
+
+  //     const realDays = consolidateLikedAttractions(allDays, likedIds0)
+  //       // .filter(d => d.activities.some(a => a.id !== 'start' && a.id !== 'end'))
+  //       .filter(d => d.activities.length > 2)  // at minimum: start + 1 real stop + end
+  //       .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
+
+  //     setDays(realDays);
+  //     setActiveDay(prev => Math.min(prev, Math.max(0, realDays.length - 1)));
+  //     generateDaySummaries(realDays);
+  //   } catch (err) {
+  //     console.error('Plan generation error:', err);
+  //     setDays([]);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   // ── Plan coach ────────────────────────────────────────────────────
   const sendPlanCoachMessage = async (preset?: string): Promise<void> => {
@@ -1340,6 +1633,30 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
             </View>
           );
         })()}
+
+        {(() => {
+          const realActivities = currentDay?.activities.filter(
+            a => a.id !== 'start' && a.id !== 'end'
+          ) ?? [];
+          const lastStop = realActivities[realActivities.length - 1];
+          if (!lastStop?.time) return null;
+          const toHr = (t: string) => {
+            const [h, m] = t.split(':');
+            return parseInt(h, 10) + parseInt(m ?? '0', 10) / 60;
+          };
+          const lastStopEndHr = toHr(lastStop.time) + (lastStop.duration_hrs ?? 0);
+          const configuredEndHr = baseDaySchedules[activeDay]?.end_hour ?? 21;
+          if (configuredEndHr - lastStopEndHr < 2) return null;
+          return (
+            <View style={styles.shortDayNotice}>
+              <MaterialCommunityIcons name="information-outline" size={15} color="#92400E" />
+              <Text style={styles.shortDayNoticeText}>
+                This day is a bit light. It looks like we ran out of places that match your interests nearby — try adding more interests or reducing the number of days for a fuller schedule.
+              </Text>
+            </View>
+          );
+        })()}
+
 {/* ── Booking Details ── */}
 <View style={bookingStyles.container}>
 
@@ -1932,12 +2249,23 @@ const upsertPlanToServer = async (itineraryOverride?: DayPlan[]): Promise<string
       </Modal>
 
       {/* ── Full Attraction Sheet ── */}
-      <AttractionSheet
-        attraction={sheetAttraction}
-        visible={showAttractionSheet}
-        onClose={() => setShowAttractionSheet(false)}
-        userLocation={userLocation}
-      />
+     <AttractionSheet
+      attraction={sheetAttraction}
+      visible={showAttractionSheet}
+      onClose={() => setShowAttractionSheet(false)}
+      userLocation={userLocation}
+      onGetDirections={({ latitude, longitude, name }) => {
+        setShowAttractionSheet(false);
+        router.push({
+          pathname: '/(main)/map',
+          params: {
+            destLat: String(latitude),
+            destLng: String(longitude),
+            destName: name,
+          },
+        } as any);
+      }}
+    />
 
       {/* ── Activity Detail Modal ── */}
       <Modal
@@ -2386,6 +2714,26 @@ activityIcon: {},
     flex: 1,
     fontSize: 12,
     color: Theme.colors.hero,
+    lineHeight: 18,
+  },
+
+  shortDayNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    backgroundColor: '#FFF8EC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#F5D98B',
+  },
+
+  shortDayNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400E',
     lineHeight: 18,
   },
 

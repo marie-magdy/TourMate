@@ -39,12 +39,12 @@ import AdminAttractions from '../app/(admin)/attractions';
 const ATTRACTIONS = [
   {
     id: 1, name: 'Pyramids', city: 'Giza', description: 'Wonder', primary_image: '',
-    rating: 4.8, price_from: 200, opening_hours: '9-5', is_popular: true,
+    rating: 4.8, price_from: 200, open_hour: 9, close_hour: 17,
     latitude: 30, longitude: 31, categories: ['historical'],
   },
   {
     id: 2, name: 'Sphinx', city: 'Giza', description: '', primary_image: '',
-    rating: 4.5, price_from: 100, opening_hours: '9-5', is_popular: false,
+    rating: 4.5, price_from: 100, open_hour: 9, close_hour: 17,
     latitude: 30, longitude: 31, categories: ['historical'],
   },
 ];

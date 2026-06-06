@@ -95,8 +95,17 @@ jest.mock('@expo/vector-icons', () => {
   const { Text } = require('react-native');
   return {
     MaterialCommunityIcons: ({ name }: any) => <Text>{`icon:${name}`}</Text>,
+    // tourmate-ai.tsx also uses Ionicons — without this, it resolves to
+    // undefined and React throws "Element type is invalid".
+    Ionicons: ({ name }: any) => <Text>{`ion:${name}`}</Text>,
   };
 });
+
+// VoiceScreen pulls in its own native dependencies. Stub it so loading the
+// AI screen doesn't drag the whole voice subsystem into the test bundle.
+jest.mock('../app/(main)/VoiceScreen', () => ({
+  VoiceScreen: () => null,
+}));
 
 beforeAll(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -142,8 +151,22 @@ describe('TourMateAIScreen', () => {
     expect(await findByText(/Plan 3 days in Cairo/)).toBeTruthy();
   });
 
-  it('renders without crashing', async () => {
-    const { findByText } = render(<TourMateAIScreen />);
+  // ── TC-BOT-10: conversation history is preserved on the screen ──
+  it('keeps the initial assistant greeting in the message list (chronological)', async () => {
+    const { findByText, queryByText } = render(<TourMateAIScreen />);
+    // The first greeting bubble must be present after mount and stay rendered
+    // for the lifetime of the screen (no auto-clear). This is the foundation
+    // that lets follow-up turns be "context-aware".
     expect(await findByText(/Hello! I'm Tour Mate/)).toBeTruthy();
+    // After two animation frames the greeting must still be in the list.
+    await new Promise(r => setTimeout(r, 50));
+    expect(queryByText(/Hello! I'm Tour Mate/)).toBeTruthy();
+  });
+
+  it('renders without crashing and triggers the initial points fetch effect', async () => {
+    render(<TourMateAIScreen />);
+    await waitFor(() => {
+      expect((global.fetch as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+    });
   });
 });
