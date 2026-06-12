@@ -5,6 +5,11 @@ jest.unstable_mockModule('../src/services/planCoach.js', () => ({
   runPlanCoach: mockRunPlanCoach,
 }));
 
+const mockAssertFeatureAccess = jest.fn().mockResolvedValue({ allowed: true, features: {} });
+jest.unstable_mockModule('../src/services/userFeatures.js', () => ({
+  assertFeatureAccess: mockAssertFeatureAccess,
+}));
+
 beforeAll(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'log').mockImplementation(() => {});

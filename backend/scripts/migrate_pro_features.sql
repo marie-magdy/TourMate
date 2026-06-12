@@ -1,0 +1,17 @@
+-- TourMate Pro: run once on your PostgreSQL database
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_pro BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cv_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ar_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_uses_today INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_reset_date DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_coach_uses_today INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_coach_reset_date DATE;
+
+CREATE TABLE IF NOT EXISTS subscription_events (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT NOT NULL DEFAULT 'tourmate_pro',
+  amount_egp NUMERIC(10, 2) DEFAULT 99,
+  payment_method TEXT DEFAULT 'demo_card',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

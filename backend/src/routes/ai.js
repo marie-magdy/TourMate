@@ -1,6 +1,7 @@
 // backend/src/routes/ai.js
 import express from 'express';
 import { runPlanCoach } from '../services/planCoach.js';
+import { assertFeatureAccess } from '../services/userFeatures.js';
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ Always be friendly, warm, and helpful. Use emojis sparingly — maximum 1-2 per 
 router.post('/plan-coach', async (req, res) => {
   try {
     const {
+      user_id,
       messages,
       plan_days,
       city,
@@ -33,6 +35,16 @@ router.post('/plan-coach', async (req, res) => {
       start_date,
       existing_coach_extra_spend_egp,
     } = req.body;
+
+    const access = await assertFeatureAccess(Number(user_id), 'plan_coach');
+    if (!access.allowed) {
+      return res.status(access.status).json({
+        success: false,
+        error: access.error,
+        code: access.code,
+        features: access.features,
+      });
+    }
 
     if (!Array.isArray(messages) || !messages.length) {
       return res.status(400).json({ success: false, error: 'messages array required' });
@@ -77,7 +89,17 @@ router.post('/plan-coach', async (req, res) => {
 
 router.post('/chat', async (req, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, user_id } = req.body;
+
+    const access = await assertFeatureAccess(Number(user_id), 'chat');
+    if (!access.allowed) {
+      return res.status(access.status).json({
+        success: false,
+        error: access.error,
+        code: access.code,
+        features: access.features,
+      });
+    }
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -112,8 +134,18 @@ router.post('/chat', async (req, res) => {
 
 router.post('/speak', async (req, res) => {
   try {
-    const { text, isFemale = true } = req.body;
+    const { text, isFemale = true, user_id } = req.body;
     if (!text) return res.status(400).json({ success: false, error: 'No text provided' });
+
+    const access = await assertFeatureAccess(Number(user_id), 'voice');
+    if (!access.allowed) {
+      return res.status(access.status).json({
+        success: false,
+        error: access.error,
+        code: access.code,
+        features: access.features,
+      });
+    }
 
     const cleanText = text
       .replace(/[*_`#~]/g, '')
@@ -201,8 +233,18 @@ router.post('/speak', async (req, res) => {
 
 router.post('/transcribe', async (req, res) => {
   try {
-    const { audio, mimeType = 'audio/m4a' } = req.body;
+    const { audio, mimeType = 'audio/m4a', user_id } = req.body;
     if (!audio) return res.status(400).json({ success: false, error: 'No audio provided' });
+
+    const access = await assertFeatureAccess(Number(user_id), 'voice');
+    if (!access.allowed) {
+      return res.status(access.status).json({
+        success: false,
+        error: access.error,
+        code: access.code,
+        features: access.features,
+      });
+    }
     if (!process.env.GROQ_API_KEY) {
       return res.status(503).json({ success: false, error: 'GROQ_API_KEY is not configured' });
     }

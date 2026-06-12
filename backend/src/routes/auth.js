@@ -3,6 +3,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import pool from '../db.js';
+import { getUserFeatures } from '../services/userFeatures.js';
 
 const router = express.Router();
 
@@ -184,15 +185,9 @@ router.get('/user/:id', async (req, res) => {
 router.get('/user/:id/features', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      `SELECT voice_chat_enabled
-       FROM users
-       WHERE id = $1`,
-      [id]
-    );
-    if (!result.rows[0])
-       return res.status(404).json({ success: false });
-    res.json({ success: true, data: { voice_chat_enabled: result.rows[0].voice_chat_enabled } });
+    const features = await getUserFeatures(Number(id));
+    if (!features) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, data: features });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
