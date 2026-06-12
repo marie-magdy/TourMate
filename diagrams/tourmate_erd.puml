@@ -51,15 +51,15 @@ entity "points_history" as points_history {
   created_at : timestamp
 }
 
-entity "walk_awards" as walk_awards {
-  * <u>id</u> : integer <<PK>>
-  --
-  # user_id : integer <<FK>>
-  attraction_id : varchar
-  points : integer
-  distance_m : integer
-  awarded_at : timestamp
-}
+' entity "walk_awards" as walk_awards {
+'   * <u>id</u> : integer <<PK>>
+'   --
+'   # user_id : integer <<FK>>
+'   attraction_id : varchar
+'   points : integer
+'   distance_m : integer
+'   awarded_at : timestamp
+' }
 
 entity "rewards" as rewards {
   * <u>id</u> : integer <<PK>>
@@ -72,19 +72,19 @@ entity "rewards" as rewards {
   is_available : boolean
 }
 
-entity "user_rewards" as user_rewards {
-  * <u>id</u> : integer <<PK>>
-  --
-  # user_id : integer <<FK>>
-  # reward_id : integer <<FK>>
-  redeemed_at : timestamp
-}
+' entity "user_rewards" as user_rewards {
+'   * <u>id</u> : integer <<PK>>
+'   --
+'   # user_id : integer <<FK>>
+'   # reward_id : integer <<FK>>
+'   redeemed_at : timestamp
+' }
 
 users ||--|| user_points : "has points"
 users ||--o{ points_history : "earns"
-users ||--o{ walk_awards : "receives"
-users ||--o{ user_rewards : "redeems"
-rewards ||--o{ user_rewards : "redeemed via"
+' users ||--o{ walk_awards : "receives"
+' users ||--o{ user_rewards : "redeems"
+' rewards ||--o{ user_rewards : "redeemed via"
 
 @enduml
 
