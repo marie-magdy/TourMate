@@ -183,6 +183,128 @@ router.get('/favorites/:user_id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+//  GET /api/attractions/filter
+//  Query params:
+//    - categories: comma-separated category names (filter to ONLY these)
+//    - maxPrice: maximum price threshold
+//    - city: city name
+//    - page: page number (1-indexed)
+//    - per_page: results per page
+// ─────────────────────────────────────────────────────────────────────
+router.get('/filter', async (req, res) => {
+  try {
+    const { categories, maxPrice, city, page = 1, per_page = 20 } = req.query;
+    
+    // Parse query params
+    const selectedCategories = categories 
+      ? String(categories).split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    const maxPriceNum = maxPrice ? Number(maxPrice) : null;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const perPage = Math.max(1, Math.min(100, Number(per_page) || 20));
+    const offset = (pageNum - 1) * perPage;
+
+    // Build WHERE clause
+    const params = [];
+    let paramIndex = 1;
+    let where = 'WHERE 1=1';
+
+    // City filter
+    if (city && city.trim()) {
+      where += ` AND LOWER(ci.name) = LOWER($${paramIndex++})`;
+      params.push(city.trim());
+    }
+
+    // Price filter: price_from <= maxPrice
+    if (maxPriceNum !== null) {
+      where += ` AND a.price_from <= $${paramIndex++}`;
+      params.push(maxPriceNum);
+    }
+
+    // Category filter: if categories specified, ONLY show attractions with these categories
+    // AFTER (checks join table AND text column fallback):
+if (selectedCategories.length > 0) {
+  const catMappings = {
+    history:       ['historical', 'historic', 'ancient', 'palace', 'museum', 'religious', 'landmark'],
+    food:          ['restaurant', 'restaurants', 'food', 'cafe', 'bakery', 'coffee', 'dessert', 'ice_cream', 'american', 'burgers', 'casual', 'egyptian', 'fast_food', 'feteer', 'international', 'lebanese', 'mediterranean', 'mixed', 'pizza', 'seafood', 'street_food', 'syrian', 'traditional'],
+    party:         ['party', 'nightlife', 'entertainment', 'amusement', 'cinema', 'gaming', 'restaurant', 'restaurants', 'cafe', 'coffee', 'casual', 'local'],
+    nightlife:     ['nightlife', 'party', 'entertainment', 'amusement', 'cinema', 'gaming', 'restaurant', 'restaurants', 'cafe', 'coffee', 'casual', 'local'],
+    adventure:     ['adventure', 'outdoor', 'sports'],
+    diving:        ['diving', 'water sports', 'snorkeling', 'beach', 'water'],
+    shopping:      ['shopping', 'markets', 'bazaar', 'mall'],
+    nature:        ['nature', 'outdoor', 'parks', 'park', 'coastal', 'nile view'],
+    culture:       ['culture', 'cultural', 'arts', 'museum', 'historic', 'palace', 'landmark', 'religious', 'photo_op', 'bridge'],
+    family:        ['family', 'kids', 'entertainment', 'amusement', 'cinema', 'gaming', 'park', 'parks', 'outdoor'],
+    entertainment: ['entertainment', 'amusement', 'family', 'cinema', 'gaming', 'restaurant', 'cafe', 'coffee'],
+  };
+
+  // Expand selected categories to all DB synonyms
+  const expandedTerms = [...new Set(
+    selectedCategories.flatMap(cat => catMappings[cat.toLowerCase()] ?? [cat.toLowerCase()])
+  )];
+
+  const joinConditions = expandedTerms
+    .map(() => `LOWER(c2.name) ILIKE $${paramIndex++}`)
+    .join(' OR ');
+  const textConditions = expandedTerms
+    .map(() => `LOWER(a.categories) ILIKE $${paramIndex++}`)
+    .join(' OR ');
+
+  where += ` AND (
+    EXISTS (
+      SELECT 1 FROM attraction_categories ac2
+      JOIN categories c2 ON c2.category_id = ac2.category_id
+      WHERE ac2.attraction_id = a.id AND (${joinConditions})
+    )
+    OR (${textConditions})
+  )`;
+
+  // Push params twice with % wildcards for substring matching
+  // This allows ILIKE to find partial matches
+  const wildcardTerms = expandedTerms.map(t => `%${t}%`);
+  params.push(...wildcardTerms, ...wildcardTerms);
+}
+
+    // Get total count
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT a.id) as total FROM attractions a
+       LEFT JOIN cities ci ON ci.city_id = a.city_id
+       LEFT JOIN attraction_categories ac ON ac.attraction_id = a.id
+       LEFT JOIN categories c ON c.category_id = ac.category_id
+       ${where}`,
+      params
+    );
+    const total = Number(countResult.rows[0]?.total ?? 0);
+
+    // Build params for paginated results query (append LIMIT and OFFSET params)
+    const resultParams = [...params, perPage, offset];
+    const limitIndex = params.length + 1;
+    const offsetIndex = params.length + 2;
+
+    // Get paginated results
+    const result = await pool.query(
+      `${BASE_SELECT}
+       ${where}
+       ${GROUP_BY}
+       ORDER BY a.rating DESC
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      resultParams
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+      page: pageNum,
+      per_page: perPage,
+      total: total,
+    });
+  } catch (err) {
+    console.error('Filter attractions error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
 //  GET /api/attractions?city=Cairo&category=historical
 // ─────────────────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {

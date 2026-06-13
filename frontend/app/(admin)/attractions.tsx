@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, SafeAreaView, StatusBar,
-  TextInput, Modal, ScrollView, Switch, Image,
+  TextInput, Modal, ScrollView, Image,
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -24,8 +24,8 @@ interface Attraction {
   primary_image: string;
   rating: number;
   price_from: number;
-  opening_hours: string;
-  is_popular: boolean;
+  open_hour?: number;
+  close_hour?: number;
   latitude: number;
   longitude: number;
 }
@@ -152,8 +152,9 @@ const EditModal: React.FC<{
   const [description, setDescription] = useState('');
   const [rating, setRating] = useState('4.5');
   const [price, setPrice] = useState('0');
-  const [hours, setHours] = useState('');
-  const [isPopular, setIsPopular] = useState(false);
+  const [openHour, setOpenHour] = useState('');
+  const [closeHour, setCloseHour] = useState('');
+  
   const [lat, setLat] = useState('');
   const [lon, setLon] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -172,15 +173,15 @@ const EditModal: React.FC<{
       setDescription(attraction.description ?? '');
       setRating(String(attraction.rating));
       setPrice(String(attraction.price_from));
-      setHours(attraction.opening_hours ?? '');
-      setIsPopular(attraction.is_popular);
+      setOpenHour(attraction.open_hour != null ? String(attraction.open_hour) : '');
+      setCloseHour(attraction.close_hour != null ? String(attraction.close_hour) : '');
       setLat(String(attraction.latitude ?? ''));
       setLon(String(attraction.longitude ?? ''));
       fetchImages(attraction.id);
     } else {
       setName(''); setCity('Alexandria'); setCategories([]);
       setDescription(''); setRating('4.5'); setPrice('0');
-      setHours(''); setIsPopular(false); setLat(''); setLon('');
+      setOpenHour(''); setCloseHour(''); setLat(''); setLon('');
       setImages([]);
     }
   }, [attraction]);
@@ -226,16 +227,18 @@ const EditModal: React.FC<{
     if (!city) { showToast('Please select a city', 'error'); return; }
     if (categories.length === 0) { showToast('Select at least one category', 'error'); return; }
     if (images.length === 0) { showToast('Add at least one image', 'error'); return; }
+    const parsedOpen = openHour.trim() ? parseInt(openHour.trim(), 10) : undefined;
+    const parsedClose = closeHour.trim() ? parseInt(closeHour.trim(), 10) : undefined;
 
     onSave({
       name,
       city,
-      categories, // ✅ array, not string
+      categories, // array
       description,
       rating: parseFloat(rating),
       price_from: parseFloat(price),
-      opening_hours: hours,
-      is_popular: isPopular,
+      open_hour: parsedOpen,
+      close_hour: parsedClose,
       latitude: parseFloat(lat),
       longitude: parseFloat(lon),
       images,
@@ -302,7 +305,8 @@ const EditModal: React.FC<{
             { label: 'Name', value: name, setter: setName },
             { label: 'Rating (0-5)', value: rating, setter: setRating, keyboard: 'numeric' as const },
             { label: 'Price From ($)', value: price, setter: setPrice, keyboard: 'numeric' as const },
-            { label: 'Opening Hours', value: hours, setter: setHours },
+            { label: 'Open Hour (0-23)', value: openHour, setter: setOpenHour, keyboard: 'numeric' as const },
+            { label: 'Close Hour (0-23)', value: closeHour, setter: setCloseHour, keyboard: 'numeric' as const },
             { label: 'Latitude', value: lat, setter: setLat, keyboard: 'numeric' as const },
             { label: 'Longitude', value: lon, setter: setLon, keyboard: 'numeric' as const },
           ].map(field => (
@@ -366,16 +370,7 @@ const EditModal: React.FC<{
             </ScrollView>
           </View>
 
-          {/* ── Popular toggle ── */}
-          <View style={[styles.fieldGroup, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
-            <Text style={styles.fieldLabel}>Popular Attraction</Text>
-            <Switch
-              value={isPopular}
-              onValueChange={setIsPopular}
-              trackColor={{ false: '#DDD', true: '#E67E22' }}
-              thumbColor="#FFF"
-            />
-          </View>
+          {/* Popular toggle removed from admin edit modal */}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -521,11 +516,7 @@ export default function AdminAttractionsScreen() {
                     : item.category ?? '—'
                   } · <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {item.rating}
                 </Text>
-                {item.is_popular && (
-                  <View style={styles.popularBadge}>
-                    <Text style={styles.popularBadgeText}>Popular</Text>
-                  </View>
-                )}
+                {/* Removed Popular badge — admin no longer marks popularity */}
               </View>
               <View style={styles.attractionActions}>
                 <TouchableOpacity style={styles.editBtn} onPress={() => handleEdit(item)}>
@@ -578,8 +569,7 @@ const styles = StyleSheet.create({
   attractionInfo: { flex: 1 },
   attractionName: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
   attractionMeta: { fontSize: 12, color: '#999', marginTop: 2 },
-  popularBadge: { backgroundColor: '#FFF3E0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start', marginTop: 4 },
-  popularBadgeText: { color: '#E67E22', fontSize: 10, fontWeight: '700' },
+  /* popularBadge styles removed as UI no longer displays Popular tag */
   attractionActions: { flexDirection: 'row', gap: 8 },
   editBtn: { backgroundColor: '#EEF', borderRadius: 10, padding: 8 },
   deleteBtn: { backgroundColor: '#FEE', borderRadius: 10, padding: 8 },

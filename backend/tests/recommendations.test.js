@@ -332,6 +332,77 @@ describe('POST /api/recommendations/itinerary', () => {
 
     expect(mockFetch.mock.calls[0][1].body).toBe('{}');
   });
+
+  // ── TC-PLAN-03: time-constraint payload (start_hour + end_hour) ──
+  it('forwards per-day time constraint (start_hour + end_hour) to Flask', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ itinerary: [] }));
+
+    await request(app)
+      .post('/api/recommendations/itinerary')
+      .send({
+        city: 'Cairo',
+        start_hour: 9,
+        end_hour: 13,            // 4-hour window
+        available_hours: 4,
+      });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.start_hour).toBe(9);
+    expect(body.end_hour).toBe(13);
+    expect(body.available_hours).toBe(4);
+  });
+
+  // ── TC-PLAN-04: budget-constraint payload (budget_egp) ──
+  it('forwards budget_egp to Flask so the recommender can clamp cost', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ itinerary: [] }));
+
+    await request(app)
+      .post('/api/recommendations/itinerary')
+      .send({ city: 'Cairo', budget_egp: 500 });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.budget_egp).toBe(500);
+  });
+
+  // ── TC-PLAN-05: large number of attractions (liked_ids) ──
+  it('forwards a large liked_ids list (50+) intact, without truncation', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ itinerary: [] }));
+
+    const liked_ids = Array.from({ length: 75 }, (_, i) =>
+      `ATT${String(i + 1).padStart(3, '0')}`,
+    );
+
+    await request(app)
+      .post('/api/recommendations/itinerary')
+      .send({ city: 'Cairo', liked_ids });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(Array.isArray(body.liked_ids)).toBe(true);
+    expect(body.liked_ids).toHaveLength(75);
+    expect(body.liked_ids[0]).toBe('ATT001');
+    expect(body.liked_ids[74]).toBe('ATT075');
+  });
+
+  // ── TC-PLAN-10: opening-hours data flows through the proxy ──
+  it('forwards open/close data on stops so the recommender can honour opening hours', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ itinerary: [] }));
+
+    await request(app)
+      .post('/api/recommendations/itinerary')
+      .send({
+        city: 'Cairo',
+        stops: [
+          { id: 'ATT001', open: 9,  close: 17 },
+          { id: 'ATT002', open: 10, close: 22 },
+        ],
+      });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.stops[0].open).toBe(9);
+    expect(body.stops[0].close).toBe(17);
+    expect(body.stops[1].open).toBe(10);
+    expect(body.stops[1].close).toBe(22);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════

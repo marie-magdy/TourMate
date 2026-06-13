@@ -14,7 +14,9 @@ import ttsRouter from './routes/tts.js';
 import recognitionRouter from './routes/recognition.js'; 
 import recommendationsRouter from './routes/recommendations.js';
 import plansRouter from './routes/plans.js';
-import pool from './db.js'; 
+import subscriptionRouter from './routes/subscription.js';
+import pool from './db.js';
+import { ensureProSchema } from './services/userFeatures.js'; 
 
 dotenv.config();
 
@@ -41,6 +43,7 @@ app.use('/api/tts', ttsRouter);
 app.use('/api/recognition', recognitionRouter);  // ← ADD THIS
 app.use('/api/recommendations', recommendationsRouter);
 app.use('/api/plans', plansRouter);
+app.use('/api/subscription', subscriptionRouter);
 
 app.get('/', (req, res) => {
   res.json({ message: 'TourMate API is running' });
@@ -55,6 +58,12 @@ async function start() {
   try {
     await pool.query('SELECT 1');
     console.log('✅ DB connected');
+    try {
+      await ensureProSchema();
+      console.log('✅ Pro subscription schema ready');
+    } catch (schemaErr) {
+      console.warn('⚠️ Pro schema migration skipped:', schemaErr?.message ?? schemaErr);
+    }
 
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);

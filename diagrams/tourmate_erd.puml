@@ -24,7 +24,6 @@ entity "users" as users {
   * email : varchar <<UNIQUE>>
   * password : varchar
   username : varchar
-  green_points : integer
   role : varchar
   voice_chat_enabled : boolean
   created_at : timestamp
@@ -41,12 +40,6 @@ entity "user_points" as user_points {
   updated_at : timestamp
 }
 
-entity "user_feature_flags" as user_feature_flags {
-  * <u>user_id</u> : integer <<PK, FK>>
-  --
-  voice_chat_enabled : boolean
-  updated_at : timestamp
-}
 
 entity "points_history" as points_history {
   * <u>id</u> : integer <<PK>>
@@ -58,15 +51,15 @@ entity "points_history" as points_history {
   created_at : timestamp
 }
 
-entity "walk_awards" as walk_awards {
-  * <u>id</u> : integer <<PK>>
-  --
-  # user_id : integer <<FK>>
-  attraction_id : varchar
-  points : integer
-  distance_m : integer
-  awarded_at : timestamp
-}
+' entity "walk_awards" as walk_awards {
+'   * <u>id</u> : integer <<PK>>
+'   --
+'   # user_id : integer <<FK>>
+'   attraction_id : varchar
+'   points : integer
+'   distance_m : integer
+'   awarded_at : timestamp
+' }
 
 entity "rewards" as rewards {
   * <u>id</u> : integer <<PK>>
@@ -79,20 +72,19 @@ entity "rewards" as rewards {
   is_available : boolean
 }
 
-entity "user_rewards" as user_rewards {
-  * <u>id</u> : integer <<PK>>
-  --
-  # user_id : integer <<FK>>
-  # reward_id : integer <<FK>>
-  redeemed_at : timestamp
-}
+' entity "user_rewards" as user_rewards {
+'   * <u>id</u> : integer <<PK>>
+'   --
+'   # user_id : integer <<FK>>
+'   # reward_id : integer <<FK>>
+'   redeemed_at : timestamp
+' }
 
 users ||--|| user_points : "has points"
-users ||--|| user_feature_flags : "has flags"
 users ||--o{ points_history : "earns"
-users ||--o{ walk_awards : "receives"
-users ||--o{ user_rewards : "redeems"
-rewards ||--o{ user_rewards : "redeemed via"
+' users ||--o{ walk_awards : "receives"
+' users ||--o{ user_rewards : "redeems"
+' rewards ||--o{ user_rewards : "redeemed via"
 
 @enduml
 
@@ -142,19 +134,14 @@ entity "attractions" as attractions {
   address : varchar
   latitude : numeric
   longitude : numeric
-  opening_hours : varchar
   open_hour : integer
   close_hour : integer
   avg_visit_hrs : double
-  is_outdoor : boolean
-  is_popular : boolean
   crowd_label : varchar
   crowd_pattern : varchar
   meal_slot : text
   sub_type : varchar
   model_label : varchar
-  attraction_id : varchar
-  categories : text
   created_at : timestamp
   updated_at : timestamp
 }
@@ -234,9 +221,9 @@ entity "saved_plans" as saved_plans {
   # user_id : integer <<FK>>
   name : text
   city : text
-  start_date : text
-  end_date : text
-  budget : text
+  start_date : date
+  end_date : date
+  budget : numeric
   day_hours : text
   interests : jsonb
   spot_ids : jsonb

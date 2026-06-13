@@ -45,8 +45,8 @@ const STATS = {
 };
 
 const USERS = [
-  { id: 1, username: 'superadmin', email: 'a@t.c', role: 'admin', voice_chat_enabled: true, points: 1000, total_earned: 2000, favorites_count: 5, created_at: '' },
-  { id: 2, username: 'jane',       email: 'j@t.c', role: 'user',  voice_chat_enabled: false, points: 200,  total_earned: 300,  favorites_count: 3, created_at: '' },
+  { id: 1, username: 'superadmin', email: 'a@t.c', role: 'admin', voice_chat_enabled: true, is_pro: true, cv_enabled: true, ar_enabled: true, points: 1000, total_earned: 2000, favorites_count: 5, created_at: '' },
+  { id: 2, username: 'jane',       email: 'j@t.c', role: 'user',  voice_chat_enabled: false, is_pro: false, cv_enabled: false, ar_enabled: false, points: 200,  total_earned: 300,  favorites_count: 3, created_at: '' },
 ];
 
 function setupFetch(opts: { stats?: any; users?: any[] } = {}) {
@@ -140,28 +140,24 @@ describe('Admin Dashboard', () => {
     alertSpy.mockRestore();
   });
 
-  it('PUTs voice-access change when Enable Voice is confirmed', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _msg, buttons: any) => {
-      const btn = Array.isArray(buttons)
-        ? buttons.find((b: any) => b.text === 'Enable' || b.text === 'Disable')
-        : undefined;
-      btn?.onPress?.();
-    });
-
+  it('PUTs features when saved from Features modal', async () => {
     setupFetch();
-    const { findByText } = render(<Dashboard />);
+    const { findByText, findAllByText } = render(<Dashboard />);
     fireEvent.press(await findByText('Users'));
-    fireEvent.press(await findByText('Enable Voice'));
+    fireEvent.press(await findByText('Features'));
+
+    const offButtons = await findAllByText('OFF');
+    fireEvent.press(offButtons[0]);
+    fireEvent.press(await findByText('Save'));
 
     await waitFor(() => {
       const call = (global.fetch as jest.Mock).mock.calls.find(
-        c => /\/admin\/users\/2\/voice-access$/.test(String(c[0])) && c[1]?.method === 'PUT',
+        c => /\/admin\/users\/2\/features$/.test(String(c[0])) && c[1]?.method === 'PUT',
       );
       expect(call).toBeDefined();
-      expect(JSON.parse(call[1].body)).toEqual({ enabled: true });
+      const body = JSON.parse(call[1].body);
+      expect(body.is_pro).toBe(true);
     });
-
-    alertSpy.mockRestore();
   });
 
   it('does NOT render Promote/Delete/Voice buttons for the protected super-admin (id=1)', async () => {
@@ -173,6 +169,6 @@ describe('Admin Dashboard', () => {
     // Only jane (id=2) should have these buttons → 1 Delete button total.
     expect(queryAllByText('Delete').length).toBe(1);
     expect(queryAllByText('Promote').length).toBe(1);
-    expect(queryAllByText('Enable Voice').length).toBe(1);
+    expect(queryAllByText('Features').length).toBe(1);
   });
 });

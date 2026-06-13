@@ -14,6 +14,7 @@ jest.mock('expo-location', () => ({
   Accuracy: { Balanced: 3, High: 6, BestForNavigation: 7 },
   requestForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'denied' }),
   getCurrentPositionAsync: jest.fn(),
+  getLastKnownPositionAsync: jest.fn().mockResolvedValue(null),
   watchPositionAsync: jest.fn().mockResolvedValue({ remove: jest.fn() }),
 }));
 
@@ -92,6 +93,39 @@ describe('MapScreen', () => {
       const calls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
       expect(calls.some(u => u.includes('/attractions?city='))).toBe(true);
     });
+  });
+
+  // ── TC-MAP-02: a Marker is rendered for each attraction returned ──
+  it('renders one Marker per attraction returned by the API', async () => {
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (String(url).includes('nominatim')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ address: { city: 'Cairo' } }),
+        });
+      }
+      if (String(url).includes('/attractions?city=')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: [
+              { id: 1, name: 'Pyramids', latitude: 29.97, longitude: 31.13, category: 'historical' },
+              { id: 2, name: 'Sphinx',   latitude: 29.97, longitude: 31.14, category: 'historical' },
+              { id: 3, name: 'Khan',     latitude: 30.05, longitude: 31.26, category: 'shopping'   },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, data: [] }) });
+    });
+
+    const { findAllByTestId } = render(<MapScreen />);
+    // Wait for fetchAttractions to populate state and re-render the FlatList
+    // of Markers. The screen also draws 1 marker for the user location, so
+    // total ≥ 3 (attractions) + 1 (user) — assert at least 3.
+    const markers = await findAllByTestId('map-marker');
+    expect(markers.length).toBeGreaterThanOrEqual(3);
   });
 
 });

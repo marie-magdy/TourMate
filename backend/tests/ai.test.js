@@ -5,6 +5,11 @@ jest.unstable_mockModule('../src/services/planCoach.js', () => ({
   runPlanCoach: mockRunPlanCoach,
 }));
 
+const mockAssertFeatureAccess = jest.fn().mockResolvedValue({ allowed: true, features: {} });
+jest.unstable_mockModule('../src/services/userFeatures.js', () => ({
+  assertFeatureAccess: mockAssertFeatureAccess,
+}));
+
 beforeAll(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -216,6 +221,64 @@ describe('POST /api/ai/chat', () => {
     // System prompt is index 0; user history must follow in order.
     expect(sent.messages[0].role).toBe('system');
     expect(sent.messages.slice(1)).toEqual(history);
+  });
+
+  // ── TC-BOT-02: gibberish / unparseable query is still forwarded ──
+  // The LLM is what decides whether to ask for clarification — but the
+  // route's job is to forward the raw user input unchanged.
+  it('forwards a gibberish user message to Groq verbatim', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'I am not sure I understand.' } }] }),
+    });
+    await request(app).post('/api/ai/chat').send({
+      messages: [{ role: 'user', content: 'asdfghjk qwerty zxcvb' }],
+    });
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.messages[1]).toEqual({
+      role: 'user',
+      content: 'asdfghjk qwerty zxcvb',
+    });
+  });
+
+  // ── TC-BOT-06: "how do I get to X" — directions question routed via /chat
+  it('routes a directions question through /chat unchanged', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'Take the metro to…' } }] }),
+    });
+    const question = 'How do I get to Khan el-Khalili?';
+    await request(app).post('/api/ai/chat').send({
+      messages: [{ role: 'user', content: question }],
+    });
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.messages[1].content).toBe(question);
+    // System prompt mentions Egyptian tourism, so the LLM has context.
+    expect(sent.messages[0].content).toMatch(/Egyptian tourism/i);
+  });
+
+  // ── TC-BOT-07: "when is the museum open" — opening-hours question
+  it('routes an opening-hours question through /chat unchanged', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'The Egyptian Museum is open 9 AM – 5 PM.' } }] }),
+    });
+    const question = 'When is the Egyptian Museum open?';
+    await request(app).post('/api/ai/chat').send({
+      messages: [{ role: 'user', content: question }],
+    });
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.messages[1].content).toBe(question);
+  });
+
+  // ── TC-BOT-08: budget / price question
+  it('routes a budget question through /chat unchanged', async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ choices: [{ message: { content: 'Entry is about 200 EGP.' } }] }),
+    });
+    const question = "What's the entry fee for the Pyramids?";
+    await request(app).post('/api/ai/chat').send({
+      messages: [{ role: 'user', content: question }],
+    });
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(sent.messages[1].content).toBe(question);
   });
 });
 

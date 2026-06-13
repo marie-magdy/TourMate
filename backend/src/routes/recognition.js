@@ -3,6 +3,7 @@ import multer from 'multer';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
 import pool from '../db.js';
+import { assertFeatureAccess } from '../services/userFeatures.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -18,6 +19,17 @@ router.post('/analyze', upload.single('image'), async (req, res) => {
             return res.status(400).json({ 
                 success: false,
                 error: 'No image provided' 
+            });
+        }
+
+        const userId = Number(req.body.user_id);
+        const access = await assertFeatureAccess(userId, 'cv');
+        if (!access.allowed) {
+            return res.status(access.status).json({
+                success: false,
+                error: access.error,
+                code: access.code,
+                features: access.features,
             });
         }
 

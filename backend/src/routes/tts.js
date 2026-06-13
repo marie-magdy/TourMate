@@ -85,7 +85,7 @@ const combineWavChunks = (chunks) => {
 };
 
 // POST /api/tts
-// Body: { name, city, category, description, price_from, opening_hours, language }
+// Body: { name, city, category, description, price_from, open_hour, close_hour, language }
 //   OR: { raw_text, language }  ← skips Groq script, reads text directly
 // Returns: { success, audio: base64, script }
 router.post('/', async (req, res) => {
@@ -96,7 +96,8 @@ router.post('/', async (req, res) => {
       category,
       description,
       price_from,
-      opening_hours,
+      open_hour,
+      close_hour,
       language = 'en',
       raw_text,
     } = req.body;
@@ -139,27 +140,34 @@ router.post('/', async (req, res) => {
     // ── Step 1: Generate tour script via Groq LLM ──────────────────
     const isArabic = language === 'ar';
 
-    const prompt = isArabic
+    const hoursEn = open_hour != null && close_hour != null
+      ? `${String(open_hour).padStart(2,'0')}:00-${String(close_hour).padStart(2,'0')}:00`
+      : 'Not specified';
+    const hoursAr = open_hour != null && close_hour != null
+      ? `${String(open_hour).padStart(2,'0')}:00-${String(close_hour).padStart(2,'0')}:00`
+      : 'غير محدد';
+
+        const prompt = isArabic
       ? `أنت مرشد سياحي محترف في مصر. اكتب تعليقًا صوتيًا قصيرًا وجذابًا باللغة العربية الفصحى عن هذا المكان السياحي لاستخدامه في تطبيق سياحي.
 
-المكان: ${name}
-المدينة: ${city}
-التصنيف: ${category}
-الوصف: ${description || 'لا يوجد وصف متاح'}
-السعر يبدأ من: ${price_from ? `${price_from} دولار` : 'مجاني'}
-ساعات العمل: ${opening_hours || 'غير محدد'}
+    المكان: ${name}
+    المدينة: ${city}
+    التصنيف: ${category}
+    الوصف: ${description || 'لا يوجد وصف متاح'}
+    السعر يبدأ من: ${price_from ? `${price_from} دولار` : 'مجاني'}
+    ساعات العمل: ${hoursAr}
 
-اكتب تعليقًا صوتيًا من 4 إلى 6 جمل فقط. ابدأ بترحيب بالزائر. اجعله حيويًا وشيقًا. لا تستخدم نقاطًا أو عناوين — فقط نص متواصل يُقرأ بصوت عالٍ.`
+    اكتب تعليقًا صوتيًا من 4 إلى 6 جمل فقط. ابدأ بترحيب بالزائر. اجعله حيويًا وشيقًا. لا تستخدم نقاطًا أو عناوين — فقط نص متواصل يُقرأ بصوت عالٍ.`
       : `You are a professional Egyptian tour guide. Write a short, engaging audio guide script in English for this attraction to be used in a tourism app.
 
-Attraction: ${name}
-City: ${city}
-Category: ${category}
-Description: ${description || 'No description available'}
-Price from: ${price_from ? `$${price_from}` : 'Free'}
-Opening hours: ${opening_hours || 'Not specified'}
+    Attraction: ${name}
+    City: ${city}
+    Category: ${category}
+    Description: ${description || 'No description available'}
+    Price from: ${price_from ? `$${price_from}` : 'Free'}
+    Opening hours: ${hoursEn}
 
-Write 4 to 6 sentences only. Start by welcoming the visitor to the attraction. Make it vivid and engaging. No bullet points or headers — just flowing text meant to be read aloud.`;
+    Write 4 to 6 sentences only. Start by welcoming the visitor to the attraction. Make it vivid and engaging. No bullet points or headers — just flowing text meant to be read aloud.`;
 
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',

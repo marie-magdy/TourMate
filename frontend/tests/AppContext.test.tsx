@@ -68,7 +68,23 @@ describe('AppProvider — user persistence', () => {
   it('loads user from AsyncStorage and exposes userId', async () => {
     (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
       if (key === 'user') return JSON.stringify({ id: 7, username: 'jane', email: 'j@t.c', role: 'user' });
-      if (key === 'voice_chat_enabled') return JSON.stringify(true);
+      if (key === 'user_features') {
+        return JSON.stringify({
+          is_pro: false,
+          voice: true,
+          cv: false,
+          ar: false,
+          voice_chat_enabled: true,
+          cv_enabled: false,
+          ar_enabled: false,
+          chat_limit: 15,
+          chat_used_today: 0,
+          chat_remaining: 15,
+          plan_coach_limit: 5,
+          plan_coach_used_today: 0,
+          plan_coach_remaining: 5,
+        });
+      }
       return null;
     });
     (global.fetch as jest.Mock).mockRejectedValue(new Error('offline'));
@@ -80,6 +96,7 @@ describe('AppProvider — user persistence', () => {
     const ctx = getCtx();
     expect(ctx.userId).toBe(7);
     expect(ctx.voiceChatEnabled).toBe(true);
+    expect(ctx.features.voice).toBe(true);
   });
 
   it('setUser writes to AsyncStorage', async () => {
@@ -121,7 +138,7 @@ describe('AppProvider — user persistence', () => {
 
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('user');
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('token');
-    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('voice_chat_enabled');
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('user_features');
     expect(getCtx().user).toBeNull();
   });
 });
@@ -219,6 +236,24 @@ describe('AppProvider — currency conversion', () => {
     expect(getCtx().convertPrice(500)).toBe('$10');
   });
 
+  // ── TC-CUR-04: rates are refreshed on app mount (one fetch to ExchangeRate-API) ──
+  it('fetches exchange rates on mount from ExchangeRate-API', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        result: 'success',
+        conversion_rates: { USD: 1, EGP: 50, EUR: 0.9 },
+      }),
+    });
+
+    const { getCtx } = setupProvider();
+    await waitFor(() => expect(getCtx().userReady).toBe(true));
+    await waitFor(() => {
+      const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
+      expect(urls.some(u => u.includes('exchangerate-api.com'))).toBe(true);
+    });
+  });
+
   // ── TC-CUR-02: EUR → EGP using the EUR rate ──
   it('converts EGP → EUR using fetched rates', async () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
@@ -271,7 +306,25 @@ describe('AppProvider — refreshFeatures', () => {
     (global.fetch as jest.Mock).mockImplementation((url: string) => {
       if (url.includes('exchangerate')) return Promise.reject(new Error('skip'));
       if (url.includes('/auth/user/42/features')) {
-        return Promise.resolve({ json: async () => ({ data: { voice_chat_enabled: true } }) });
+        return Promise.resolve({
+          json: async () => ({
+            data: {
+              is_pro: false,
+              voice_chat_enabled: true,
+              cv_enabled: false,
+              ar_enabled: false,
+              voice: true,
+              cv: false,
+              ar: false,
+              chat_limit: 15,
+              chat_used_today: 0,
+              chat_remaining: 15,
+              plan_coach_limit: 5,
+              plan_coach_used_today: 0,
+              plan_coach_remaining: 5,
+            },
+          }),
+        });
       }
       return Promise.reject(new Error('unexpected'));
     });

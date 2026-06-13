@@ -34,6 +34,9 @@ interface User {
   email: string;
   role: string;
   voice_chat_enabled?: boolean;
+  is_pro?: boolean;
+  cv_enabled?: boolean;
+  ar_enabled?: boolean;
   points: number;
   total_earned: number;
   favorites_count: number;
@@ -55,8 +58,8 @@ const UserRow: React.FC<{
   onDelete: (id: number, name: string) => void;
   onAddPoints: (user: User) => void;
   onToggleRole: (user: User) => void;
-  onToggleVoiceAccess: (user: User) => void;
-}> = ({ user, onDelete, onAddPoints, onToggleRole, onToggleVoiceAccess }) => (
+  onManageFeatures: (user: User) => void;
+}> = ({ user, onDelete, onAddPoints, onToggleRole, onManageFeatures }) => (
   <View style={styles.userRow}>
     {/* Top: avatar + info */}
     <View style={styles.userRowTop}>
@@ -75,7 +78,13 @@ const UserRow: React.FC<{
           <MaterialCommunityIcons name="star" size={12} color="#F39C12" /> {user.points} pts · <MaterialCommunityIcons name="heart" size={12} color="#E74C3C" /> {user.favorites_count} saved
         </Text>
         <Text style={[styles.userMeta, { marginTop: 4 }]}>
-          <MaterialCommunityIcons name={user.voice_chat_enabled ? 'microphone' : 'microphone-off'} size={12} color={user.voice_chat_enabled ? '#27AE60' : '#999'} /> Voice access: {user.voice_chat_enabled ? 'Enabled' : 'Points only'}
+          {user.is_pro ? '👑 Pro' : 'Free'}
+          {' · '}
+          <MaterialCommunityIcons name={user.voice_chat_enabled ? 'microphone' : 'microphone-off'} size={12} color={user.voice_chat_enabled ? '#27AE60' : '#999'} /> Voice
+          {' · '}
+          <MaterialCommunityIcons name="camera" size={12} color={user.cv_enabled ? '#27AE60' : '#999'} /> CV
+          {' · '}
+          <MaterialCommunityIcons name="glasses" size={12} color={user.ar_enabled ? '#27AE60' : '#999'} /> AR
         </Text>
       </View>
     </View>
@@ -101,12 +110,12 @@ const UserRow: React.FC<{
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.voiceAccessBtn, user.voice_chat_enabled ? styles.voiceAccessBtnDisable : styles.voiceAccessBtnEnable, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}
-            onPress={() => onToggleVoiceAccess(user)}
+            style={[styles.voiceAccessBtn, styles.voiceAccessBtnEnable, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}
+            onPress={() => onManageFeatures(user)}
           >
-            <MaterialCommunityIcons name={user.voice_chat_enabled ? 'microphone-off' : 'microphone'} size={14} color={user.voice_chat_enabled ? '#9B2C2C' : '#1F7A44'} />
-            <Text style={[styles.voiceAccessBtnText, user.voice_chat_enabled ? styles.voiceAccessBtnTextDisable : styles.voiceAccessBtnTextEnable]}>
-              {user.voice_chat_enabled ? 'Disable Voice' : 'Enable Voice'}
+            <MaterialCommunityIcons name="toggle-switch" size={14} color="#1F7A44" />
+            <Text style={[styles.voiceAccessBtnText, styles.voiceAccessBtnTextEnable]}>
+              Features
             </Text>
           </TouchableOpacity>
 
@@ -219,6 +228,15 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'attractions'>('overview');
   const [addPtsModal, setAddPtsModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [featuresModal, setFeaturesModal] = useState(false);
+  const [featureUser, setFeatureUser] = useState<User | null>(null);
+  const [featureDraft, setFeatureDraft] = useState({
+    is_pro: false,
+    voice_chat_enabled: false,
+    cv_enabled: false,
+    ar_enabled: false,
+  });
+  const [savingFeatures, setSavingFeatures] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -291,38 +309,40 @@ export default function AdminDashboard() {
 
   const handleAddPoints = (user: User) => { setSelectedUser(user); setAddPtsModal(true); };
 
-  const handleToggleVoiceAccess = (user: User) => {
-    const nextEnabled = !Boolean(user.voice_chat_enabled);
-    Alert.alert(
-      nextEnabled ? 'Enable Voice Access' : 'Disable Voice Access',
-      nextEnabled
-        ? `Enable voice mode for "${user.username}" even if points are below 500?`
-        : `Disable admin voice access for "${user.username}" and return to points-based unlock?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: nextEnabled ? 'Enable' : 'Disable',
-          onPress: async () => {
-            try {
-              const res = await fetch(`${API_BASE}/auth/admin/users/${user.id}/voice-access`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enabled: nextEnabled }),
-              });
-              const data = await res.json();
-              if (data.success) {
-                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, voice_chat_enabled: nextEnabled } : u));
-                Alert.alert('Done ✓', `Voice access ${nextEnabled ? 'enabled' : 'disabled'} for ${user.username}.`);
-              } else {
-                Alert.alert('Error', data.message ?? 'Could not update voice access.');
-              }
-            } catch {
-              Alert.alert('Error', 'Could not update voice access.');
-            }
-          },
-        },
-      ]
-    );
+  const handleManageFeatures = (user: User) => {
+    setFeatureUser(user);
+    setFeatureDraft({
+      is_pro: Boolean(user.is_pro),
+      voice_chat_enabled: Boolean(user.voice_chat_enabled),
+      cv_enabled: Boolean(user.cv_enabled),
+      ar_enabled: Boolean(user.ar_enabled),
+    });
+    setFeaturesModal(true);
+  };
+
+  const saveUserFeatures = async () => {
+    if (!featureUser) return;
+    setSavingFeatures(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/admin/users/${featureUser.id}/features`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(featureDraft),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUsers(prev => prev.map(u => u.id === featureUser.id ? { ...u, ...featureDraft } : u));
+        setFeaturesModal(false);
+        setFeatureUser(null);
+        Alert.alert('Done ✓', `Features updated for ${featureUser.username}.`);
+      } else {
+        Alert.alert('Error', data.message ?? 'Could not update features.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not update features.');
+    } finally {
+      setSavingFeatures(false);
+    }
   };
 
   const confirmAddPoints = async (points: number, reason: string) => {
@@ -469,7 +489,7 @@ export default function AdminDashboard() {
                 onDelete={handleDeleteUser}
                 onAddPoints={handleAddPoints}
                 onToggleRole={handleToggleRole}
-                onToggleVoiceAccess={handleToggleVoiceAccess}
+                onManageFeatures={handleManageFeatures}
               />
             ))}
           </View>
@@ -495,6 +515,52 @@ export default function AdminDashboard() {
         onClose={() => { setAddPtsModal(false); setSelectedUser(null); }}
         onConfirm={confirmAddPoints}
       />
+
+      <Modal visible={featuresModal} transparent animationType="slide" onRequestClose={() => setFeaturesModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { paddingBottom: 32 }]}>
+            <Text style={styles.modalTitle}>Features — {featureUser?.username}</Text>
+            <Text style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+              Toggle individually or grant full Pro (unlocks all features for the user).
+            </Text>
+            {([
+              ['is_pro', 'TourMate Pro (all features)'],
+              ['voice_chat_enabled', 'Voice chat override'],
+              ['cv_enabled', 'Computer vision override'],
+              ['ar_enabled', 'AR glasses override'],
+            ] as const).map(([key, label]) => (
+              <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', flex: 1 }}>{label}</Text>
+                <TouchableOpacity
+                  onPress={() => setFeatureDraft(d => ({ ...d, [key]: !d[key] }))}
+                  style={{
+                    backgroundColor: featureDraft[key] ? '#E8F8F0' : '#F5F5F5',
+                    borderRadius: 20,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text style={{ fontWeight: '800', color: featureDraft[key] ? '#1F7A44' : '#999' }}>
+                    {featureDraft[key] ? 'ON' : 'OFF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setFeaturesModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirmBtn} onPress={saveUserFeatures} disabled={savingFeatures}>
+                {savingFeatures ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
