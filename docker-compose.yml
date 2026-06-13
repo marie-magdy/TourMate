@@ -16,7 +16,7 @@ services:
       - NODE_ENV=development
       - RECOMMENDER_URL=http://recommendation_service:5002
       - CV_URL=http://cv_service:5001
-      - RECOMMENDATION_SERVICE_URL=http://recommendation-service:5002
+      - RECOMMENDATION_SERVICE_URL=http://recommendation_service:5002
       - BACKEND_IP=http://backend:3000
 
     volumes:
