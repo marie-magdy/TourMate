@@ -54,7 +54,7 @@ const SUGGESTIONS = [
 ];
 
 // ── Message Bubble ────────────────────────────────────────────────────
-const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
+const MessageBubble: React.FC<{ message: Message; isFemale: boolean }> = ({ message, isFemale }) => {
   const isUser = message.role === 'user';
   const [speaking, setSpeaking] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -79,10 +79,10 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
     setLoadingAudio(true);
     try {
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const res = await fetch(`${API_BASE}/tts`, {
+      const res = await fetch(`${API_BASE}/ai/speak`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_text: message.content, language: 'en' }),
+      body: JSON.stringify({ text: message.content, isFemale: true }),
       });
       const data = await res.json();
       if (!data.success) throw new Error('TTS failed');
@@ -353,9 +353,10 @@ const speakResponse = async (text: string, isFemale: boolean) => {
     const res = await fetch(`${API_BASE}/ai/speak`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, isFemale }),
+      body: JSON.stringify({ text, isFemale,user_id: userId }),
     });
     const data = await res.json();
+    
     if (!data.success || !data.audioChunks?.length) throw new Error('TTS failed');
 
     const playChunks = async (chunks: string[], index: number) => {
@@ -681,7 +682,7 @@ return (
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble key={message.id} message={message} isFemale={isFemaleAvatar} />
           ))}
 
           {(loading || recognizing) && (
