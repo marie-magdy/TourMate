@@ -8,7 +8,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Attraction } from '../../constants/types';
 import { Dimensions } from 'react-native';
 
-const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+// const API_BASE = `http://${process.env.EXPO_PUBLIC_API_URL}:3000/api`;
+const API_BASE = `${process.env.EXPO_PUBLIC_API_URL}/api`;
 const PER_PAGE = 20;
 
 
