@@ -1271,6 +1271,10 @@ def select_anchors(scored_df: pd.DataFrame, liked_ids_set: set,
         & ~scored_df["categories"].apply(
             lambda cats: bool(cats) and all(c in FOOD_TAGS for c in cats)
         )
+        & ~(
+            scored_df["attraction_id"].astype(str).isin(liked_ids_set)
+            & scored_df["meal_slot"].apply(lambda s: bool(s))
+        )
     ].copy()
 
     if pool.empty:
