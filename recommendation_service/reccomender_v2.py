@@ -1419,6 +1419,7 @@ def build_cluster_for_anchor(scored_df: pd.DataFrame,
                               anchor_lat: float, anchor_lon: float,
                               city: str = "",
                               exclude_ids: set | None = None,
+                              liked_ids_set: set | None = None,
                               min_size: int = MIN_CLUSTER_SIZE,
                               start_km: float = 2.0,
                               step_km: float = 1.0) -> tuple:
@@ -1719,6 +1720,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             scored_for_knapsack, cluster_ids = build_cluster_for_anchor(
                 scored, anchor["lat"], anchor["lon"],
                 city=user.city,
+                liked_ids_set=liked_ids_set,
             )
             log.info("CLUSTER", f"pool={len(scored)} → cluster={len(scored_for_knapsack)}", verbosity=2)
         else:
@@ -2263,6 +2265,11 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
             continue
         if str(att["attraction_id"]) in liked_used_as_meal:
             continue
+        # Liked restaurants with a meal_slot are reserved for the meal scheduler.
+        # Skip them here so try_liked_meal can place them at the right time window.
+        if is_liked and bool(att.get("meal_slot")) and str(att["attraction_id"]) not in liked_used_as_meal:
+            log.skip(att["name"], "liked restaurant — will be placed at meal time", verbosity=2)
+            continue
         if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS and not is_liked:
             log.skip(att["name"], f"food gap ({curr_hr - last_meal_hr:.1f}h since last meal)", verbosity=2)
             continue
@@ -2530,6 +2537,7 @@ def build_itinerary(df, att_matrix, user, start_hour=9, top_n=5, browse_n=5,
                 if att_cats & BEACH_CATS and beach_added and not is_liked: continue
                 if att_cats & MALL_CATS  and mall_added  and not is_liked: continue
                 if str(att["attraction_id"]) in liked_used_as_meal: continue
+                if is_liked and bool(att.get("meal_slot")) and str(att["attraction_id"]) not in liked_used_as_meal: continue
                 if att_cats & FOOD_CATS and (curr_hr - last_meal_hr) < FOOD_GAP_HRS and not is_liked: continue
                 transport      = get_transport_info(
                     prev_lat, prev_lon,
