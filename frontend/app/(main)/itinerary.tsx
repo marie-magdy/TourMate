@@ -1004,7 +1004,7 @@ if (row.hotel_details) {
         ids: d.activities.map(a => a.id),
       })));
 
-      const realDays = consolidateLikedAttractions(allDays, likedIds0)
+      const realDays = allDays
         .filter(d => d.activities.length > 0)
         .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
 
