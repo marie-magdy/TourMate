@@ -1005,7 +1005,7 @@ if (row.hotel_details) {
       })));
 
       const realDays = consolidateLikedAttractions(allDays, likedIds0)
-        .filter(d => d.activities.length > 2)
+        .filter(d => d.activities.length > 0)
         .filter((d, i, arr) => arr.findIndex(x => x.day === d.day) === i);
 
       setDays(realDays);
