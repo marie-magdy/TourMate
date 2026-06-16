@@ -122,11 +122,19 @@ def retime_ordered_ids_for_coach(
     current_lon: float | None,
     is_foreigner: bool = False,
     budget_egp: float | None = None,
+    existing_activities: list | None = None,
 ) -> dict[str, Any]:
     """
     Returns { success, itinerary, warnings, skipped_ids, dropped_for_time,
              route_km_ordered, route_km_greedy_nn }.
     """
+    _existing_dur_map: dict[str, float] = {}
+    for entry in (existing_activities or []):
+        eid = str(entry.get("id", "")).strip()
+        dur = entry.get("duration_hrs")
+        if eid and dur is not None:
+            _existing_dur_map[eid] = float(dur)
+
     warnings: list[str] = []
     skipped_ids: list[str] = []
 
@@ -224,7 +232,10 @@ def retime_ordered_ids_for_coach(
             )
             continue
 
-        raw_dur = max(float(att.get("avg_visit_hrs", 1.0) or 1.0), MIN_VISIT_HRS)
+        att_id = str(att["attraction_id"]).strip()
+        raw_dur = _existing_dur_map.get(att_id) or max(float(att.get("avg_visit_hrs", 1.0) or 1.0), MIN_VISIT_HRS)
+        raw_dur = max(raw_dur, MIN_VISIT_HRS)
+        
         time_until_close = close_hr - arrival_hr
         dur = min(raw_dur, max(0.0, time_left() - travel_hrs), time_until_close)
         if dur < MIN_VISIT_HRS:

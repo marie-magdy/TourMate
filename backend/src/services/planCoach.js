@@ -403,6 +403,7 @@ function opsRequirePlanRebuild(operations) {
 
 function applySequentialOperations(plan_days, schedulesRaw, operations) {
   const warnings = [];
+  const touchedDays = new Set();
   let dayIds = cloneDayIds(plan_days);
   let schedules = initSchedulesFromRaw(schedulesRaw, dayIds.length);
 
@@ -429,6 +430,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
         start_hour: Number(op.start_hour ?? 9),
         end_hour: Number(op.end_hour ?? 21),
       };
+      touchedDays.add(di); 
       continue;
     }
 
@@ -441,6 +443,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
       }
       dayIds.splice(di, 1);
       schedules.splice(di, 1);
+      for (let i = di; i < dayIds.length; i++) touchedDays.add(i);
       continue;
     }
 
@@ -458,6 +461,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
         start_hour: Number(template.start_hour),
         end_hour: Number(template.end_hour),
       });
+      touchedDays.add(at);
       continue;
     }
 
@@ -465,6 +469,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
       const di = Number(op.day_index);
       if (Number.isInteger(di) && di >= 0 && di < dayIds.length) {
         dayIds[di] = [...(op.ordered_ids || [])].map(String);
+        touchedDays.add(di); 
       }
       continue;
     }
@@ -475,6 +480,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
       const n = dayIds.length;
       if (!aid || !Number.isInteger(di) || di < 0 || di >= n) continue;
       dayIds[di] = dayIds[di].filter((x) => x !== aid);
+      touchedDays.add(di);
       continue;
     }
 
@@ -494,6 +500,7 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
         dayIds[di].splice(idx, 0, ins);
         idx += 1;
       }
+      touchedDays.add(di); 
       continue;
     }
 
@@ -522,11 +529,13 @@ function applySequentialOperations(plan_days, schedulesRaw, operations) {
       }
       dayIds[to] = dayIds[to].filter((x) => x !== id);
       dayIds[to].splice(idx, 0, id);
+      touchedDays.add(from);
+      touchedDays.add(to); 
     }
   }
 
   padSchedulesToDayIds();
-  return { dayIds, schedules, warnings };
+  return { dayIds, schedules, warnings, touchedDays };
 }
 
 function suggestIdsForEmptyDays(dayIds, catalog, interests, allowedIds, warnings) {
@@ -659,6 +668,13 @@ CAPABILITIES (mention when relevant; if the user asks "what can you do?" or simi
 • Act as a local guide: answer questions about Egypt, history, culture, or practical tips in "reply" even when operations is empty.
 
 RULES:
+
+REMOVAL RULES (highest priority):
+- To remove a single stop: ALWAYS use remove_stop with the exact activity_id from CURRENT_PLAN_JSON. NEVER simulate removal via replace_day.
+- "last stop" / "remove the last" = the final item in that day's stops array in CURRENT_PLAN_JSON.
+- "first stop" = the first item in that day's stops array.
+- When in doubt about which stop the user means, ask — do not guess and do not use replace_day.
+
 1) Be concise and practical. Prefer short actionable replies; when helpful, add one or two proactive suggestions (e.g. a better order or a nearby VALID_PLACES alternative).
 2) Places MUST ONLY use attraction ids from VALID_PLACES. Never invent ids.
 3) Operations apply IN ORDER; day_index always refers to the plan state AFTER previous operations in the same list.
@@ -806,13 +822,21 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
     };
   }
 
-  const { dayIds: rawDayIds, schedules, warnings: opWarnings } = applySequentialOperations(
+  const { dayIds: rawDayIds, schedules, warnings: opWarnings, touchedDays } = applySequentialOperations(
     plan_days,
     day_schedules,
     operations,
   );
+  // Deduplicate IDs across days to prevent cross-day removal side effects
+  const globalSeen = new Set();
+  const dedupedDayIds = rawDayIds.map(ids => {
+    const deduped = ids.filter(id => !globalSeen.has(id));
+    deduped.forEach(id => globalSeen.add(id));
+    return deduped;
+  });
+
   let dayIds = suggestIdsForEmptyDays(
-    rawDayIds,
+    dedupedDayIds,
     catalog,
     interests,
     allowedIds,
@@ -849,8 +873,15 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
   }));
 
   const allWarnings = [...opWarnings];
-
   for (let di = 0; di < dayIds.length; di++) {
+    if (!touchedDays.has(di) && plan_days[di]) {
+      next[di] = {
+        ...plan_days[di],
+        day: di + 1,
+        date: formatTripDayLabel(addCalendarDays(startAnchor, di)),
+      };
+      continue;
+    }
     const ordered_ids = dayIds[di];
     const spots = ordered_ids.map((id) => byId.get(String(id))).filter(Boolean);
     if (!spots.length) {
@@ -860,6 +891,10 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
     const sch = schedules[di] || {};
     const startHour = Number(sch.start_hour ?? 9);
     const endHour = Number(sch.end_hour ?? 21);
+    
+    const existingActivities = (plan_days[di]?.activities || [])
+      .filter(a => a.id !== 'start' && a.id !== 'end')
+      .map(a => ({ id: String(a.id), duration_hrs: a.duration_hrs }));
 
     const flaskBody = {
       city,
@@ -870,6 +905,7 @@ Respond with one JSON object: reply (string), operations (array), request_reduce
       current_lon: coords.lon,
       is_foreigner: Boolean(is_foreigner),
       budget_egp: budgetPerDay,
+      existing_activities: existingActivities,
     };
 
     let itinerary = null;

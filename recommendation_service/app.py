@@ -164,7 +164,7 @@ def coach_retime_day():
         budget_egp = float(payload.get("budget_egp")) if payload.get("budget_egp") is not None else None
     except (TypeError, ValueError):
         budget_egp = None
-
+    existing_activities=payload.get('existing_activities', [])
     try:
         result = retime_ordered_ids_for_coach(
             df,
@@ -176,6 +176,7 @@ def coach_retime_day():
             current_lon=cur_lon,
             is_foreigner=is_foreigner,
             budget_egp=budget_egp,
+            existing_activities=existing_activities,
         )
         if not result.get("success"):
             return jsonify(result), 400
